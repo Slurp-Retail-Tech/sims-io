@@ -2,6 +2,10 @@ const normalizePath = (value: string) => value.replace(/\/+$/, "")
 
 const accessRouteMappings: { prefix: string; accessKey: string }[] = [
   {
+    prefix: "/merchant-success/onboarding-schedule",
+    accessKey: "/onboarding-appointments",
+  },
+  {
     prefix: "/merchant-success/onboarding-appointments",
     accessKey: "/onboarding-appointments",
   },

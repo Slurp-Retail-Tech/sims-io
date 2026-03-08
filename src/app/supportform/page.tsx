@@ -34,8 +34,6 @@ function withLeadingSix(value: string) {
 
 const supportPhone = process.env.NEXT_PUBLIC_SUPPORT_PHONE ?? ""
 const supportEmail = process.env.NEXT_PUBLIC_SUPPORT_EMAIL ?? ""
-const supportChatNumber =
-  process.env.NEXT_PUBLIC_SUPPORT_CONTACT ?? "601156654761"
 const supportContact =
   supportPhone || supportEmail
     ? [supportPhone ? `📞 ${supportPhone}` : null, supportEmail ? `✉️ ${supportEmail}` : null]
@@ -300,6 +298,7 @@ export default function SupportFormPage() {
         error?: string
         franchiseName?: string | null
         outletName?: string | null
+        whatsappUrl?: string | null
       }
       if (!response.ok || !payload.requestId) {
         throw new Error(payload.error ?? copy[language].errorSubmit)
@@ -320,8 +319,11 @@ export default function SupportFormPage() {
         "",
         `*Request ID:* #${payload.requestId}`,
       ]
+      if (!payload.whatsappUrl) {
+        throw new Error("WhatsApp link is unavailable.")
+      }
       const chatMessage = encodeURIComponent(messageLines.join("\n"))
-      window.location.href = `https://wa.me/${supportChatNumber}?text=${chatMessage}`
+      window.location.href = `${payload.whatsappUrl}?text=${chatMessage}`
     } catch (err) {
       console.error(err)
       setError(err instanceof Error ? err.message : "Unable to submit the support request.")

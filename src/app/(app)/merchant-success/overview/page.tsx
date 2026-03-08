@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 
+import { activeSupportRequestWhere } from "@/lib/analytics-ticket-filters"
 import { queryWithReconnect } from "@/lib/db"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 
@@ -72,7 +73,7 @@ async function getOverviewMetrics() {
         SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) AS in_progress_total,
         SUM(CASE WHEN status = 'Pending Customer' THEN 1 ELSE 0 END) AS pending_customer_total
       FROM support_requests
-      WHERE hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
     `
     )
 
@@ -80,7 +81,7 @@ async function getOverviewMetrics() {
       `
       SELECT COUNT(*) AS total
       FROM support_requests
-      WHERE hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
         AND status IN ('Open', 'In Progress', 'Pending Customer')
     `
     )
@@ -89,7 +90,7 @@ async function getOverviewMetrics() {
       `
       SELECT COUNT(*) AS total
       FROM support_requests
-      WHERE hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
         AND DATE(created_at) = UTC_DATE()
     `
     )
@@ -98,7 +99,7 @@ async function getOverviewMetrics() {
       `
       SELECT COUNT(*) AS total
       FROM support_requests
-      WHERE hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
         AND status = 'Resolved'
         AND DATE(COALESCE(closed_at, updated_at)) = UTC_DATE()
     `
@@ -108,7 +109,7 @@ async function getOverviewMetrics() {
       `
       SELECT COUNT(*) AS total
       FROM support_requests
-      WHERE hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
         AND DATE(created_at) = UTC_DATE() - INTERVAL 1 DAY
     `
     )
@@ -117,7 +118,7 @@ async function getOverviewMetrics() {
       `
       SELECT COUNT(*) AS total
       FROM support_requests
-      WHERE hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
         AND status = 'Resolved'
         AND DATE(COALESCE(closed_at, updated_at)) = UTC_DATE() - INTERVAL 1 DAY
     `
@@ -129,7 +130,7 @@ async function getOverviewMetrics() {
       FROM support_requests
       LEFT JOIN users
         ON users.id = support_requests.ms_pic_user_id
-      WHERE support_requests.hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
         AND support_requests.status IN ('Open', 'In Progress')
       GROUP BY COALESCE(users.name, 'Unassigned')
       ORDER BY total DESC, name ASC
@@ -142,7 +143,7 @@ async function getOverviewMetrics() {
       FROM support_requests
       LEFT JOIN users
         ON users.id = support_requests.ms_pic_user_id
-      WHERE support_requests.hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
         AND support_requests.status = 'Pending Customer'
       GROUP BY COALESCE(users.name, 'Unassigned')
       ORDER BY total DESC, name ASC
@@ -155,7 +156,7 @@ async function getOverviewMetrics() {
       FROM support_requests
       LEFT JOIN users
         ON users.id = support_requests.ms_pic_user_id
-      WHERE support_requests.hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
         AND support_requests.status = 'Resolved'
         AND DATE(COALESCE(support_requests.closed_at, support_requests.updated_at)) = UTC_DATE()
       GROUP BY COALESCE(users.name, 'Unassigned')
@@ -167,7 +168,7 @@ async function getOverviewMetrics() {
       `
       SELECT issue_type AS type, COUNT(*) AS total
       FROM support_requests
-      WHERE hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
         AND status IN ('Open', 'In Progress', 'Pending Customer')
       GROUP BY issue_type
       ORDER BY total DESC, type ASC

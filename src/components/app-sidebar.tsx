@@ -117,8 +117,8 @@ const data = {
       icon: AlertTriangle,
     },
     {
-      title: "Onboarding Appointment",
-      url: "/merchant-success/onboarding-appointments",
+      title: "Onboarding Schedule",
+      url: "/merchant-success/onboarding-schedule",
       icon: CalendarRange,
     },
   ] satisfies NavItem[],

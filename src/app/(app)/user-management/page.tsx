@@ -53,7 +53,7 @@ const pageAccessGroups: PageAccessGroup[] = [
       { label: "Tickets", value: "/tickets" },
       { label: "Ticket Categories", value: "/ticket-categories" },
       { label: "Analytics", value: "/analytics" },
-      { label: "Onboarding Appointments", value: "/onboarding-appointments" },
+      { label: "Onboarding Schedule", value: "/onboarding-appointments" },
       { label: "SLA Breaches", value: "/sla-breaches" },
     ],
   },

@@ -88,13 +88,52 @@ export async function GET(request: NextRequest) {
     [...values, perPage, offset]
   )
 
+  const userReferenceIds = Array.from(
+    new Set(
+      rows
+        .flatMap((row) => {
+          if (row.field_name !== "ms_pic_user_id") {
+            return []
+          }
+          return [row.old_value, row.new_value]
+        })
+        .filter((value): value is string => Boolean(value))
+    )
+  )
+
+  let userNameMap = new Map<string, string>()
+  if (userReferenceIds.length) {
+    const placeholders = userReferenceIds.map(() => "?").join(", ")
+    const [userRows] = await pool.query<RowDataPacket[]>(
+      `
+      SELECT id, name
+      FROM users
+      WHERE id IN (${placeholders})
+    `,
+      userReferenceIds
+    )
+    userNameMap = new Map(
+      userRows.map((row) => [String(row.id), String(row.name ?? row.id)])
+    )
+  }
+
   return NextResponse.json({
     history: rows.map((row) => ({
       id: String(row.id),
       ticketId: String(row.ticket_id),
       field: row.field_name,
-      oldValue: row.old_value,
-      newValue: row.new_value,
+      oldValue:
+        row.field_name === "ms_pic_user_id"
+          ? row.old_value
+            ? (userNameMap.get(row.old_value) ?? row.old_value)
+            : null
+          : row.old_value,
+      newValue:
+        row.field_name === "ms_pic_user_id"
+          ? row.new_value
+            ? (userNameMap.get(row.new_value) ?? row.new_value)
+            : null
+          : row.new_value,
       changedAt: row.changed_at,
       changedBy: row.changed_by_display,
     })),

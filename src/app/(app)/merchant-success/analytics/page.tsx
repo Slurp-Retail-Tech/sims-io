@@ -1,15 +1,18 @@
 import type { Metadata } from "next"
+import { cookies } from "next/headers"
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { MerchantSuccessAnalyticsHeaderFilters } from "./header-filters"
 import {
-  getAnalyticsAvailableMonths,
-  getMonthDateRange,
+  ANALYTICS_FILTER_COOKIE_NAME,
+  parseAnalyticsFilterCookie,
+} from "./filter-state"
+import {
+  getAnalyticsAvailablePeriods,
   getMerchantSuccessAnalyticsData,
+  resolveAnalyticsFilter,
   toValidDateInput,
-  toValidMonthInput,
-  type TimeFilter,
 } from "./data"
 import { MerchantSuccessOverviewPanels } from "./overview-panels"
 
@@ -33,27 +36,40 @@ export default async function MerchantSuccessAnalyticsPage({
   searchParams,
 }: {
   searchParams?: Promise<{
+    period?: string
     time?: string
     month?: string
+    year?: string
     from?: string
     to?: string
   }>
 }) {
   const params = searchParams ? await searchParams : undefined
-  const filter: TimeFilter = params?.time === "period" ? "period" : "all"
-  const monthValue =
-    toValidMonthInput(params?.month) ??
-    (toValidDateInput(params?.from)?.slice(0, 7) ?? null)
-  const { fromDate, toDate } = getMonthDateRange(monthValue)
+  const cookieStore = await cookies()
+  const persistedFilter = parseAnalyticsFilterCookie(
+    cookieStore.get(ANALYTICS_FILTER_COOKIE_NAME)?.value
+  )
+  const { months: monthOptions, years: yearOptions } =
+    await getAnalyticsAvailablePeriods()
 
-  const [data, monthOptions] = await Promise.all([
-    getMerchantSuccessAnalyticsData({
-      filter,
-      fromDate,
-      toDate,
-    }),
-    getAnalyticsAvailableMonths(),
-  ])
+  const { mode, selectedMonth, selectedYear, fromDate, toDate } =
+    resolveAnalyticsFilter({
+      query: {
+        period: params?.period ?? persistedFilter?.period,
+        time: params?.time,
+        month: params?.month ?? persistedFilter?.month,
+        year: params?.year ?? persistedFilter?.year,
+        from: toValidDateInput(params?.from) ?? undefined,
+      },
+      availableMonths: monthOptions,
+      availableYears: yearOptions,
+    })
+
+  const data = await getMerchantSuccessAnalyticsData({
+    mode,
+    fromDate,
+    toDate,
+  })
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6">
@@ -65,9 +81,11 @@ export default async function MerchantSuccessAnalyticsPage({
           </p>
         </div>
         <MerchantSuccessAnalyticsHeaderFilters
-          filter={filter}
-          monthValue={monthValue}
+          mode={mode}
+          selectedMonth={selectedMonth}
+          selectedYear={selectedYear}
           monthOptions={monthOptions}
+          yearOptions={yearOptions}
         />
       </div>
 

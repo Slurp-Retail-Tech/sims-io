@@ -90,7 +90,10 @@ type TooltipPayloadItem = {
   name?: string | number
   value?: unknown
   color?: string
-  payload?: unknown
+  payload?: {
+    fill?: string
+    [key: string]: unknown
+  }
 }
 
 type ChartTooltipContentProps = {
@@ -98,6 +101,7 @@ type ChartTooltipContentProps = {
   payload?: TooltipPayloadItem[]
   label?: unknown
   className?: string
+  labelKey?: string
   labelFormatter?: (label: unknown, payload: TooltipPayloadItem[]) => React.ReactNode
   formatter?: (
     value: unknown,
@@ -131,6 +135,7 @@ export function ChartTooltipContent({
   hideLabel = false,
   hideIndicator = false,
   label,
+  labelKey,
   labelFormatter,
   formatter,
 }: ChartTooltipContentProps) {
@@ -147,7 +152,7 @@ export function ChartTooltipContent({
 
     const [item] = payload
     const key = `${item.dataKey ?? item.name ?? "value"}`
-    const itemConfig = config[key]
+    const itemConfig = config[labelKey ?? key]
     const value =
       labelFormatter?.(label, payload) ??
       itemConfig?.label ??
@@ -172,7 +177,7 @@ export function ChartTooltipContent({
         {payload.map((item, index) => {
           const key = `${item.dataKey ?? item.name ?? index}`
           const itemConfig = config[key]
-          const indicatorColor = item.color ?? `var(--color-${key})`
+          const indicatorColor = item.color ?? item.payload?.fill ?? `var(--color-${key})`
 
           return (
             <div
@@ -184,7 +189,7 @@ export function ChartTooltipContent({
                   <span
                     className={cn("shrink-0 rounded-[2px]", {
                       "h-2 w-2 rounded-full": indicator === "dot",
-                      "h-0.5 w-3": indicator === "line",
+                      "h-3 w-0.5": indicator === "line",
                       "h-0.5 w-3 border border-dashed bg-transparent":
                         indicator === "dashed",
                     })}

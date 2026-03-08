@@ -1,9 +1,9 @@
 # Repository Guidelines
 
-This repository currently contains planning documents for the Unified Engagement Platform. Keep `AGENTS.md`, `PRD.md`, and `TDD.md` aligned with implementation decisions.
+This repository currently contains planning documents for the Unified Engagement Platform. Keep `AGENTS.md`, `PRD.md`, `TDD.md`, and `CODEX_STYLE_GUIDE.md` aligned with implementation decisions.
 
 ## Project Structure and Module Organization
-- Current files: `docs/PRD.md` (product requirements) and `docs/TDD.md` (technical design).
+- Current files: `docs/PRD.md` (product requirements), `docs/TDD.md` (technical design), and `docs/CODEX_STYLE_GUIDE.md` (Codex contribution style guide).
 - Planned layout from `docs/TDD.md`: `api/`, `worker/`, `packages/shared/`, and the web UI at repo root.
 - Current layout includes the Next.js UI at repo root.
 - Editor settings live in `.vscode/` for workspace linting configuration.

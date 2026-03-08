@@ -1,5 +1,7 @@
 import type { Metadata } from "next"
+import { cookies } from "next/headers"
 
+import { activeSupportRequestWhere } from "@/lib/analytics-ticket-filters"
 import { queryWithReconnect } from "@/lib/db"
 import { formatDateTime } from "@/lib/dates"
 import {
@@ -10,6 +12,16 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
+import {
+  getAnalyticsAvailablePeriods,
+  resolveAnalyticsFilter,
+  toValidDateInput,
+} from "../analytics/data"
+import {
+  ANALYTICS_FILTER_COOKIE_NAME,
+  parseAnalyticsFilterCookie,
+  type AnalyticsPeriodMode,
+} from "../analytics/filter-state"
 import { CsatInsightsHeaderFilters } from "./header-filters"
 
 export const metadata: Metadata = {
@@ -44,8 +56,6 @@ type BreakdownItem = {
   value: number
   percentage: number
 }
-
-type TimeFilter = "all" | "period"
 
 const RATING_ORDER = ["4", "3", "2", "1"] as const
 
@@ -121,13 +131,6 @@ function toBreakdownRows(rows: BreakdownRow[]) {
   })
 }
 
-function toValidDateInput(value: string | string[] | undefined) {
-  if (typeof value !== "string") {
-    return null
-  }
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null
-}
-
 function buildDateWhereClause(
   column: string,
   fromDate: string | null,
@@ -157,16 +160,16 @@ function buildDateWhereClause(
 }
 
 async function getCsatInsights({
-  filter,
+  mode,
   fromDate,
   toDate,
 }: {
-  filter: TimeFilter
+  mode: AnalyticsPeriodMode
   fromDate: string | null
   toDate: string | null
 }) {
   try {
-    const applyPeriod = filter === "period"
+    const applyPeriod = mode !== "all"
     const responseDateFilter = applyPeriod
       ? buildDateWhereClause("csat_responses.submitted_at", fromDate, toDate)
       : { sql: "", values: [] as string[] }
@@ -180,7 +183,7 @@ async function getCsatInsights({
       FROM csat_responses
       INNER JOIN support_requests
         ON support_requests.id = csat_responses.request_id
-      WHERE support_requests.hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
       ${responseDateFilter.sql}
     `,
       responseDateFilter.values
@@ -194,7 +197,7 @@ async function getCsatInsights({
         FROM support_request_history
         INNER JOIN support_requests
           ON support_requests.id = support_request_history.request_id
-        WHERE support_requests.hidden = FALSE
+        WHERE ${activeSupportRequestWhere()}
           AND support_request_history.field_name IN (
             'csat_link_shared',
             'csat_link_shared_at'
@@ -213,7 +216,7 @@ async function getCsatInsights({
       FROM csat_responses
       INNER JOIN support_requests
         ON support_requests.id = csat_responses.request_id
-      WHERE support_requests.hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
       ${responseDateFilter.sql}
     `,
       responseDateFilter.values
@@ -227,7 +230,7 @@ async function getCsatInsights({
       FROM csat_responses
       INNER JOIN support_requests
         ON support_requests.id = csat_responses.request_id
-      WHERE support_requests.hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
       ${responseDateFilter.sql}
       GROUP BY score_label
       ORDER BY score_label DESC
@@ -243,7 +246,7 @@ async function getCsatInsights({
       FROM csat_responses
       INNER JOIN support_requests
         ON support_requests.id = csat_responses.request_id
-      WHERE support_requests.hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
       ${responseDateFilter.sql}
       GROUP BY score_label
       ORDER BY score_label DESC
@@ -263,7 +266,7 @@ async function getCsatInsights({
       FROM csat_responses
       INNER JOIN support_requests
         ON support_requests.id = csat_responses.request_id
-      WHERE support_requests.hidden = FALSE
+      WHERE ${activeSupportRequestWhere()}
       ${responseDateFilter.sql}
         AND (
           (csat_responses.support_reason IS NOT NULL
@@ -357,18 +360,37 @@ export default async function MerchantSuccessCsatInsightsPage({
   searchParams,
 }: {
   searchParams?: Promise<{
+    period?: string
     time?: string
+    month?: string
+    year?: string
     from?: string
     to?: string
   }>
 }) {
   const params = searchParams ? await searchParams : undefined
-  const filter: TimeFilter = params?.time === "period" ? "period" : "all"
-  const fromDate = toValidDateInput(params?.from)
-  const toDate = toValidDateInput(params?.to)
+  const cookieStore = await cookies()
+  const persistedFilter = parseAnalyticsFilterCookie(
+    cookieStore.get(ANALYTICS_FILTER_COOKIE_NAME)?.value
+  )
+  const { months: monthOptions, years: yearOptions } =
+    await getAnalyticsAvailablePeriods()
+
+  const { mode, selectedMonth, selectedYear, fromDate, toDate } =
+    resolveAnalyticsFilter({
+      query: {
+        period: params?.period ?? persistedFilter?.period,
+        time: params?.time,
+        month: params?.month ?? persistedFilter?.month,
+        year: params?.year ?? persistedFilter?.year,
+        from: toValidDateInput(params?.from) ?? undefined,
+      },
+      availableMonths: monthOptions,
+      availableYears: yearOptions,
+    })
 
   const data = await getCsatInsights({
-    filter,
+    mode,
     fromDate,
     toDate,
   })
@@ -383,9 +405,11 @@ export default async function MerchantSuccessCsatInsightsPage({
           </p>
         </div>
         <CsatInsightsHeaderFilters
-          filter={filter}
-          fromDate={fromDate}
-          toDateValue={toDate}
+          mode={mode}
+          selectedMonth={selectedMonth}
+          selectedYear={selectedYear}
+          monthOptions={monthOptions}
+          yearOptions={yearOptions}
         />
       </div>
 

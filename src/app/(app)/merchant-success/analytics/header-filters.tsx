@@ -3,7 +3,10 @@
 import * as React from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 
-import { Button } from "@/components/ui/button"
+import {
+  ANALYTICS_FILTER_COOKIE_NAME,
+  type AnalyticsPeriodMode,
+} from "./filter-state"
 import {
   Select,
   SelectContent,
@@ -12,16 +15,34 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-type TimeFilter = "all" | "period"
+type FilterType = "all" | string
+const ANALYTICS_FILTER_COOKIE_MAX_AGE = 60 * 60 * 12
 
-function getCurrentMonthValue() {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, "0")
-  return `${year}-${month}`
+function setAnalyticsFilterCookie({
+  mode,
+  selectedMonth,
+  selectedYear,
+}: {
+  mode: AnalyticsPeriodMode
+  selectedMonth: string | null
+  selectedYear: string | null
+}) {
+  if (typeof document === "undefined") {
+    return
+  }
+
+  const payload = encodeURIComponent(
+    JSON.stringify({
+      period: mode,
+      month: selectedMonth,
+      year: selectedYear,
+    })
+  )
+
+  document.cookie = `${ANALYTICS_FILTER_COOKIE_NAME}=${payload}; Max-Age=${ANALYTICS_FILTER_COOKIE_MAX_AGE}; Path=/`
 }
 
-function getMonthLabel(monthValue: string) {
+function getMonthName(monthValue: string) {
   const [yearText, monthText] = monthValue.split("-")
   const year = Number(yearText)
   const month = Number(monthText)
@@ -31,94 +52,189 @@ function getMonthLabel(monthValue: string) {
   const date = new Date(Date.UTC(year, month - 1, 1))
   return date.toLocaleDateString("en-US", {
     month: "long",
-    year: "numeric",
     timeZone: "UTC",
   })
 }
 
 export function MerchantSuccessAnalyticsHeaderFilters({
-  filter,
-  monthValue,
+  mode,
+  selectedMonth,
+  selectedYear,
   monthOptions,
+  yearOptions,
 }: {
-  filter: TimeFilter
-  monthValue: string | null
+  mode: AnalyticsPeriodMode
+  selectedMonth: string | null
+  selectedYear: string | null
   monthOptions: string[]
+  yearOptions: string[]
 }) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
-  const [selectedMonth, setSelectedMonth] = React.useState(
-    monthValue ?? getCurrentMonthValue()
-  )
-  const availableMonths = React.useMemo(() => {
-    if (monthOptions.length) {
-      return monthOptions
+  const selectedFilterYear =
+    mode === "all"
+      ? null
+      : selectedYear ??
+        (selectedMonth ? selectedMonth.slice(0, 4) : null) ??
+        yearOptions[0] ??
+        null
+
+  const filterType: FilterType = mode === "all" ? "all" : (selectedFilterYear ?? "all")
+
+  const valueOptions = React.useMemo(() => {
+    if (!selectedFilterYear) {
+      return [] as Array<{ value: string; label: string }>
     }
-    return [getCurrentMonthValue()]
-  }, [monthOptions])
+
+    const yearMonths = monthOptions.filter((month) =>
+      month.startsWith(`${selectedFilterYear}-`)
+    )
+
+    return [
+      { value: `year:${selectedFilterYear}`, label: "All Year" },
+      ...yearMonths.map((month) => ({
+        value: `month:${month}`,
+        label: getMonthName(month),
+      })),
+    ]
+  }, [monthOptions, selectedFilterYear])
+
+  const selectedValue =
+    mode === "monthly"
+      ? (selectedMonth ? `month:${selectedMonth}` : "")
+      : mode === "yearly"
+        ? (selectedFilterYear ? `year:${selectedFilterYear}` : "")
+        : ""
 
   React.useEffect(() => {
-    setSelectedMonth(monthValue ?? getCurrentMonthValue())
-  }, [monthValue])
+    setAnalyticsFilterCookie({ mode, selectedMonth, selectedYear })
+  }, [mode, selectedMonth, selectedYear])
 
   const updateQuery = React.useCallback(
-    (nextFilter: TimeFilter, nextMonth?: string) => {
-      const params = new URLSearchParams(searchParams.toString())
-      params.set("time", nextFilter)
+    ({
+      nextMode,
+      nextMonth,
+      nextYear,
+    }: {
+      nextMode: AnalyticsPeriodMode
+      nextMonth?: string | null
+      nextYear?: string | null
+    }) => {
+      const resolvedMonth =
+        nextMode === "monthly" ? (nextMonth ?? monthOptions[0] ?? null) : null
+      const resolvedYear =
+        nextMode === "yearly" ? (nextYear ?? yearOptions[0] ?? null) : null
 
-      if (nextFilter === "period") {
-        const month = nextMonth ?? selectedMonth ?? getCurrentMonthValue()
-        params.set("month", month)
+      setAnalyticsFilterCookie({
+        mode: nextMode,
+        selectedMonth: resolvedMonth,
+        selectedYear: resolvedYear,
+      })
+
+      const params = new URLSearchParams(searchParams.toString())
+      params.set("period", nextMode)
+      params.delete("time")
+      params.delete("from")
+      params.delete("to")
+
+      if (nextMode === "monthly") {
+        const month = resolvedMonth
+        if (month) {
+          params.set("month", month)
+        } else {
+          params.delete("month")
+        }
+        params.delete("year")
+      } else if (nextMode === "yearly") {
+        const year = resolvedYear
+        if (year) {
+          params.set("year", year)
+        } else {
+          params.delete("year")
+        }
+        params.delete("month")
       } else {
         params.delete("month")
+        params.delete("year")
       }
 
       const query = params.toString()
       router.push(query ? `${pathname}?${query}` : pathname)
     },
-    [pathname, router, searchParams, selectedMonth]
+    [monthOptions, pathname, router, searchParams, yearOptions]
   )
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button
-        type="button"
-        variant={filter === "all" ? "default" : "outline"}
-        size="sm"
-        onClick={() => updateQuery("all")}
+      <Select
+        value={filterType}
+        onValueChange={(value) => {
+          if (value === "all") {
+            updateQuery({ nextMode: "all", nextMonth: null, nextYear: null })
+            return
+          }
+
+          const selectedYearValue = yearOptions.includes(value)
+            ? value
+            : (yearOptions[0] ?? null)
+
+          updateQuery({
+            nextMode: "yearly",
+            nextYear: selectedYearValue,
+            nextMonth: null,
+          })
+        }}
       >
-        All Time
-      </Button>
-      <Button
-        type="button"
-        variant={filter === "period" ? "default" : "outline"}
-        size="sm"
-        onClick={() => updateQuery("period", selectedMonth)}
+        <SelectTrigger className="h-9 w-[155px]">
+          <SelectValue placeholder="Filter type" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Time</SelectItem>
+          {yearOptions.map((year) => (
+            <SelectItem key={year} value={year}>
+              {year}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={selectedValue}
+        onValueChange={(value) => {
+          if (value.startsWith("month:")) {
+            updateQuery({
+              nextMode: "monthly",
+              nextMonth: value.replace("month:", ""),
+            })
+            return
+          }
+
+          if (value.startsWith("year:")) {
+            updateQuery({
+              nextMode: "yearly",
+              nextYear: value.replace("year:", ""),
+            })
+          }
+        }}
+        disabled={filterType === "all" || !valueOptions.length}
       >
-        Specific Month
-      </Button>
-      {filter === "period" ? (
-        <Select
-          value={selectedMonth}
-          onValueChange={(nextMonth) => {
-            setSelectedMonth(nextMonth)
-            updateQuery("period", nextMonth)
-          }}
-        >
-          <SelectTrigger className="h-9 w-[200px]">
-            <SelectValue placeholder="Select month" />
-          </SelectTrigger>
-          <SelectContent>
-            {availableMonths.map((month) => (
-              <SelectItem key={month} value={month}>
-                {getMonthLabel(month)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : null}
+        <SelectTrigger className="h-9 w-[205px]">
+          <SelectValue
+            placeholder={
+              filterType === "all" ? "No period selection" : "All Year or Month"
+            }
+          />
+        </SelectTrigger>
+        <SelectContent>
+          {valueOptions.map((item) => (
+            <SelectItem key={item.value} value={item.value}>
+              {item.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   )
 }

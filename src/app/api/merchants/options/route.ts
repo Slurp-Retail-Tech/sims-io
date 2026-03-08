@@ -16,6 +16,13 @@ export async function GET(request: NextRequest) {
   const whereClauses: string[] = []
   const values: Array<string> = []
 
+  whereClauses.push(
+    "COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(raw_payload, '$.closed_account')) AS CHAR), 'false') NOT IN ('true', '1')"
+  )
+  whereClauses.push(
+    "COALESCE(CAST(JSON_UNQUOTE(JSON_EXTRACT(raw_payload, '$.test_account')) AS CHAR), 'false') NOT IN ('true', '1')"
+  )
+
   if (query) {
     const likeValue = `%${query}%`
     whereClauses.push(

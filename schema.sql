@@ -148,6 +148,63 @@ CREATE TABLE IF NOT EXISTS clickup_task_request_attachments (
   INDEX clickup_task_request_attachments_request_idx (request_id, created_at)
 );
 
+CREATE TABLE IF NOT EXISTS onboarding_appointments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  outlet_name VARCHAR(255) NOT NULL,
+  installation_type ENUM('Online', 'On-site', 'Support') NOT NULL,
+  scheduled_at DATETIME(3) NOT NULL,
+  payment_status ENUM('Pending', 'Paid', 'Unpaid') NOT NULL DEFAULT 'Pending',
+  status ENUM('Pending', 'Approved', 'Completed') NOT NULL DEFAULT 'Pending',
+  created_by_user_id BIGINT UNSIGNED NOT NULL,
+  decision_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  decision_at DATETIME(3) DEFAULT NULL,
+  decision_reason TEXT DEFAULT NULL,
+  assigned_ms_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  INDEX onboarding_appointments_scheduled_idx (scheduled_at),
+  INDEX onboarding_appointments_status_created_idx (status, created_at),
+  INDEX onboarding_appointments_created_by_idx (created_by_user_id, created_at),
+  INDEX onboarding_appointments_assigned_ms_idx (assigned_ms_user_id, scheduled_at)
+);
+
+CREATE TABLE IF NOT EXISTS onboarding_appointment_attachments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  appointment_id BIGINT UNSIGNED NOT NULL,
+  storage_key VARCHAR(512) NOT NULL,
+  original_name VARCHAR(255) DEFAULT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  CONSTRAINT fk_onboarding_appointment_attachments_appointment_id
+    FOREIGN KEY (appointment_id) REFERENCES onboarding_appointments(id) ON DELETE CASCADE,
+  INDEX onboarding_appointment_attachments_request_idx (appointment_id, created_at)
+);
+
+CREATE TABLE IF NOT EXISTS sales_appointments (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  lead_id BIGINT UNSIGNED DEFAULT NULL,
+  customer_name VARCHAR(255) NOT NULL,
+  business_name VARCHAR(255) NOT NULL,
+  business_type VARCHAR(255) NOT NULL,
+  business_location VARCHAR(255) NOT NULL,
+  meeting_location VARCHAR(255) DEFAULT NULL,
+  appointment_type ENUM('Online', 'Physical') NOT NULL,
+  scheduled_at DATETIME(3) NOT NULL,
+  status ENUM('Pending', 'Completed', 'Canceled') NOT NULL DEFAULT 'Pending',
+  created_by_user_id BIGINT UNSIGNED NOT NULL,
+  completed_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  completed_at DATETIME(3) DEFAULT NULL,
+  completion_note TEXT DEFAULT NULL,
+  canceled_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  canceled_at DATETIME(3) DEFAULT NULL,
+  cancel_reason TEXT DEFAULT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  INDEX sales_appointments_scheduled_idx (scheduled_at),
+  INDEX sales_appointments_status_created_idx (status, created_at),
+  INDEX sales_appointments_created_by_idx (created_by_user_id, created_at),
+  INDEX sales_appointments_lead_idx (lead_id, created_at)
+);
+
 CREATE TABLE IF NOT EXISTS support_form_settings (
   id INT NOT NULL PRIMARY KEY,
   contact_phone VARCHAR(64) DEFAULT NULL,

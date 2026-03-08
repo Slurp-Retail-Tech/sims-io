@@ -1,6 +1,10 @@
 import mysql from "mysql2/promise"
 
-let pool: mysql.Pool | null = null
+declare global {
+  var __mysqlPool__: mysql.Pool | undefined
+}
+
+let pool: mysql.Pool | null = globalThis.__mysqlPool__ ?? null
 const RETRYABLE_CONNECTION_ERROR_CODES = new Set([
   "PROTOCOL_CONNECTION_LOST",
   "ECONNRESET",
@@ -24,6 +28,7 @@ async function resetPool() {
 
   const stalePool = pool
   pool = null
+  globalThis.__mysqlPool__ = undefined
 
   try {
     await stalePool.end()
@@ -37,13 +42,21 @@ export default function getPool() {
     return pool
   }
 
-  const baseConfig = {
+  const connectionLimit = Number(process.env.MYSQL_CONNECTION_LIMIT ?? 10)
+  const normalizedConnectionLimit =
+    Number.isFinite(connectionLimit) && connectionLimit > 0 ? connectionLimit : 10
+  const baseConfig: mysql.PoolOptions = {
     dateStrings: ["DATE", "DATETIME", "TIMESTAMP"] as Array<
       "DATE" | "DATETIME" | "TIMESTAMP"
     >,
     timezone: "Z",
     supportBigNumbers: true,
     bigNumberStrings: true,
+    waitForConnections: true,
+    connectionLimit: normalizedConnectionLimit,
+    maxIdle: normalizedConnectionLimit,
+    idleTimeout: 60_000,
+    queueLimit: 0,
   }
 
   const connectionString = process.env.DATABASE_URL
@@ -58,6 +71,7 @@ export default function getPool() {
       ...baseConfig,
     }
     pool = mysql.createPool(config)
+    globalThis.__mysqlPool__ = pool
     pool.on("connection", (connection) => {
       connection.query("SET time_zone = '+00:00'")
     })
@@ -84,6 +98,7 @@ export default function getPool() {
     database,
     ...baseConfig,
   })
+  globalThis.__mysqlPool__ = pool
   pool.on("connection", (connection) => {
     connection.query("SET time_zone = '+00:00'")
   })

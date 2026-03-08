@@ -22,6 +22,21 @@ function normalizeText(value: FormDataEntryValue | null) {
   return trimmed.length ? trimmed : null
 }
 
+function getSupportFormWhatsappBaseUrl() {
+  const whatsappNumber =
+    process.env.SUPPORTFORM_WHATSAPP_NUMBER ??
+    process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP ??
+    process.env.NEXT_PUBLIC_SUPPORT_CONTACT ??
+    "601156654761"
+
+  const digits = whatsappNumber.replace(/\D+/g, "")
+  if (!digits) {
+    return null
+  }
+
+  return `https://wa.me/${digits}`
+}
+
 async function uploadAttachment(file: File) {
   if (!allowedTypes.has(file.type)) {
     throw new Error("Unsupported file type. Use JPEG, PNG, HEIC, or PDF.")
@@ -214,10 +229,12 @@ export async function POST(request: NextRequest) {
   )
 
   const requestId = String(insertResult.insertId)
+  const whatsappBaseUrl = getSupportFormWhatsappBaseUrl()
 
   return NextResponse.json({
     requestId,
     franchiseName,
     outletName: outletName ?? merchantName,
+    whatsappUrl: whatsappBaseUrl,
   })
 }

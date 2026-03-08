@@ -1,13 +1,16 @@
 import type { Metadata } from "next"
+import { cookies } from "next/headers"
 
 import { MerchantSuccessAnalyticsHeaderFilters } from "../header-filters"
 import {
-  getAnalyticsAvailableMonths,
+  ANALYTICS_FILTER_COOKIE_NAME,
+  parseAnalyticsFilterCookie,
+} from "../filter-state"
+import {
+  getAnalyticsAvailablePeriods,
   getMerchantSuccessAnalyticsData,
-  getMonthDateRange,
+  resolveAnalyticsFilter,
   toValidDateInput,
-  toValidMonthInput,
-  type TimeFilter,
 } from "../data"
 import { TicketAnalyticsCharts } from "./charts"
 
@@ -18,19 +21,37 @@ export const metadata: Metadata = {
 export default async function MerchantSuccessTicketsAnalyticsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ time?: string; month?: string; from?: string; to?: string }>
+  searchParams?: Promise<{
+    period?: string
+    time?: string
+    month?: string
+    year?: string
+    from?: string
+    to?: string
+  }>
 }) {
   const params = searchParams ? await searchParams : undefined
-  const filter: TimeFilter = params?.time === "period" ? "period" : "all"
-  const monthValue =
-    toValidMonthInput(params?.month) ??
-    (toValidDateInput(params?.from)?.slice(0, 7) ?? null)
-  const { fromDate, toDate } = getMonthDateRange(monthValue)
+  const cookieStore = await cookies()
+  const persistedFilter = parseAnalyticsFilterCookie(
+    cookieStore.get(ANALYTICS_FILTER_COOKIE_NAME)?.value
+  )
+  const { months: monthOptions, years: yearOptions } =
+    await getAnalyticsAvailablePeriods()
 
-  const [data, monthOptions] = await Promise.all([
-    getMerchantSuccessAnalyticsData({ filter, fromDate, toDate }),
-    getAnalyticsAvailableMonths(),
-  ])
+  const { mode, selectedMonth, selectedYear, fromDate, toDate } =
+    resolveAnalyticsFilter({
+      query: {
+        period: params?.period ?? persistedFilter?.period,
+        time: params?.time,
+        month: params?.month ?? persistedFilter?.month,
+        year: params?.year ?? persistedFilter?.year,
+        from: toValidDateInput(params?.from) ?? undefined,
+      },
+      availableMonths: monthOptions,
+      availableYears: yearOptions,
+    })
+
+  const data = await getMerchantSuccessAnalyticsData({ mode, fromDate, toDate })
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6">
@@ -39,7 +60,13 @@ export default async function MerchantSuccessTicketsAnalyticsPage({
           <h1 className="text-2xl font-semibold tracking-tight">Ticket Analytics</h1>
           <p className="text-muted-foreground text-sm">Deep-dive on hourly and daily ticket behavior.</p>
         </div>
-        <MerchantSuccessAnalyticsHeaderFilters filter={filter} monthValue={monthValue} monthOptions={monthOptions} />
+        <MerchantSuccessAnalyticsHeaderFilters
+          mode={mode}
+          selectedMonth={selectedMonth}
+          selectedYear={selectedYear}
+          monthOptions={monthOptions}
+          yearOptions={yearOptions}
+        />
       </div>
       <TicketAnalyticsCharts data={data} />
     </div>

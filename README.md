@@ -45,6 +45,11 @@ CLICKUP_API_TOKEN=
 CLICKUP_LIST_ID=
 CLICKUP_API_BASE_URL=https://api.clickup.com/api/v2
 NEXT_PUBLIC_CLICKUP_ENABLED=true
+HUBSPOT_ACCESS_TOKEN=
+HUBSPOT_BUSINESS_TYPE_PROPERTY=
+HUBSPOT_BUSINESS_LOCATION_PROPERTY=
+HUBSPOT_SOURCE_PROPERTY=
+RESEND_API_KEY=
 
 MINIO_ENDPOINT=http://127.0.0.1:9000
 MINIO_PUBLIC_URL=http://127.0.0.1:9000
@@ -53,8 +58,27 @@ MINIO_SECRET_KEY=minioadmin
 MINIO_BUCKET=sims-assets
 MINIO_REGION=us-east-1
 
-NEXT_PUBLIC_SUPPORT_CONTACT=601156654761
+NEXT_PUBLIC_SUPPORT_PHONE=
+NEXT_PUBLIC_SUPPORT_EMAIL=
+SUPPORTFORM_WHATSAPP_NUMBER=601156654761
+DEMOFORM_WHATSAPP_NUMBER=601156654761
+# Legacy fallback only
+NEXT_PUBLIC_SUPPORT_WHATSAPP=601156654761
+
+# Optional but recommended for /demoform bot protection
+NEXT_PUBLIC_RECAPTCHA_SITE_KEY=
+RECAPTCHA_SECRET_KEY=
 ```
+
+Notes:
+- `SUPPORTFORM_WHATSAPP_NUMBER` is used for `/supportform` redirect.
+- `DEMOFORM_WHATSAPP_NUMBER` is used for `/demoform` redirect.
+- `NEXT_PUBLIC_SUPPORT_WHATSAPP` and `NEXT_PUBLIC_SUPPORT_CONTACT` are legacy fallbacks.
+- reCAPTCHA enforcement is enabled when `RECAPTCHA_SECRET_KEY` is set on the server.
+- Demo form lead submissions sync to HubSpot when `HUBSPOT_ACCESS_TOKEN` is configured.
+- Demo form lead email notifications send through Resend when `RESEND_API_KEY` is configured and the lead notification setting is enabled.
+- `RESEND_BASE_URL` is not used by the current implementation.
+- `HUBSPOT_BUSINESS_TYPE_PROPERTY`, `HUBSPOT_BUSINESS_LOCATION_PROPERTY`, and `HUBSPOT_SOURCE_PROPERTY` map form fields to your HubSpot custom contact property names.
 
 ## Database (Docker)
 
@@ -133,15 +157,6 @@ The KB workflow is Notion-first and publishes approved content manually into the
 - Program runbook: `docs/knowledge-base-program.md`
 - In-app KB contract: `src/lib/knowledge-base.ts`
 - In-app KB page: `src/app/(app)/knowledge-base/page.tsx`
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
 ## Deployment
 

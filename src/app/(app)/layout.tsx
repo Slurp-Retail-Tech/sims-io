@@ -7,16 +7,23 @@ import {
   SidebarProvider,
   SidebarRail,
 } from "@/components/ui/sidebar"
+import { cookies } from "next/headers"
 
-export default function AppLayout({
+const SIDEBAR_COOKIE_NAME = "sidebar_state"
+
+export default async function AppLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const cookieStore = await cookies()
+  const sidebarState = cookieStore.get(SIDEBAR_COOKIE_NAME)?.value
+  const defaultOpen = sidebarState !== "false"
+
   return (
     <AppAuthGate>
       <ToastProvider>
-        <SidebarProvider>
+        <SidebarProvider defaultOpen={defaultOpen}>
           <AppSidebar />
           <SidebarRail />
           <SidebarInset className="bg-background/85 backdrop-blur">
