@@ -1,15 +1,20 @@
+import type { RowDataPacket } from "mysql2/promise"
 import { NextRequest, NextResponse } from "next/server"
 
 import getPool from "@/lib/db"
 
 import {
+  type AppointmentRow,
   appointmentSelectSql,
   canFinalizeAppointment,
   cleanString,
+  isAppointmentStatus,
   mapAppointment,
   parseAppointmentId,
   resolveAuthUser,
 } from "../../helpers"
+
+type ExistingAppointmentRow = RowDataPacket & Pick<AppointmentRow, "id" | "status">
 
 export async function POST(
   request: NextRequest,
@@ -36,7 +41,7 @@ export async function POST(
     )
   }
 
-  const [existingRows] = await pool.query(
+  const [existingRows] = await pool.query<ExistingAppointmentRow[]>(
     `
     SELECT id, status
     FROM sales_appointments
@@ -46,9 +51,16 @@ export async function POST(
     [appointmentId]
   )
 
-  const existing = (existingRows as Array<{ id: string; status: string }>)[0]
+  const existing = existingRows[0]
   if (!existing) {
     return NextResponse.json({ error: "Appointment not found." }, { status: 404 })
+  }
+
+  if (!isAppointmentStatus(existing.status)) {
+    return NextResponse.json(
+      { error: "Appointment has an invalid status." },
+      { status: 500 }
+    )
   }
 
   if (!canFinalizeAppointment(existing)) {

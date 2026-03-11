@@ -73,7 +73,6 @@ const pageAccessGroups: PageAccessGroup[] = [
     options: [
       { label: "Merchants", value: "/merchants" },
       { label: "Knowledge Base", value: "/knowledge-base" },
-      { label: "AI Chatbot Settings", value: "/ai-chatbot-settings" },
     ],
   },
   {

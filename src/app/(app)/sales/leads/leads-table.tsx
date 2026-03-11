@@ -5,6 +5,7 @@ import { ChevronDown } from "lucide-react"
 
 import { formatDateTime } from "@/lib/dates"
 import { getSessionUser } from "@/lib/session"
+import { useToast } from "@/components/toast-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
@@ -75,6 +76,7 @@ function getPaginationItems(current: number, total: number) {
 }
 
 export default function LeadsTable() {
+  const { showToast } = useToast()
   const sessionUser = React.useMemo(() => getSessionUser(), [])
   const canManageNotificationSettings =
     sessionUser?.role === "Admin" || sessionUser?.role === "Super Admin"
@@ -100,7 +102,6 @@ export default function LeadsTable() {
   const [settingsLoading, setSettingsLoading] = React.useState(true)
   const [settingsSaving, setSettingsSaving] = React.useState(false)
   const [settingsError, setSettingsError] = React.useState<string | null>(null)
-  const [settingsMessage, setSettingsMessage] = React.useState<string | null>(null)
   const [settingsExpanded, setSettingsExpanded] = React.useState(false)
   const [pendingArchiveAction, setPendingArchiveAction] = React.useState<{
     lead: LeadRow
@@ -274,7 +275,6 @@ export default function LeadsTable() {
 
     setSettingsSaving(true)
     setSettingsError(null)
-    setSettingsMessage(null)
     try {
       const response = await fetch("/api/leads/notification-settings", {
         method: "PATCH",
@@ -298,7 +298,7 @@ export default function LeadsTable() {
       }
 
       setSettings(data.settings)
-      setSettingsMessage("Lead notification settings saved.")
+      showToast("Lead notification settings saved.")
     } catch (error) {
       console.error(error)
       setSettingsError(
@@ -307,7 +307,7 @@ export default function LeadsTable() {
     } finally {
       setSettingsSaving(false)
     }
-  }, [settings, settingsSaving])
+  }, [settings, settingsSaving, showToast])
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6">
@@ -438,9 +438,6 @@ export default function LeadsTable() {
 
                   {settingsError ? (
                     <div className="text-sm text-red-600">{settingsError}</div>
-                  ) : null}
-                  {settingsMessage ? (
-                    <div className="text-sm text-emerald-600">{settingsMessage}</div>
                   ) : null}
                 </>
               )}

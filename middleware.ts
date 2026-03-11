@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
 const protectedPrefixes = [
-  "/ai-chatbot-settings",
   "/analytics",
   "/dashboard",
   "/inbox",
@@ -37,7 +36,6 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/ai-chatbot-settings/:path*",
     "/analytics/:path*",
     "/dashboard/:path*",
     "/inbox/:path*",

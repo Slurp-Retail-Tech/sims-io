@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 
 import { formatDateTime, parseDate } from "@/lib/dates"
 import { ChevronDown, ChevronRight } from "lucide-react"
@@ -25,7 +26,10 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
@@ -61,6 +65,17 @@ type ImportRun = {
   records_imported: number
   error_message: string | null
 }
+
+type BranchOption = {
+  id: string
+  code: string | null
+  name: string
+  group: string | null
+  status: number | string | null
+  isPrimary: boolean
+}
+
+const DEFAULT_BRANCH_GROUP = "Slurp"
 
 type Outlet = {
   id: string
@@ -116,6 +131,12 @@ function getOutletStatusClasses(status: string) {
 }
 
 const perPageOptions = [10, 25, 50, 100] as const
+const statusOptions = [
+  { value: "all", label: "All statuses" },
+  { value: "live", label: "Live" },
+  { value: "test", label: "Test" },
+  { value: "closed", label: "Closed" },
+] as const
 const sortOptions = [
   { value: "fid-desc", label: "FID (desc)" },
   { value: "fid-asc", label: "FID (asc)" },
@@ -152,6 +173,12 @@ export default function MerchantsPage() {
   const [merchants, setMerchants] = React.useState<Merchant[]>([])
   const [loading, setLoading] = React.useState(true)
   const [search, setSearch] = React.useState("")
+  const [statusFilter, setStatusFilter] =
+    React.useState<(typeof statusOptions)[number]["value"]>("all")
+  const [branches, setBranches] = React.useState<BranchOption[]>([])
+  const [branchesLoading, setBranchesLoading] = React.useState(false)
+  const [selectedBranchGroup, setSelectedBranchGroup] = React.useState("all")
+  const [selectedBranchId, setSelectedBranchId] = React.useState("all")
   const [page, setPage] = React.useState(1)
   const [perPage, setPerPage] = React.useState(25)
   const [sortOption, setSortOption] =
@@ -170,6 +197,49 @@ export default function MerchantsPage() {
   const { showToast } = useToast()
   const pollRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
 
+  const branchGroups = React.useMemo(() => {
+    const groups = Array.from(
+      new Set(
+        [DEFAULT_BRANCH_GROUP, ...branches.map((branch) => branch.group?.trim())].filter(
+          (value): value is string => Boolean(value)
+        )
+      )
+    ).filter((group) => group !== DEFAULT_BRANCH_GROUP)
+
+    return [
+      DEFAULT_BRANCH_GROUP,
+      ...groups.sort((left, right) => left.localeCompare(right)),
+    ]
+  }, [branches])
+
+  const groupedBranches = React.useMemo(() => {
+    return branchGroups
+      .map((group) => ({
+        group,
+        branches: branches
+          .filter(
+            (branch) => (branch.group?.trim() || DEFAULT_BRANCH_GROUP) === group
+          )
+          .sort((left, right) => left.name.localeCompare(right.name)),
+      }))
+      .filter((entry) => entry.branches.length > 0)
+  }, [branchGroups, branches])
+
+  const selectedBranch = React.useMemo(
+    () => branches.find((branch) => branch.id === selectedBranchId) ?? null,
+    [branches, selectedBranchId]
+  )
+
+  const selectedBranchFilterValue = React.useMemo(() => {
+    if (selectedBranchId !== "all") {
+      return `branch:${selectedBranchId}`
+    }
+    if (selectedBranchGroup !== "all") {
+      return `group:${selectedBranchGroup}`
+    }
+    return "all"
+  }, [selectedBranchGroup, selectedBranchId])
+
   const loadMerchants = React.useCallback(async () => {
     const user = getSessionUser()
     if (!user?.id) {
@@ -184,8 +254,15 @@ export default function MerchantsPage() {
       params.set("per_page", String(perPage))
       params.set("sort", sortField)
       params.set("direction", sortDirection)
+      params.set("status", statusFilter)
       if (search.trim()) {
         params.set("q", search.trim())
+      }
+      if (selectedBranchGroup !== "all" && selectedBranchId === "all") {
+        params.set("branch_group", selectedBranchGroup)
+      }
+      if (selectedBranchId !== "all" && selectedBranch) {
+        params.set("branch_id", selectedBranch.id)
       }
 
       const response = await fetch(`/api/merchants?${params.toString()}`, {
@@ -209,7 +286,17 @@ export default function MerchantsPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, perPage, search, showToast, sortOption])
+  }, [
+    page,
+    perPage,
+    search,
+    selectedBranch,
+    selectedBranchGroup,
+    selectedBranchId,
+    showToast,
+    sortOption,
+    statusFilter,
+  ])
 
   React.useEffect(() => {
     void loadMerchants()
@@ -217,7 +304,56 @@ export default function MerchantsPage() {
 
   React.useEffect(() => {
     setExpandedId(null)
-  }, [page, perPage, search, sortOption])
+  }, [
+    page,
+    perPage,
+    search,
+    selectedBranchGroup,
+    selectedBranchId,
+    sortOption,
+    statusFilter,
+  ])
+
+  React.useEffect(() => {
+    const user = getSessionUser()
+    if (!user?.id) {
+      return
+    }
+
+    let cancelled = false
+
+    const loadBranches = async () => {
+      setBranchesLoading(true)
+      try {
+        const response = await fetch("/api/branches", {
+          headers: { "x-user-id": user.id },
+        })
+        if (!response.ok) {
+          showToast("Unable to load branches.", "error")
+          return
+        }
+        const data = (await response.json()) as { branches?: BranchOption[] }
+        if (!cancelled) {
+          setBranches(data.branches ?? [])
+        }
+      } catch (error) {
+        console.error(error)
+        if (!cancelled) {
+          showToast("Unable to load branches.", "error")
+        }
+      } finally {
+        if (!cancelled) {
+          setBranchesLoading(false)
+        }
+      }
+    }
+
+    void loadBranches()
+
+    return () => {
+      cancelled = true
+    }
+  }, [showToast])
 
   const loadImportStatus = React.useCallback(async () => {
     const user = getSessionUser()
@@ -369,7 +505,7 @@ export default function MerchantsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Merchants</h1>
           <p className="text-muted-foreground text-sm">
-            Franchise and outlet details synced from POS.
+            Franchise and outlet details synced from Slurp! Cloud.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -447,6 +583,91 @@ export default function MerchantsPage() {
             value={search}
             onChange={handleSearchChange}
           />
+          <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <div className="md:w-48 md:flex-none">
+              <Select
+                value={statusFilter}
+                onValueChange={(value) => {
+                  setStatusFilter(
+                    value as (typeof statusOptions)[number]["value"]
+                  )
+                  setPage(1)
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {statusOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="md:min-w-0 md:flex-1">
+              <Select
+                value={selectedBranchFilterValue}
+                onValueChange={(value) => {
+                  if (value === "all") {
+                    setSelectedBranchGroup("all")
+                    setSelectedBranchId("all")
+                  } else if (value.startsWith("group:")) {
+                    setSelectedBranchGroup(value.slice("group:".length))
+                    setSelectedBranchId("all")
+                  } else if (value.startsWith("branch:")) {
+                    setSelectedBranchId(value.slice("branch:".length))
+                    setSelectedBranchGroup("all")
+                  }
+                  setPage(1)
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      branchesLoading ? "Loading branches..." : "Filter by branch"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All branches</SelectItem>
+                  {groupedBranches.length > 0 ? <SelectSeparator /> : null}
+                  {groupedBranches.map((entry, index) => (
+                    <React.Fragment key={entry.group}>
+                      <SelectGroup>
+                        <SelectLabel>{entry.group}</SelectLabel>
+                        <SelectItem value={`group:${entry.group}`}>
+                          All {entry.group}
+                        </SelectItem>
+                        {entry.branches.map((branch) => (
+                          <SelectItem
+                            key={branch.id}
+                            value={`branch:${branch.id}`}
+                          >
+                            {branch.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                      {index < groupedBranches.length - 1 ? <SelectSeparator /> : null}
+                    </React.Fragment>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="md:flex-none"
+              onClick={() => {
+                setSelectedBranchGroup("all")
+                setSelectedBranchId("all")
+                setPage(1)
+              }}
+            >
+              Clear
+            </Button>
+          </div>
           {importRun?.status === "failed" && importRun.error_message ? (
             <p className="text-destructive text-xs">
               Last import failed: {importRun.error_message}
@@ -468,40 +689,51 @@ export default function MerchantsPage() {
                 open={expandedId === merchant.id}
                 onOpenChange={() => handleToggle(merchant.id)}
               >
-                <CollapsibleTrigger asChild>
-                  <button
-                    type="button"
-                    className="hover:bg-muted/40 flex w-full flex-col gap-2 rounded-lg px-2 py-2 text-left transition"
-                  >
-                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <div className="text-sm font-semibold">
-                          {merchant.name}
+                <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      className="hover:bg-muted/40 flex w-full flex-1 flex-col gap-2 rounded-lg px-2 py-2 text-left transition"
+                    >
+                      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <div className="text-sm font-semibold">
+                            {merchant.name}
+                          </div>
+                          <div className="text-muted-foreground text-xs">
+                            {merchant.fid ? (
+                              <ExternalLink
+                                href={`https://cloud.getslurp.com/batcave/franchise/${merchant.fid}`}
+                              >
+                                {merchant.fid}
+                              </ExternalLink>
+                            ) : (
+                              "FID pending"
+                            )}{" "}
+                            · {merchant.outlet_count} outlets
+                          </div>
                         </div>
-                        <div className="text-muted-foreground text-xs">
-                          {merchant.fid ? (
-                            <ExternalLink
-                              href={`https://cloud.getslurp.com/batcave/franchise/${merchant.fid}`}
-                            >
-                              {merchant.fid}
-                            </ExternalLink>
+                        <span className="text-muted-foreground flex items-center gap-2 text-xs">
+                          {expandedId === merchant.id ? (
+                            <ChevronDown className="h-4 w-4" />
                           ) : (
-                            "FID pending"
-                          )}{" "}
-                          · {merchant.outlet_count} outlets
-                        </div>
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                          <span>{expandedId === merchant.id ? "Collapse" : "Expand"}</span>
+                        </span>
                       </div>
-                      <span className="text-muted-foreground flex items-center gap-2 text-xs">
-                        {expandedId === merchant.id ? (
-                          <ChevronDown className="h-4 w-4" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4" />
-                        )}
-                        <span>{expandedId === merchant.id ? "Collapse" : "Expand"}</span>
-                      </span>
-                    </div>
-                  </button>
-                </CollapsibleTrigger>
+                    </button>
+                  </CollapsibleTrigger>
+                  {merchant.fid ? (
+                    <Button asChild variant="outline" size="sm" className="md:self-center">
+                      <Link href={`/merchants/${merchant.fid}`}>View merchant</Link>
+                    </Button>
+                  ) : (
+                    <Button variant="outline" size="sm" className="md:self-center" disabled>
+                      View merchant
+                    </Button>
+                  )}
+                </div>
                 <CollapsibleContent>
                   <div className="bg-muted/30 mt-2 space-y-4 rounded-lg border px-4 py-4 text-sm">
                     <div className="grid gap-3 md:grid-cols-2">

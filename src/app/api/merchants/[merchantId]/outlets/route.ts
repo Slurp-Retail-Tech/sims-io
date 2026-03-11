@@ -21,16 +21,16 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
-  const { merchantId } = await context.params
+  const { merchantId: merchantFid } = await context.params
   const pool = getPool()
   const [merchantRows] = await pool.query(
     `
     SELECT external_id
     FROM merchants
-    WHERE id = ?
+    WHERE fid = ?
     LIMIT 1
   `,
-    [merchantId]
+    [merchantFid]
   )
 
   const merchant = (merchantRows as Array<{ external_id: string }>)[0]
@@ -65,6 +65,7 @@ export async function GET(
       external_id: row.external_id,
       name: row.name,
       status: row.status,
+      merchant_id: payload?.merchant_id ?? payload?.merchantId ?? null,
       updated_at: row.updated_at,
       created_at: (payload?.created_at as string | null) ?? row.created_at,
       address: payload?.address ?? null,

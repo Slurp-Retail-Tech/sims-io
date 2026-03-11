@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   BarChart3,
   BookOpen,
-  Bot,
   CalendarCheck2,
   CalendarClock,
   CalendarRange,
@@ -173,14 +172,14 @@ const data = {
       icon: Store,
     },
     {
+      title: "PLUS",
+      url: "/plus",
+      icon: Store,
+    },
+    {
       title: "Knowledge Base",
       url: "/knowledge-base",
       icon: BookOpen,
-    },
-    {
-      title: "AI Chatbot Settings",
-      url: "/ai-chatbot-settings",
-      icon: Bot,
     },
     {
       title: "User Management",

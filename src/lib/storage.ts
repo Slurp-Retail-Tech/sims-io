@@ -1,11 +1,13 @@
 import { randomInt } from "crypto"
 import {
   CreateBucketCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3"
+import { Readable } from "stream"
 
 type UploadInput = {
   bucket: string
@@ -114,4 +116,36 @@ export function resolveStoredObjectUrl(value: string | null) {
 export async function getObjectStream(bucket: string, key: string) {
   const s3 = getS3Client()
   return s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
+}
+
+export async function getObjectBuffer(bucket: string, key: string) {
+  const result = await getObjectStream(bucket, key)
+  if (!result.Body) {
+    throw new Error("Object body is empty.")
+  }
+
+  if (
+    typeof result.Body === "object" &&
+    result.Body !== null &&
+    "transformToByteArray" in result.Body &&
+    typeof result.Body.transformToByteArray === "function"
+  ) {
+    const bytes = await result.Body.transformToByteArray()
+    return Buffer.from(bytes)
+  }
+
+  const stream =
+    result.Body instanceof Readable
+      ? result.Body
+      : Readable.from(result.Body as unknown as AsyncIterable<Uint8Array>)
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks)
+}
+
+export async function deleteObject(bucket: string, key: string) {
+  const s3 = getS3Client()
+  await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
 }

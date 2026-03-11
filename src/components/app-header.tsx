@@ -14,6 +14,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 import { Input } from "@/components/ui/input"
+import { GENERAL_OVERVIEW_PATH } from "@/lib/page-access"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 
@@ -30,10 +31,10 @@ const breadcrumbLabels: Record<string, string> = {
   appointments: "Sales Appointment",
   "renewal-due": "Renewal Due",
   merchants: "Merchants",
+  plus: "PLUS",
   "onboarding-appointments": "Onboarding Schedule",
   "onboarding-schedule": "Onboarding Schedule",
   "knowledge-base": "Knowledge Base",
-  "ai-chatbot-settings": "AI Chatbot Settings",
   "ticket-categories": "Ticket Categories",
   "clickup-tasks": "ClickUp Tasks",
   "audit-trail": "Audit Trail",
@@ -49,17 +50,18 @@ const groupOverviewRoutes: Record<string, string> = {
   "renewal-retention": "/renewal-retention/overview",
 }
 
+const generalSegments = new Set([
+  "merchants",
+  "plus",
+  "knowledge-base",
+  "user-management",
+  "profile",
+  "preferences",
+])
+
 export function AppHeader() {
   const pathname = usePathname()
   const segments = pathname.split("/").filter(Boolean)
-  const generalSegments = new Set([
-    "merchants",
-    "knowledge-base",
-    "ai-chatbot-settings",
-    "user-management",
-    "profile",
-    "preferences",
-  ])
   const baseCrumbs = segments.map((segment, index) => {
     const href =
       index === 0 && groupOverviewRoutes[segment]
@@ -74,7 +76,7 @@ export function AppHeader() {
     segments.length > 0 &&
     !groupOverviewRoutes[segments[0]] &&
     generalSegments.has(segments[0])
-      ? [{ href: "/merchants", label: "General" }, ...baseCrumbs]
+      ? [{ href: GENERAL_OVERVIEW_PATH, label: "General" }, ...baseCrumbs]
       : baseCrumbs
   return (
     <header className="sticky top-0 z-20 flex h-16 items-center gap-3 rounded-2xl border-b bg-background/80 px-4 backdrop-blur">

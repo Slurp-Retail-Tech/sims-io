@@ -1,4 +1,10 @@
 import getPool from "@/lib/db"
+import {
+  authenticatePosApi,
+  fetchPosApiWithToken,
+  getPosApiItems,
+  resolvePosImportUrl,
+} from "@/lib/pos-api"
 import type { ResultSetHeader } from "mysql2/promise"
 
 type PosMerchant = Record<string, unknown>
@@ -7,130 +13,6 @@ type ImportSummary = {
   imported: number
   pages: number
   completedAt: string
-}
-
-const DEFAULT_AUTH_URL = "https://api.getslurp.com/api/login"
-const DEFAULT_IMPORT_URL = "http://api.getslurp.com/api/franchise-retrieve/"
-
-function resolveAuthUrl() {
-  return process.env.POS_AUTH_URL || DEFAULT_AUTH_URL
-}
-
-function resolveImportUrl() {
-  return process.env.POS_IMPORT_URL || DEFAULT_IMPORT_URL
-}
-
-function resolveCredentials() {
-  const email = process.env.POS_API_EMAIL
-  const password = process.env.POS_API_PASSWORD
-  if (!email || !password) {
-    throw new Error("POS_API_EMAIL and POS_API_PASSWORD are required")
-  }
-  return { email, password }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-const tokenKeys = [
-  "token",
-  "access_token",
-  "accessToken",
-  "jwt",
-  "jwt_token",
-  "id_token",
-  "auth_token",
-  "api_token",
-] as const
-
-function readTokenFromRecord(record: Record<string, unknown>) {
-  for (const key of tokenKeys) {
-    const value = record[key]
-    if (typeof value === "string") {
-      return value
-    }
-    if (isRecord(value)) {
-      const nested = value as Record<string, unknown>
-      for (const nestedKey of ["token", "access", "access_token", "value"]) {
-        const nestedValue = nested[nestedKey]
-        if (typeof nestedValue === "string") {
-          return nestedValue
-        }
-      }
-    }
-  }
-  return null
-}
-
-function extractToken(payload: unknown, headers?: Headers) {
-  if (!isRecord(payload)) {
-    if (!headers) {
-      return null
-    }
-  }
-  if (isRecord(payload)) {
-    const directToken = readTokenFromRecord(payload)
-    if (directToken) {
-      return directToken
-    }
-    const data = payload.data
-    if (isRecord(data)) {
-      const nestedToken = readTokenFromRecord(data)
-      if (nestedToken) {
-        return nestedToken
-      }
-    }
-    const result = payload.result ?? payload.results
-    if (isRecord(result)) {
-      const resultToken = readTokenFromRecord(result)
-      if (resultToken) {
-        return resultToken
-      }
-    }
-  }
-
-  if (headers) {
-    const headerKeys = [
-      "authorization",
-      "Authorization",
-      "x-access-token",
-      "x-auth-token",
-      "x-token",
-    ]
-    for (const key of headerKeys) {
-      const value = headers.get(key)
-      if (value) {
-        return value.startsWith("Bearer ") ? value.slice(7) : value
-      }
-    }
-  }
-
-  return null
-}
-
-function getItems(payload: unknown) {
-  if (!payload) {
-    return []
-  }
-  if (Array.isArray(payload)) {
-    return payload
-  }
-  if (!isRecord(payload)) {
-    return []
-  }
-  const candidates = [
-    payload.data,
-    payload.results,
-    payload.items,
-    isRecord(payload.data) ? payload.data.items : undefined,
-  ]
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) {
-      return candidate
-    }
-  }
-  return []
 }
 
 function getName(item: PosMerchant) {
@@ -215,29 +97,7 @@ function getOutletName(outlet: PosMerchant) {
 }
 
 async function fetchImportWithToken(url: URL, token: string) {
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    "X-Api-Token": token,
-    "X-Api-Key": token,
-  }
-
-  let response = await fetch(url.toString(), { headers })
-  if (response.status !== 401) {
-    return response
-  }
-
-  const retryUrl = new URL(url.toString())
-  retryUrl.searchParams.set("api_token", token)
-  retryUrl.searchParams.set("token", token)
-
-  response = await fetch(retryUrl.toString(), {
-    headers: {
-      ...headers,
-      Authorization: `Token ${token}`,
-    },
-  })
-
-  return response
+  return fetchPosApiWithToken(url, token)
 }
 
 export async function runMerchantImport(trigger: "manual" | "cron") {
@@ -254,34 +114,14 @@ export async function runMerchantImport(trigger: "manual" | "cron") {
   let pages = 0
 
   try {
-    const { email, password } = resolveCredentials()
-    const authResponse = await fetch(resolveAuthUrl(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    })
-
-    if (!authResponse.ok) {
-      throw new Error(`Auth failed with status ${authResponse.status}`)
-    }
-
-    const authPayload = await authResponse.json()
-    const token = extractToken(authPayload, authResponse.headers)
-    if (!token) {
-      const payloadKeys = isRecord(authPayload)
-        ? Object.keys(authPayload).join(", ")
-        : "unknown"
-      throw new Error(
-        `Auth response did not include a token (keys: ${payloadKeys}).`
-      )
-    }
+    const token = await authenticatePosApi()
 
     const perPage = 100
     let page = 1
     let hasMore = true
 
     while (hasMore) {
-      const url = new URL(resolveImportUrl())
+      const url = new URL(resolvePosImportUrl())
       url.searchParams.set("per_page", String(perPage))
       url.searchParams.set("page", String(page))
 
@@ -294,7 +134,7 @@ export async function runMerchantImport(trigger: "manual" | "cron") {
       }
 
       const payload = await response.json()
-      const items = getItems(payload) as PosMerchant[]
+      const items = getPosApiItems(payload) as PosMerchant[]
       pages += 1
 
       if (!items.length) {

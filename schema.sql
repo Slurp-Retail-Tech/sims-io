@@ -49,6 +49,23 @@ CREATE TABLE IF NOT EXISTS merchant_outlets (
   INDEX idx_merchant_outlets_merchant_external_id (merchant_external_id)
 );
 
+CREATE TABLE IF NOT EXISTS plus_update_jobs (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  status ENUM('running', 'completed', 'failed') NOT NULL DEFAULT 'running',
+  requested_by VARCHAR(255) DEFAULT NULL,
+  upload_key VARCHAR(512) DEFAULT NULL,
+  total_rows INT NOT NULL DEFAULT 0,
+  processed_rows INT NOT NULL DEFAULT 0,
+  updated_count INT NOT NULL DEFAULT 0,
+  skipped_count INT NOT NULL DEFAULT 0,
+  failed_count INT NOT NULL DEFAULT 0,
+  summary_json JSON DEFAULT NULL,
+  error_message TEXT DEFAULT NULL,
+  started_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  finished_at DATETIME(3) DEFAULT NULL,
+  INDEX plus_update_jobs_status_started_idx (status, started_at)
+);
+
 -- Keep ticket categories as-is by request
 CREATE TABLE IF NOT EXISTS ticket_categories (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
