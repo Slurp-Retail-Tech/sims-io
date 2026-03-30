@@ -147,8 +147,9 @@ npm run db:import:platform-data -- "/absolute/path/to/file.sql"
 Manual import runs from the Merchants page and pulls data from the POS API.
 
 Scheduled import is handled by your platform scheduler (for example, Coolify).
-See `docs/scheduler.md` for a ready-to-use setup, including curl examples,
-cron timing in Asia/Kuala_Lumpur, and the `MERCHANT_IMPORT_USER_ID` secret.
+See `docs/scheduler.md` for a ready-to-use setup, including cron timing in
+Asia/Kuala_Lumpur, one-line Coolify command examples, and the
+`MERCHANT_IMPORT_USER_ID` value from `users.id`.
 
 ## ClickUp Integration
 
@@ -170,6 +171,10 @@ For daily automatic status refresh, schedule:
 
 Use header:
 - `x-cron-secret: ${CLICKUP_SYNC_CRON_SECRET}`
+
+When adding scheduler commands in Coolify, keep the command on one line and
+quote the URL and header value to avoid shell parsing issues with secrets that
+contain special characters.
 
 ## File Uploads (MinIO)
 
