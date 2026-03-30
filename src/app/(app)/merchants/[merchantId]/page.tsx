@@ -52,6 +52,7 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { formatDateTime, parseDate } from "@/lib/dates"
+import { getOutletStatusClasses, getOutletStatusLabel } from "@/lib/outlet-map"
 import { getSessionUser } from "@/lib/session"
 
 type MerchantDetail = {
@@ -258,36 +259,6 @@ function getCloseDuration(createdAt: string, resolvedAt: string | null) {
   }
   parts.push(`${minutes}m`)
   return parts.join(" ")
-}
-
-function getOutletStatusLabel(validUntil: string | null) {
-  if (!validUntil) {
-    return "Active"
-  }
-  const parsed = parseDate(validUntil)
-  if (!parsed) {
-    return "Active"
-  }
-  const diffMs = parsed.getTime() - Date.now()
-  if (diffMs < 0) {
-    return "Expired"
-  }
-  const daysUntil = diffMs / (1000 * 60 * 60 * 24)
-  if (daysUntil <= 30) {
-    return "Expiring Soon"
-  }
-  return "Active"
-}
-
-function getOutletStatusClasses(status: string) {
-  switch (status) {
-    case "Expired":
-      return "bg-rose-500/10 text-rose-700 dark:text-rose-300"
-    case "Expiring Soon":
-      return "bg-amber-500/15 text-amber-700 dark:text-amber-300"
-    default:
-      return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-  }
 }
 
 function getPaginationItems(current: number, total: number) {

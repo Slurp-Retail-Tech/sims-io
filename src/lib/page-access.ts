@@ -1,41 +1,51 @@
 const normalizePath = (value: string) => value.replace(/\/+$/, "")
 
-const accessRouteMappings: { prefix: string; accessKey: string }[] = [
+const accessRouteMappings: { prefix: string; accessKeys: string[] }[] = [
   {
     prefix: "/merchant-success/onboarding-schedule",
-    accessKey: "/onboarding-appointments",
+    accessKeys: ["/onboarding-appointments"],
   },
   {
     prefix: "/merchant-success/onboarding-appointments",
-    accessKey: "/onboarding-appointments",
+    accessKeys: ["/onboarding-appointments"],
   },
   {
     prefix: "/merchant-success/ticket-categories",
-    accessKey: "/ticket-categories",
+    accessKeys: ["/ticket-categories"],
   },
-  { prefix: "/merchant-success/clickup-tasks", accessKey: "/tickets" },
-  { prefix: "/clickup-tasks", accessKey: "/tickets" },
-  { prefix: "/merchant-success/audit-trail", accessKey: "/tickets" },
-  { prefix: "/merchant-success/tickets", accessKey: "/tickets" },
-  { prefix: "/merchant-success/analytics", accessKey: "/analytics" },
-  { prefix: "/merchant-success/csat-insights", accessKey: "/analytics" },
-  { prefix: "/merchant-success/sla-breaches", accessKey: "/sla-breaches" },
-  { prefix: "/merchant-success/overview", accessKey: "/merchant-success" },
-  { prefix: "/merchant-success", accessKey: "/merchant-success" },
-  { prefix: "/sales", accessKey: "/sales" },
-  { prefix: "/renewal-retention", accessKey: "/renewal-retention" },
-  { prefix: "/renewals", accessKey: "/renewals" },
-  { prefix: "/tickets", accessKey: "/tickets" },
-  { prefix: "/analytics", accessKey: "/analytics" },
-  { prefix: "/merchants", accessKey: "/merchants" },
-  { prefix: "/plus", accessKey: "/merchants" },
-  { prefix: "/knowledge-base", accessKey: "/knowledge-base" },
-  { prefix: "/dashboard", accessKey: "/dashboard" },
-  { prefix: "/users", accessKey: "/users" },
-  { prefix: "/user-management", accessKey: "/user-management" },
-  { prefix: "/settings", accessKey: "/settings" },
-  { prefix: "/preferences", accessKey: "/preferences" },
-  { prefix: "/profile", accessKey: "/profile" },
+  {
+    prefix: "/merchant-success/clickup-tasks",
+    accessKeys: ["/clickup-tasks", "/tickets"],
+  },
+  { prefix: "/clickup-tasks", accessKeys: ["/clickup-tasks", "/tickets"] },
+  {
+    prefix: "/merchant-success/audit-trail",
+    accessKeys: ["/audit-trail", "/tickets"],
+  },
+  { prefix: "/merchant-success/tickets", accessKeys: ["/tickets"] },
+  { prefix: "/merchant-success/analytics", accessKeys: ["/analytics"] },
+  {
+    prefix: "/merchant-success/csat-insights",
+    accessKeys: ["/csat-insights", "/analytics"],
+  },
+  { prefix: "/merchant-success/sla-breaches", accessKeys: ["/sla-breaches"] },
+  { prefix: "/merchant-success/overview", accessKeys: ["/merchant-success"] },
+  { prefix: "/merchant-success", accessKeys: ["/merchant-success"] },
+  { prefix: "/sales", accessKeys: ["/sales"] },
+  { prefix: "/renewal-retention", accessKeys: ["/renewal-retention"] },
+  { prefix: "/renewals", accessKeys: ["/renewals"] },
+  { prefix: "/tickets", accessKeys: ["/tickets"] },
+  { prefix: "/analytics", accessKeys: ["/analytics"] },
+  { prefix: "/merchants", accessKeys: ["/merchants"] },
+  { prefix: "/maps", accessKeys: ["/merchants"] },
+  { prefix: "/plus", accessKeys: ["/plus", "/merchants"] },
+  { prefix: "/knowledge-base", accessKeys: ["/knowledge-base"] },
+  { prefix: "/dashboard", accessKeys: ["/dashboard"] },
+  { prefix: "/users", accessKeys: ["/users"] },
+  { prefix: "/user-management", accessKeys: ["/user-management"] },
+  { prefix: "/settings", accessKeys: ["/settings"] },
+  { prefix: "/preferences", accessKeys: ["/preferences"] },
+  { prefix: "/profile", accessKeys: ["/profile"] },
 ]
 
 const sortedMappings = [...accessRouteMappings].sort(
@@ -47,12 +57,12 @@ export const GENERAL_OVERVIEW_PATH = "/overview"
 export const hasUniversalAccess = (path: string) =>
   normalizePath(path) === GENERAL_OVERVIEW_PATH
 
-export function getAccessKeyForPath(path: string) {
+export function getAccessKeysForPath(path: string) {
   const normalized = normalizePath(path)
   for (const mapping of sortedMappings) {
     const prefix = normalizePath(mapping.prefix)
     if (normalized === prefix || normalized.startsWith(`${prefix}/`)) {
-      return mapping.accessKey
+      return mapping.accessKeys
     }
   }
   return null
@@ -62,9 +72,9 @@ export function hasPageAccessForPath(path: string, pageAccess: string[]) {
   if (hasUniversalAccess(path)) {
     return true
   }
-  const accessKey = getAccessKeyForPath(path)
-  if (accessKey) {
-    return pageAccess.includes(accessKey)
+  const accessKeys = getAccessKeysForPath(path)
+  if (accessKeys) {
+    return accessKeys.some((accessKey) => pageAccess.includes(accessKey))
   }
   const normalized = normalizePath(path)
   return pageAccess.some((access) => {

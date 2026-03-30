@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation"
 import { getSessionUser } from "@/lib/session"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -32,6 +33,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useToast } from "@/components/toast-provider"
+import type { CheckedState } from "@radix-ui/react-checkbox"
 
 const departments = [
   "Merchant Success",
@@ -51,8 +53,11 @@ const pageAccessGroups: PageAccessGroup[] = [
     options: [
       { label: "Overview", value: "/merchant-success" },
       { label: "Tickets", value: "/tickets" },
+      { label: "ClickUp Tasks", value: "/clickup-tasks" },
       { label: "Ticket Categories", value: "/ticket-categories" },
+      { label: "Audit Trail", value: "/audit-trail" },
       { label: "Analytics", value: "/analytics" },
+      { label: "CSAT Insights", value: "/csat-insights" },
       { label: "Onboarding Schedule", value: "/onboarding-appointments" },
       { label: "SLA Breaches", value: "/sla-breaches" },
     ],
@@ -72,6 +77,7 @@ const pageAccessGroups: PageAccessGroup[] = [
     label: "Product & Engineering",
     options: [
       { label: "Merchants", value: "/merchants" },
+      { label: "PLUS", value: "/plus" },
       { label: "Knowledge Base", value: "/knowledge-base" },
     ],
   },
@@ -92,7 +98,7 @@ const pageAccessOptions = pageAccessGroups.flatMap((group) => group.options)
 
 type Department = (typeof departments)[number]
 type Role = (typeof roles)[number]
-type UserStatus = "active" | "inactive"
+type UserStatus = "pending_activation" | "active" | "inactive"
 
 type User = {
   id: string
@@ -109,11 +115,10 @@ type UserForm = {
   email: string
   department: Department
   role: Role
-  password: string
   pageAccess: string[]
 }
 
-type EditForm = UserForm & { status: UserStatus }
+type EditForm = UserForm & { status: UserStatus; password: string }
 
 type SessionUser = {
   name: string
@@ -132,6 +137,8 @@ const roleDescriptions: Record<Role, string> = {
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
+const isCheckedState = (value: CheckedState) => value === true
+
 export default function UserManagementPage() {
   const router = useRouter()
   const [currentUser, setCurrentUser] =
@@ -140,7 +147,6 @@ export default function UserManagementPage() {
   const [loading, setLoading] = React.useState(true)
   const [showInactive, setShowInactive] = React.useState(false)
   const [createOpen, setCreateOpen] = React.useState(false)
-  const [showCreatePassword, setShowCreatePassword] = React.useState(false)
   const [showEditPassword, setShowEditPassword] = React.useState(false)
   const [editingUserId, setEditingUserId] = React.useState<string | null>(null)
   const [createForm, setCreateForm] = React.useState<UserForm>({
@@ -148,7 +154,6 @@ export default function UserManagementPage() {
     email: "",
     department: departments[0],
     role: "User",
-    password: "",
     pageAccess: [],
   })
   const [editForm, setEditForm] = React.useState<EditForm | null>(null)
@@ -167,22 +172,10 @@ export default function UserManagementPage() {
       email: "",
       department: currentUser?.department ?? departments[0],
       role: "User" as Role,
-      password: "",
       pageAccess: currentUser?.pageAccess ?? [],
     }),
     [currentUser?.department, currentUser?.pageAccess]
   )
-
-  const authHeaders = React.useMemo(() => {
-    if (!currentUser) {
-      return null
-    }
-    return {
-      "x-user-id": currentUser.id ?? "",
-      "x-user-role": currentUser.role,
-      "x-user-department": currentUser.department,
-    }
-  }, [currentUser])
 
   React.useEffect(() => {
     const stored = getSessionUser()
@@ -209,16 +202,14 @@ export default function UserManagementPage() {
   }, [])
 
   const loadUsers = React.useCallback(async () => {
-    if (!authHeaders) {
+    if (!currentUser) {
       setUsers([])
       setLoading(false)
       return
     }
     setLoading(true)
     try {
-      const response = await fetch("/api/users?includeInactive=true", {
-        headers: authHeaders,
-      })
+      const response = await fetch("/api/users?includeInactive=true")
       if (!response.ok) {
         showToast("Unable to load users.", "error")
         return
@@ -231,7 +222,7 @@ export default function UserManagementPage() {
     } finally {
       setLoading(false)
     }
-  }, [authHeaders, showToast])
+  }, [currentUser, showToast])
 
   React.useEffect(() => {
     if (!currentUser) {
@@ -248,10 +239,16 @@ export default function UserManagementPage() {
   }, [currentUser, loadUsers, router])
 
   const activeCount = users.filter((user) => user.status === "active").length
-  const inactiveCount = users.length - activeCount
+  const pendingCount = users.filter(
+    (user) => user.status === "pending_activation"
+  ).length
+  const inactiveCount = users.filter((user) => user.status === "inactive").length
   const visibleUsers = showInactive
-    ? users
-    : users.filter((user) => user.status === "active")
+    ? users.filter((user) => user.status === "inactive")
+    : users.filter(
+        (user) =>
+          user.status === "active" || user.status === "pending_activation"
+      )
 
   const canManageUser = (user: User) =>
     currentUser?.role === "Super Admin" ||
@@ -317,7 +314,6 @@ export default function UserManagementPage() {
 
   const openCreateDialog = () => {
     setCreateForm(defaultForm)
-    setShowCreatePassword(false)
     setCreateOpen(true)
   }
 
@@ -332,8 +328,8 @@ export default function UserManagementPage() {
       email: user.email,
       department: user.department,
       role: user.role,
-      password: "",
       status: user.status,
+      password: "",
       pageAccess: user.pageAccess ?? [],
     })
     setShowEditPassword(false)
@@ -351,10 +347,6 @@ export default function UserManagementPage() {
     }
     if (!emailPattern.test(createForm.email)) {
       showToast("Enter a valid email address.", "error")
-      return false
-    }
-    if (!createForm.password.trim()) {
-      showToast("Initial password is required.", "error")
       return false
     }
     if (createForm.role !== "Super Admin" && createForm.pageAccess.length === 0) {
@@ -398,7 +390,6 @@ export default function UserManagementPage() {
       const response = await fetch("/api/users", {
         method: "POST",
         headers: {
-          ...authHeaders,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -450,7 +441,6 @@ export default function UserManagementPage() {
       const response = await fetch(`/api/users/${editingUserId}`, {
         method: "PATCH",
         headers: {
-          ...authHeaders,
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
@@ -469,12 +459,24 @@ export default function UserManagementPage() {
     }
   }
 
-  const toggleEditStatus = () => {
-    setEditForm((prev) =>
-      prev
-        ? { ...prev, status: prev.status === "active" ? "inactive" : "active" }
-        : prev
-    )
+  const handleResendActivation = async (userId: string) => {
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resend-activation" }),
+      })
+      const data = (await response.json()) as { error?: string }
+      if (!response.ok) {
+        showToast(data.error ?? "Unable to resend activation email.", "error")
+        return
+      }
+      showToast("Activation email resent.")
+      await loadUsers()
+    } catch (error) {
+      console.error(error)
+      showToast("Unable to resend activation email.", "error")
+    }
   }
 
   const isEditingSelf =
@@ -504,7 +506,7 @@ export default function UserManagementPage() {
             onClick={() => setShowInactive((prev) => !prev)}
             disabled={!currentUser || currentUser.role === "User"}
           >
-            {showInactive ? "Hide inactive" : "Show inactive"}
+            {showInactive ? "Show active" : "Show inactive"}
           </Button>
           <Button
             size="sm"
@@ -526,6 +528,7 @@ export default function UserManagementPage() {
           <CardTitle className="text-base">Users</CardTitle>
           <span className="text-muted-foreground text-xs">
             {activeCount} active
+            {pendingCount > 0 ? ` · ${pendingCount} pending` : ""}
             {inactiveCount > 0 ? ` · ${inactiveCount} inactive` : ""}
           </span>
         </CardHeader>
@@ -602,14 +605,31 @@ export default function UserManagementPage() {
                           {user.role}
                         </span>
                         <span
-                          className={
+                          className={[
+                            "rounded-full px-2 py-0.5",
                             user.status === "active"
-                              ? "rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-300"
-                              : "rounded-full bg-muted px-2 py-0.5 text-muted-foreground"
-                          }
+                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
+                              : user.status === "pending_activation"
+                                ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                : "bg-muted text-muted-foreground",
+                          ].join(" ")}
                         >
-                          {user.status === "active" ? "Active" : "Inactive"}
+                          {user.status === "active"
+                            ? "Active"
+                            : user.status === "pending_activation"
+                              ? "Pending activation"
+                              : "Inactive"}
                         </span>
+                        {user.status === "pending_activation" ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={!canManage}
+                            onClick={() => handleResendActivation(user.id)}
+                          >
+                            Resend activation
+                          </Button>
+                        ) : null}
                         <Button
                           variant="outline"
                           size="sm"
@@ -646,7 +666,7 @@ export default function UserManagementPage() {
           <DialogHeader>
             <DialogTitle>Create user</DialogTitle>
             <DialogDescription>
-              Add a team member with workspace access and an initial password.
+              Add a team member and send an activation email so they can set their own password.
             </DialogDescription>
           </DialogHeader>
           <form className="space-y-4" onSubmit={handleCreateSubmit}>
@@ -747,36 +767,29 @@ export default function UserManagementPage() {
                 </Label>
                 <label className="flex items-center gap-2 text-xs text-muted-foreground">
                   Select All Groups
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={
                       createForm.role === "Super Admin"
                         ? true
                         : pageAccessOptions.every((option) =>
                             createForm.pageAccess.includes(option.value)
                           )
+                          ? true
+                          : pageAccessOptions.some((option) =>
+                                createForm.pageAccess.includes(option.value)
+                              )
+                            ? "indeterminate"
+                            : false
                     }
-                    ref={(node) => {
-                      if (node && createForm.role !== "Super Admin") {
-                        const allSelected = pageAccessOptions.every((option) =>
-                          createForm.pageAccess.includes(option.value)
+                    disabled={createForm.role === "Super Admin"}
+                    onCheckedChange={(checked) => {
+                      if (isCheckedState(checked) || checked === false) {
+                        toggleGroupAccess(
+                          pageAccessOptions.map((option) => option.value),
+                          setCreateForm
                         )
-                        const someSelected =
-                          !allSelected &&
-                          pageAccessOptions.some((option) =>
-                            createForm.pageAccess.includes(option.value)
-                          )
-                        node.indeterminate = someSelected
                       }
                     }}
-                    disabled={createForm.role === "Super Admin"}
-                    onChange={() =>
-                      toggleGroupAccess(
-                        pageAccessOptions.map((option) => option.value),
-                        setCreateForm
-                      )
-                    }
-                    className="h-4 w-4 rounded-full border border-input"
                   />
                 </label>
               </div>
@@ -805,17 +818,22 @@ export default function UserManagementPage() {
                           onClick={(event) => event.stopPropagation()}
                         >
                           Select all
-                          <input
-                            type="checkbox"
-                            checked={isDisabled ? true : isAllSelected}
-                            ref={(node) => {
-                              if (node) {
-                                node.indeterminate = isSomeSelected
+                          <Checkbox
+                            checked={
+                              isDisabled
+                                ? true
+                                : isAllSelected
+                                  ? true
+                                  : isSomeSelected
+                                    ? "indeterminate"
+                                    : false
+                            }
+                            disabled={isDisabled}
+                            onCheckedChange={(checked) => {
+                              if (isCheckedState(checked) || checked === false) {
+                                toggleGroupAccess(values, setCreateForm)
                               }
                             }}
-                            disabled={isDisabled}
-                            onChange={() => toggleGroupAccess(values, setCreateForm)}
-                            className="h-4 w-4 rounded-full border border-input"
                           />
                         </label>
                       </summary>
@@ -830,14 +848,12 @@ export default function UserManagementPage() {
                                 isDisabled ? "text-muted-foreground" : "",
                               ].join(" ")}
                             >
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 checked={isDisabled ? true : isSelected}
                                 disabled={isDisabled}
-                                onChange={() =>
+                                onCheckedChange={() =>
                                   togglePageAccess(option.value, setCreateForm)
                                 }
-                                className="h-4 w-4 rounded-full border border-input"
                               />
                               {option.label}
                             </label>
@@ -851,39 +867,6 @@ export default function UserManagementPage() {
               <p className="text-muted-foreground text-xs">
                 Super Admins automatically receive access to all pages.
               </p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="create-password">Password</Label>
-              <div className="relative">
-                <Input
-                  id="create-password"
-                  type={showCreatePassword ? "text" : "password"}
-                  value={createForm.password}
-                  onChange={(event) =>
-                    setCreateForm((prev) => ({
-                      ...prev,
-                      password: event.target.value,
-                    }))
-                  }
-                  placeholder="Set a temporary password"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-2"
-                  onClick={() => setShowCreatePassword((prev) => !prev)}
-                >
-                  {showCreatePassword ? (
-                    <EyeOff className="size-4" />
-                  ) : (
-                    <Eye className="size-4" />
-                  )}
-                  <span className="sr-only">
-                    {showCreatePassword ? "Hide" : "Show"} password
-                  </span>
-                </Button>
-              </div>
             </div>
             <DialogFooter>
               <Button
@@ -904,7 +887,7 @@ export default function UserManagementPage() {
           <DialogHeader>
             <DialogTitle>Update user</DialogTitle>
             <DialogDescription>
-              Update profile details and set a new password if needed.
+              Update profile details, access, and account state.
             </DialogDescription>
           </DialogHeader>
           {editForm ? (
@@ -1009,36 +992,29 @@ export default function UserManagementPage() {
                   </Label>
                   <label className="flex items-center gap-2 text-xs text-muted-foreground">
                     Select All Groups
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={
                         editForm.role === "Super Admin"
                           ? true
                           : pageAccessOptions.every((option) =>
                               editForm.pageAccess.includes(option.value)
                             )
+                            ? true
+                            : pageAccessOptions.some((option) =>
+                                  editForm.pageAccess.includes(option.value)
+                                )
+                              ? "indeterminate"
+                              : false
                       }
-                      ref={(node) => {
-                        if (node && editForm.role !== "Super Admin") {
-                          const allSelected = pageAccessOptions.every((option) =>
-                            editForm.pageAccess.includes(option.value)
+                      disabled={editForm.role === "Super Admin"}
+                      onCheckedChange={(checked) => {
+                        if (isCheckedState(checked) || checked === false) {
+                          toggleGroupAccessEdit(
+                            pageAccessOptions.map((option) => option.value),
+                            setEditForm
                           )
-                          const someSelected =
-                            !allSelected &&
-                            pageAccessOptions.some((option) =>
-                              editForm.pageAccess.includes(option.value)
-                            )
-                          node.indeterminate = someSelected
                         }
                       }}
-                      disabled={editForm.role === "Super Admin"}
-                      onChange={() =>
-                        toggleGroupAccessEdit(
-                          pageAccessOptions.map((option) => option.value),
-                          setEditForm
-                        )
-                      }
-                      className="h-4 w-4 rounded-full border border-input"
                     />
                   </label>
                 </div>
@@ -1067,17 +1043,22 @@ export default function UserManagementPage() {
                             onClick={(event) => event.stopPropagation()}
                           >
                             Select all
-                            <input
-                              type="checkbox"
-                              checked={isDisabled ? true : isAllSelected}
-                              ref={(node) => {
-                                if (node) {
-                                  node.indeterminate = isSomeSelected
+                            <Checkbox
+                              checked={
+                                isDisabled
+                                  ? true
+                                  : isAllSelected
+                                    ? true
+                                    : isSomeSelected
+                                      ? "indeterminate"
+                                      : false
+                              }
+                              disabled={isDisabled}
+                              onCheckedChange={(checked) => {
+                                if (isCheckedState(checked) || checked === false) {
+                                  toggleGroupAccessEdit(values, setEditForm)
                                 }
                               }}
-                              disabled={isDisabled}
-                              onChange={() => toggleGroupAccessEdit(values, setEditForm)}
-                              className="h-4 w-4 rounded-full border border-input"
                             />
                           </label>
                         </summary>
@@ -1092,14 +1073,12 @@ export default function UserManagementPage() {
                                   isDisabled ? "text-muted-foreground" : "",
                                 ].join(" ")}
                               >
-                                <input
-                                  type="checkbox"
+                                <Checkbox
                                   checked={isDisabled ? true : isSelected}
                                   disabled={isDisabled}
-                                  onChange={() =>
+                                  onCheckedChange={() =>
                                     togglePageAccessEdit(option.value, setEditForm)
                                   }
-                                  className="h-4 w-4 rounded-full border border-input"
                                 />
                                 {option.label}
                               </label>
@@ -1153,25 +1132,40 @@ export default function UserManagementPage() {
                   <div>
                     <div className="font-medium">Account status</div>
                     <div className="text-muted-foreground text-xs">
-                      Inactive users are hidden from the default list.
+                      Pending users must activate from email before they can sign in.
                     </div>
                   </div>
+                  <Select
+                    value={editForm.status}
+                    onValueChange={(value) =>
+                      setEditForm((prev) =>
+                        prev ? { ...prev, status: value as UserStatus } : prev
+                      )
+                    }
+                    disabled={isEditingSelf}
+                  >
+                    <SelectTrigger className="w-full sm:w-52">
+                      <SelectValue placeholder="Select account status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pending_activation">
+                        Pending activation
+                      </SelectItem>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {editForm.status === "pending_activation" ? (
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={toggleEditStatus}
-                    disabled={isEditingSelf}
-                    title={
-                      isEditingSelf
-                        ? "You cannot deactivate your own account."
-                        : "Set user status"
-                    }
+                    className="mt-3"
+                    onClick={() => editingUserId && handleResendActivation(editingUserId)}
                   >
-                    {editForm.status === "active"
-                      ? "Set inactive"
-                      : "Activate"}
+                    Resend activation email
                   </Button>
-                </div>
+                ) : null}
               </div>
               <DialogFooter>
                 <Button

@@ -7,12 +7,33 @@ CREATE TABLE IF NOT EXISTS users (
   avatar_url TEXT DEFAULT NULL,
   department VARCHAR(80) NOT NULL,
   role VARCHAR(40) NOT NULL,
-  status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+  status ENUM('pending_activation', 'active', 'inactive') NOT NULL DEFAULT 'pending_activation',
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
-  password_hash VARCHAR(255) NOT NULL,
+  password_hash VARCHAR(255) DEFAULT NULL,
   page_access JSON DEFAULT NULL,
+  google_subject VARCHAR(255) DEFAULT NULL UNIQUE,
+  google_workspace_domain VARCHAR(255) DEFAULT NULL,
+  google_linked_at DATETIME(3) DEFAULT NULL,
+  invite_sent_at DATETIME(3) DEFAULT NULL,
+  activated_at DATETIME(3) DEFAULT NULL,
+  password_set_at DATETIME(3) DEFAULT NULL,
+  last_login_at DATETIME(3) DEFAULT NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS auth_tokens (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  type ENUM('activation', 'password_reset') NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  expires_at DATETIME(3) NOT NULL,
+  consumed_at DATETIME(3) DEFAULT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  CONSTRAINT fk_auth_tokens_user_id
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE KEY uniq_auth_token_hash (token_hash),
+  INDEX auth_tokens_user_type_idx (user_id, type, expires_at)
 );
 
 CREATE TABLE IF NOT EXISTS merchants (

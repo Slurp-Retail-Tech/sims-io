@@ -3,7 +3,8 @@
 import * as React from "react"
 import Link from "next/link"
 
-import { formatDateTime, parseDate } from "@/lib/dates"
+import { formatDateTime } from "@/lib/dates"
+import { getOutletStatusClasses, getOutletStatusLabel } from "@/lib/outlet-map"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { getSessionUser } from "@/lib/session"
 import {
@@ -97,37 +98,6 @@ function formatLastUpdated(value: string | null) {
     return "Last updated: --"
   }
   return `Last updated: ${formatDateTime(value)}`
-}
-
-function getOutletStatusLabel(validUntil: string | null) {
-  if (!validUntil) {
-    return "Active"
-  }
-  const parsed = parseDate(validUntil)
-  if (!parsed) {
-    return "Active"
-  }
-  const now = Date.now()
-  const diffMs = parsed.getTime() - now
-  if (diffMs < 0) {
-    return "Expired"
-  }
-  const daysUntil = diffMs / (1000 * 60 * 60 * 24)
-  if (daysUntil <= 30) {
-    return "Expiring Soon"
-  }
-  return "Active"
-}
-
-function getOutletStatusClasses(status: string) {
-  switch (status) {
-    case "Expired":
-      return "bg-rose-500/10 text-rose-700 dark:text-rose-300"
-    case "Expiring Soon":
-      return "bg-amber-500/15 text-amber-700 dark:text-amber-300"
-    default:
-      return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-  }
 }
 
 const perPageOptions = [10, 25, 50, 100] as const
@@ -432,18 +402,21 @@ export default function MerchantsPage() {
   }
 
   const loadOutlets = React.useCallback(
-    async (merchantId: string) => {
+    async (merchantKey: string, merchantFid: string | null) => {
       const user = getSessionUser()
       if (!user?.id) {
         return
       }
-      if (loadingOutlets[merchantId] || outletsByMerchant[merchantId]) {
+      if (!merchantFid) {
         return
       }
-      setLoadingOutlets((prev) => ({ ...prev, [merchantId]: true }))
+      if (loadingOutlets[merchantKey] || outletsByMerchant[merchantKey]) {
+        return
+      }
+      setLoadingOutlets((prev) => ({ ...prev, [merchantKey]: true }))
       try {
         const response = await fetch(
-          `/api/merchants/${merchantId}/outlets`,
+          `/api/merchants/${merchantFid}/outlets`,
           {
             headers: { "x-user-id": user.id },
           }
@@ -455,23 +428,23 @@ export default function MerchantsPage() {
         const data = (await response.json()) as { outlets: Outlet[] }
         setOutletsByMerchant((prev) => ({
           ...prev,
-          [merchantId]: data.outlets ?? [],
+          [merchantKey]: data.outlets ?? [],
         }))
       } catch (error) {
         console.error(error)
         showToast("Unable to load outlets.", "error")
       } finally {
-        setLoadingOutlets((prev) => ({ ...prev, [merchantId]: false }))
+        setLoadingOutlets((prev) => ({ ...prev, [merchantKey]: false }))
       }
     },
     [loadingOutlets, outletsByMerchant, showToast]
   )
 
-  const handleToggle = (merchantId: string) => {
+  const handleToggle = (merchantId: string, merchantFid: string | null) => {
     const nextId = expandedId === merchantId ? null : merchantId
     setExpandedId(nextId)
-    if (nextId) {
-      void loadOutlets(nextId)
+    if (nextId && merchantFid) {
+      void loadOutlets(nextId, merchantFid)
     }
   }
 
@@ -687,7 +660,7 @@ export default function MerchantsPage() {
             <div key={merchant.id} className="space-y-3">
               <Collapsible
                 open={expandedId === merchant.id}
-                onOpenChange={() => handleToggle(merchant.id)}
+                onOpenChange={() => handleToggle(merchant.id, merchant.fid)}
               >
                 <div className="flex flex-col gap-2 md:flex-row md:items-center">
                   <CollapsibleTrigger asChild>

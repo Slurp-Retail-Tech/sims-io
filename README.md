@@ -49,7 +49,18 @@ HUBSPOT_ACCESS_TOKEN=
 HUBSPOT_BUSINESS_TYPE_PROPERTY=
 HUBSPOT_BUSINESS_LOCATION_PROPERTY=
 HUBSPOT_SOURCE_PROPERTY=
-RESEND_API_KEY=
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM_EMAIL=noreply@getslurp.com
+SMTP_FROM_NAME=SIMS
+APP_BASE_URL=http://localhost:3000
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=
+GOOGLE_WORKSPACE_DOMAINS=getslurp.com
 
 MINIO_ENDPOINT=http://127.0.0.1:9000
 MINIO_PUBLIC_URL=http://127.0.0.1:9000
@@ -60,6 +71,7 @@ MINIO_REGION=us-east-1
 
 NEXT_PUBLIC_SUPPORT_PHONE=
 NEXT_PUBLIC_SUPPORT_EMAIL=
+NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=
 SUPPORTFORM_WHATSAPP_NUMBER=601156654761
 DEMOFORM_WHATSAPP_NUMBER=601156654761
 # Legacy fallback only
@@ -73,12 +85,28 @@ RECAPTCHA_SECRET_KEY=
 Notes:
 - `SUPPORTFORM_WHATSAPP_NUMBER` is used for `/supportform` redirect.
 - `DEMOFORM_WHATSAPP_NUMBER` is used for `/demoform` redirect.
+- `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` is required for the General `/maps` page.
 - `NEXT_PUBLIC_SUPPORT_WHATSAPP` and `NEXT_PUBLIC_SUPPORT_CONTACT` are legacy fallbacks.
 - reCAPTCHA enforcement is enabled when `RECAPTCHA_SECRET_KEY` is set on the server.
 - Demo form lead submissions sync to HubSpot when `HUBSPOT_ACCESS_TOKEN` is configured.
-- Demo form lead email notifications send through Resend when `RESEND_API_KEY` is configured and the lead notification setting is enabled.
-- `RESEND_BASE_URL` is not used by the current implementation.
+- Demo form lead email notifications and auth emails send through Google Workspace SMTP when `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM_EMAIL` are configured.
+- All outbound emails use the configured SMTP sender identity; the lead notification page only manages recipients and enable/disable status.
+- `APP_BASE_URL` should point to the public app URL used in activation, reset-password, and Google OAuth callbacks.
+- `GOOGLE_WORKSPACE_DOMAINS` is a comma-separated allowlist of Google Workspace domains for SSO.
 - `HUBSPOT_BUSINESS_TYPE_PROPERTY`, `HUBSPOT_BUSINESS_LOCATION_PROPERTY`, and `HUBSPOT_SOURCE_PROPERTY` map form fields to your HubSpot custom contact property names.
+
+## Google Workspace SMTP Setup
+
+1. Create or choose a dedicated Google Workspace mailbox for SIMS outbound email.
+2. Enable 2-Step Verification on that mailbox.
+3. Generate an App Password for mail delivery and set it as `SMTP_PASS`.
+4. Set `SMTP_USER` to the mailbox address and `SMTP_FROM_EMAIL` to the same mailbox or an allowed alias.
+5. Optionally set `SMTP_FROM_NAME` for the display name shown in auth and lead notification emails.
+
+After deployment, verify:
+- resend activation email from the user management page
+- forgot-password flow
+- demo form lead notification delivery
 
 ## Database (Docker)
 

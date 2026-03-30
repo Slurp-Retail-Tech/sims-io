@@ -12,6 +12,7 @@ import {
   ClipboardList,
   LayoutDashboard,
   ListTree,
+  MapPinned,
   MessageSquare,
   Ticket,
   Users,
@@ -170,6 +171,11 @@ const data = {
       title: "Merchants",
       url: "/merchants",
       icon: Store,
+    },
+    {
+      title: "Merchant Coverage Map",
+      url: "/maps",
+      icon: MapPinned,
     },
     {
       title: "PLUS",

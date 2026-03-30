@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
-import { randomBytes, scryptSync } from "crypto"
 import type { ResultSetHeader } from "mysql2/promise"
 
 import getPool from "@/lib/db"
+import {
+  createOpaqueToken,
+  normalizeEmail,
+  requireAuthenticatedUser,
+} from "@/lib/auth"
+import {
+  createStoredTokenRecord,
+  sendActivationEmail,
+} from "@/lib/auth-email"
 
 const departments = [
   "Merchant Success",
@@ -15,39 +23,10 @@ const roles = ["Super Admin", "Admin", "User"] as const
 
 type Department = (typeof departments)[number]
 type Role = (typeof roles)[number]
-type UserStatus = "active" | "inactive"
-
-type AuthContext = {
-  userId: string | null
-  role: Role
-  department: Department
-}
+type UserStatus = "pending_activation" | "active" | "inactive"
 
 const validDepartments = new Set<string>(departments)
 const validRoles = new Set<string>(roles)
-
-function getAuthContext(request: NextRequest): AuthContext | null {
-  const userId = request.headers.get("x-user-id")?.trim() ?? null
-  const role = request.headers.get("x-user-role")?.trim()
-  const department = request.headers.get("x-user-department")?.trim()
-  if (!role || !department) {
-    return null
-  }
-  if (!validRoles.has(role) || !validDepartments.has(department)) {
-    return null
-  }
-  return {
-    userId,
-    role: role as Role,
-    department: department as Department,
-  }
-}
-
-function hashPassword(password: string) {
-  const salt = randomBytes(16).toString("hex")
-  const hash = scryptSync(password, salt, 64).toString("hex")
-  return `${salt}:${hash}`
-}
 
 function isDepartment(value: string): value is Department {
   return validDepartments.has(value)
@@ -58,7 +37,7 @@ function isRole(value: string): value is Role {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = getAuthContext(request)
+  const auth = await requireAuthenticatedUser(request)
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
@@ -67,15 +46,12 @@ export async function GET(request: NextRequest) {
   }
 
   const pool = getPool()
-
   const includeInactive =
     request.nextUrl.searchParams.get("includeInactive") === "true"
 
   const conditions: string[] = []
-  const params: Array<string> = []
-
   if (!includeInactive) {
-    conditions.push("status = 'active'")
+    conditions.push("status <> 'inactive'")
   }
 
   const whereClause = conditions.length
@@ -84,12 +60,11 @@ export async function GET(request: NextRequest) {
 
   const [rows] = await pool.query(
     `
-    SELECT id, name, email, department, role, status, page_access, created_at, updated_at
-    FROM users
-    ${whereClause}
-    ORDER BY created_at DESC
-  `,
-    params
+      SELECT id, name, email, department, role, status, page_access, created_at, updated_at
+      FROM users
+      ${whereClause}
+      ORDER BY created_at DESC
+    `
   )
 
   const users = (rows as Array<{
@@ -102,37 +77,32 @@ export async function GET(request: NextRequest) {
     page_access: unknown
     created_at: string
     updated_at: string
-  }>).map((row) => {
-    let pageAccess: string[] = []
-    if (Array.isArray(row.page_access)) {
-      pageAccess = row.page_access.filter((value) => typeof value === "string")
-    } else if (typeof row.page_access === "string") {
-      try {
-        const parsed = JSON.parse(row.page_access)
-        pageAccess = Array.isArray(parsed)
-          ? parsed.filter((value) => typeof value === "string")
-          : []
-      } catch {
-        pageAccess = []
-      }
-    }
-    return {
-      ...row,
-      pageAccess,
-    }
-  })
+  }>).map((row) => ({
+    ...row,
+    pageAccess: Array.isArray(row.page_access)
+      ? row.page_access.filter((value): value is string => typeof value === "string")
+      : typeof row.page_access === "string"
+        ? (() => {
+            try {
+              const parsed = JSON.parse(row.page_access)
+              return Array.isArray(parsed)
+                ? parsed.filter((value): value is string => typeof value === "string")
+                : []
+            } catch {
+              return []
+            }
+          })()
+        : [],
+  }))
 
   return NextResponse.json({ users })
 }
 
 export async function POST(request: NextRequest) {
-  const auth = getAuthContext(request)
+  const auth = await requireAuthenticatedUser(request)
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
-
-  const pool = getPool()
-
   if (auth.role === "User") {
     return NextResponse.json({ error: "Forbidden." }, { status: 403 })
   }
@@ -142,17 +112,15 @@ export async function POST(request: NextRequest) {
     email?: string
     department?: string
     role?: string
-    password?: string
     pageAccess?: string[]
   }
 
   const name = body.name?.trim()
-  const email = body.email?.trim().toLowerCase()
+  const email = normalizeEmail(body.email)
   const department = body.department?.trim()
   const role = body.role?.trim()
-  const password = body.password?.trim()
 
-  if (!name || !email || !department || !role || !password) {
+  if (!name || !email || !department || !role) {
     return NextResponse.json(
       { error: "Missing required fields." },
       { status: 400 }
@@ -160,7 +128,10 @@ export async function POST(request: NextRequest) {
   }
 
   if (!isDepartment(department) || !isRole(role)) {
-    return NextResponse.json({ error: "Invalid role or department." }, { status: 400 })
+    return NextResponse.json(
+      { error: "Invalid role or department." },
+      { status: 400 }
+    )
   }
 
   if (auth.role === "Admin" && role === "Super Admin") {
@@ -171,37 +142,82 @@ export async function POST(request: NextRequest) {
   }
 
   const pageAccess = Array.isArray(body.pageAccess)
-    ? body.pageAccess.filter((value) => typeof value === "string")
+    ? body.pageAccess.filter((value): value is string => typeof value === "string")
     : []
 
-  const passwordHash = hashPassword(password)
+  const pool = getPool()
+  const connection = await pool.getConnection()
+  const token = createOpaqueToken()
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+  let committed = false
 
   try {
-    const [insertResult] = await pool.query<ResultSetHeader>(
+    await connection.beginTransaction()
+
+    const [insertResult] = await connection.query<ResultSetHeader>(
       `
-      INSERT INTO users (name, email, department, role, status, password_hash, page_access)
-      VALUES (?, ?, ?, ?, 'active', ?, ?)
-    `,
-      [name, email, department, role, passwordHash, JSON.stringify(pageAccess)]
+        INSERT INTO users (
+          name,
+          email,
+          department,
+          role,
+          status,
+          password_hash,
+          page_access,
+          invite_sent_at
+        )
+        VALUES (?, ?, ?, ?, 'pending_activation', NULL, ?, CURRENT_TIMESTAMP(3))
+      `,
+      [name, email, department, role, JSON.stringify(pageAccess)]
     )
-    const id = String(insertResult.insertId)
+
+    const userId = String(insertResult.insertId)
+    await createStoredTokenRecord({
+      connection,
+      userId,
+      type: "activation",
+      token,
+      expiresAt,
+    })
+
+    await connection.commit()
+    committed = true
+
+    await sendActivationEmail({
+      email,
+      name,
+      token,
+      origin: request.nextUrl.origin,
+    })
+
     return NextResponse.json({
       user: {
-        id,
+        id: userId,
         name,
         email,
         department,
         role,
-        status: "active" as UserStatus,
+        status: "pending_activation" as UserStatus,
         pageAccess,
       },
     })
   } catch (error) {
+    if (!committed) {
+      await connection.rollback()
+    }
     const dbError = error as { code?: string }
     if (dbError.code === "ER_DUP_ENTRY") {
-      return NextResponse.json({ error: "Email is already in use." }, { status: 409 })
+      return NextResponse.json(
+        { error: "Email is already in use." },
+        { status: 409 }
+      )
     }
     console.error(error)
-    return NextResponse.json({ error: "Unable to create user." }, { status: 500 })
+    return NextResponse.json(
+      { error: "Unable to create user." },
+      { status: 500 }
+    )
+  } finally {
+    connection.release()
   }
 }

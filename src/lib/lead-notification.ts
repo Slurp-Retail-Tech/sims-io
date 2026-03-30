@@ -1,12 +1,12 @@
 import getPool from "@/lib/db"
 import { APP_TIME_ZONE, parseDate } from "@/lib/dates"
+import { sendMail } from "@/lib/mail"
 
 export const LEAD_NOTIFICATION_SETTINGS_ID = 1
 
 export type LeadNotificationSettings = {
   id: number
   isEnabled: boolean
-  senderEmail: string
   recipients: string[]
   updatedAt: string
   updatedBy: string | null
@@ -70,7 +70,6 @@ function mapLeadNotificationSettingsRow(row: LeadNotificationSettingsRow): LeadN
   return {
     id: row.id,
     isEnabled: Boolean(row.is_enabled),
-    senderEmail: row.sender_email,
     recipients: parseLeadNotificationRecipients(row.recipients),
     updatedAt: row.updated_at,
     updatedBy: row.updated_by,
@@ -112,7 +111,6 @@ export async function getLeadNotificationSettings() {
   return {
     id: LEAD_NOTIFICATION_SETTINGS_ID,
     isEnabled: true,
-    senderEmail: "marketing@leads.getslurp.com",
     recipients: [],
     updatedAt: new Date().toISOString(),
     updatedBy: null,
@@ -205,31 +203,12 @@ export async function sendLeadNotificationEmail(lead: LeadNotificationLead) {
     return { sent: false, reason: "disabled-or-empty" as const }
   }
 
-  const resendApiKey = process.env.RESEND_API_KEY?.trim()
-  if (!resendApiKey) {
-    return { sent: false, reason: "missing-api-key" as const }
-  }
-
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${resendApiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: settings.senderEmail,
-      to: settings.recipients,
-      subject: `New Leads - ${lead.name}`,
-      html: buildLeadNotificationHtml(lead),
-      text: buildLeadNotificationText(lead),
-    }),
-    cache: "no-store",
+  await sendMail({
+    to: settings.recipients,
+    subject: `New Leads - ${lead.name}`,
+    html: buildLeadNotificationHtml(lead),
+    text: buildLeadNotificationText(lead),
   })
-
-  if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(errorText || "Failed to send lead notification email.")
-  }
 
   return { sent: true as const }
 }

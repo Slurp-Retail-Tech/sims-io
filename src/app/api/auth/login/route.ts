@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
-import { scryptSync, timingSafeEqual } from "crypto"
 
-import { queryWithReconnect } from "@/lib/db"
-import { resolveStoredObjectUrl } from "@/lib/storage"
+import { isRetryableConnectionError, queryWithReconnect } from "@/lib/db"
+import {
+  buildSessionUser,
+  normalizeEmail,
+  setAuthCookie,
+  verifyPassword,
+  type UserStatus,
+} from "@/lib/auth"
 
 type UserRow = {
   id: string
@@ -11,36 +16,13 @@ type UserRow = {
   avatar_url: string | null
   department: string
   role: string
-  status: "active" | "inactive"
-  password_hash: string
+  status: UserStatus
+  password_hash: string | null
   page_access: unknown
 }
 
 function isDatabaseConnectionError(error: unknown) {
-  if (!error || typeof error !== "object") {
-    return false
-  }
-
-  const code = "code" in error ? error.code : undefined
-  return (
-    code === "PROTOCOL_CONNECTION_LOST" ||
-    code === "ECONNREFUSED" ||
-    code === "ECONNRESET" ||
-    code === "EPIPE"
-  )
-}
-
-function verifyPassword(password: string, stored: string) {
-  const [salt, hash] = stored.split(":")
-  if (!salt || !hash) {
-    return false
-  }
-  const derived = scryptSync(password, salt, 64)
-  const storedBuffer = Buffer.from(hash, "hex")
-  if (storedBuffer.length !== derived.length) {
-    return false
-  }
-  return timingSafeEqual(storedBuffer, derived)
+  return isRetryableConnectionError(error)
 }
 
 export async function POST(request: NextRequest) {
@@ -50,8 +32,8 @@ export async function POST(request: NextRequest) {
     remember?: boolean
   }
 
-  const email = body.email?.trim().toLowerCase()
-  const password = body.password?.trim()
+  const email = normalizeEmail(body.email)
+  const password = body.password?.trim() ?? ""
 
   if (!email || !password) {
     return NextResponse.json(
@@ -64,11 +46,11 @@ export async function POST(request: NextRequest) {
   try {
     ;[rows] = await queryWithReconnect<UserRow[]>(
       `
-      SELECT id, name, email, avatar_url, department, role, status, password_hash, page_access
-      FROM users
-      WHERE email = ?
-      LIMIT 1
-    `,
+        SELECT id, name, email, avatar_url, department, role, status, password_hash, page_access
+        FROM users
+        WHERE email = ?
+        LIMIT 1
+      `,
       [email]
     )
   } catch (error) {
@@ -82,55 +64,61 @@ export async function POST(request: NextRequest) {
   }
 
   const user = rows[0]
-  if (!user || user.status !== "active") {
+  if (!user) {
     return NextResponse.json(
       { error: "Invalid email or password." },
       { status: 401 }
     )
   }
 
-  const isValid = verifyPassword(password, user.password_hash)
-  if (!isValid) {
+  if (user.status === "pending_activation") {
+    return NextResponse.json(
+      {
+        error: "Your account is pending activation. Use the activation email to set your password first.",
+        code: "activation_required",
+      },
+      { status: 403 }
+    )
+  }
+
+  if (user.status !== "active" || !user.password_hash) {
     return NextResponse.json(
       { error: "Invalid email or password." },
       { status: 401 }
     )
+  }
+
+  if (!verifyPassword(password, user.password_hash)) {
+    return NextResponse.json(
+      { error: "Invalid email or password." },
+      { status: 401 }
+    )
+  }
+
+  try {
+    await queryWithReconnect(
+      `
+        UPDATE users
+        SET last_login_at = CURRENT_TIMESTAMP(3)
+        WHERE id = ?
+      `,
+      [user.id]
+    )
+  } catch (error) {
+    if (isDatabaseConnectionError(error)) {
+      return NextResponse.json(
+        { error: "Database temporarily unavailable. Please try again." },
+        { status: 503 }
+      )
+    }
+    throw error
   }
 
   const remember = body.remember === true
-  const maxAge = remember ? 60 * 60 * 24 * 30 : 60 * 60 * 24 * 7
-  let pageAccess: string[] = []
-  if (Array.isArray(user.page_access)) {
-    pageAccess = user.page_access.filter((value) => typeof value === "string")
-  } else if (typeof user.page_access === "string") {
-    try {
-      const parsed = JSON.parse(user.page_access)
-      pageAccess = Array.isArray(parsed)
-        ? parsed.filter((value) => typeof value === "string")
-        : []
-    } catch {
-      pageAccess = []
-    }
-  }
-
   const response = NextResponse.json({
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      avatarUrl: resolveStoredObjectUrl(user.avatar_url),
-      department: user.department,
-      role: user.role,
-      pageAccess,
-    },
+    user: buildSessionUser(user),
   })
-  response.cookies.set("sims-auth", String(user.id), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    maxAge,
-    path: "/",
-  })
+  setAuthCookie(response, user.id, remember)
 
   return response
 }

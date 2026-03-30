@@ -1,7 +1,7 @@
 import getPool from "@/lib/db"
 import {
-  authenticatePosApi,
-  fetchPosApiWithToken,
+  authenticatePosApiSession,
+  fetchPosApiWithSessionInit,
   getPosApiItems,
   resolvePosImportUrl,
 } from "@/lib/pos-api"
@@ -96,8 +96,11 @@ function getOutletName(outlet: PosMerchant) {
   )
 }
 
-async function fetchImportWithToken(url: URL, token: string) {
-  return fetchPosApiWithToken(url, token)
+async function fetchImportWithSession(
+  url: URL,
+  session: Awaited<ReturnType<typeof authenticatePosApiSession>>
+) {
+  return fetchPosApiWithSessionInit(url, session)
 }
 
 export async function runMerchantImport(trigger: "manual" | "cron") {
@@ -114,7 +117,7 @@ export async function runMerchantImport(trigger: "manual" | "cron") {
   let pages = 0
 
   try {
-    const token = await authenticatePosApi()
+    const session = await authenticatePosApiSession()
 
     const perPage = 100
     let page = 1
@@ -125,7 +128,7 @@ export async function runMerchantImport(trigger: "manual" | "cron") {
       url.searchParams.set("per_page", String(perPage))
       url.searchParams.set("page", String(page))
 
-      const response = await fetchImportWithToken(url, token)
+      const response = await fetchImportWithSession(url, session)
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => "")

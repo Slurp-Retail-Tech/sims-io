@@ -7,12 +7,14 @@ declare global {
 let pool: mysql.Pool | null = globalThis.__mysqlPool__ ?? null
 const RETRYABLE_CONNECTION_ERROR_CODES = new Set([
   "PROTOCOL_CONNECTION_LOST",
+  "ECONNREFUSED",
   "ECONNRESET",
   "EPIPE",
+  "ETIMEDOUT",
   "PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR",
 ])
 
-function isRetryableConnectionError(error: unknown) {
+export function isRetryableConnectionError(error: unknown) {
   if (!error || typeof error !== "object") {
     return false
   }
@@ -45,6 +47,9 @@ export default function getPool() {
   const connectionLimit = Number(process.env.MYSQL_CONNECTION_LIMIT ?? 10)
   const normalizedConnectionLimit =
     Number.isFinite(connectionLimit) && connectionLimit > 0 ? connectionLimit : 10
+  const connectTimeout = Number(process.env.MYSQL_CONNECT_TIMEOUT_MS ?? 10_000)
+  const normalizedConnectTimeout =
+    Number.isFinite(connectTimeout) && connectTimeout > 0 ? connectTimeout : 10_000
   const baseConfig: mysql.PoolOptions = {
     dateStrings: ["DATE", "DATETIME", "TIMESTAMP"] as Array<
       "DATE" | "DATETIME" | "TIMESTAMP"
@@ -57,6 +62,7 @@ export default function getPool() {
     maxIdle: normalizedConnectionLimit,
     idleTimeout: 60_000,
     queueLimit: 0,
+    connectTimeout: normalizedConnectTimeout,
   }
 
   const connectionString = process.env.DATABASE_URL

@@ -47,7 +47,6 @@ type LeadRow = {
 
 type LeadNotificationSettings = {
   isEnabled: boolean
-  senderEmail: string
   recipientsText: string
   updatedAt: string
   updatedBy: string | null
@@ -94,7 +93,6 @@ export default function LeadsTable() {
   const [confirmDialogOpen, setConfirmDialogOpen] = React.useState(false)
   const [settings, setSettings] = React.useState<LeadNotificationSettings>({
     isEnabled: true,
-    senderEmail: "",
     recipientsText: "",
     updatedAt: "",
     updatedBy: null,
@@ -284,7 +282,6 @@ export default function LeadsTable() {
         },
         body: JSON.stringify({
           isEnabled: settings.isEnabled,
-          senderEmail: settings.senderEmail,
           recipients: settings.recipientsText,
         }),
       })
@@ -337,7 +334,7 @@ export default function LeadsTable() {
               <div className="space-y-2">
                 <CardTitle className="text-base">New lead email notification</CardTitle>
                 <div className="text-muted-foreground text-sm">
-                  Control Resend notifications for new demoform submissions.
+                  Control email notifications for new demoform submissions.
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {settingsLoading
@@ -379,44 +376,26 @@ export default function LeadsTable() {
                     <div>
                       <div className="font-medium">Enable email notification</div>
                       <div className="text-muted-foreground text-xs">
-                        Send a Resend email when a new lead is submitted from the demoform.
+                        Send an SMTP email when a new lead is submitted from the demoform.
                       </div>
                     </div>
                   </label>
 
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium" htmlFor="lead-notification-sender">
-                        Sender email
-                      </label>
-                      <Input
-                        id="lead-notification-sender"
-                        type="email"
-                        placeholder="marketing@leads.getslurp.com"
-                        value={settings.senderEmail}
-                        disabled={!canManageNotificationSettings}
-                        onChange={(event) => {
-                          const value = event.target.value
-                          setSettings((current) => ({ ...current, senderEmail: value }))
-                        }}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium">Recipients</div>
-                      <textarea
-                        className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-28 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none"
-                        placeholder={"marketing@getslurp.com\nsales@getslurp.com"}
-                        value={settings.recipientsText}
-                        disabled={!canManageNotificationSettings}
-                        onChange={(event) => {
-                          const value = event.target.value
-                          setSettings((current) => ({ ...current, recipientsText: value }))
-                        }}
-                      />
-                      <p className="text-muted-foreground text-xs">
-                        One email per line. These addresses receive new demo lead alerts.
-                      </p>
-                    </div>
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium">Recipients</div>
+                    <textarea
+                      className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-28 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none"
+                      placeholder={"marketing@getslurp.com\nsales@getslurp.com"}
+                      value={settings.recipientsText}
+                      disabled={!canManageNotificationSettings}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setSettings((current) => ({ ...current, recipientsText: value }))
+                      }}
+                    />
+                    <p className="text-muted-foreground text-xs">
+                      One email per line. These addresses receive new demo lead alerts.
+                    </p>
                   </div>
 
                   <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

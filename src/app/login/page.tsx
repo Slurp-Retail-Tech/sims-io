@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { Suspense } from "react"
 import Image from "next/image"
 
 import { LoginForm } from "@/components/login-form"
@@ -49,7 +50,9 @@ export default function LoginPage() {
           </div>
         </div>
         <div className="w-full">
-          <LoginForm />
+          <Suspense fallback={<div className="min-h-96 rounded-xl border bg-card/90 shadow-lg" />}>
+            <LoginForm />
+          </Suspense>
         </div>
       </div>
       <div className="text-muted-foreground absolute bottom-6 left-1/2 -translate-x-1/2 text-xs">

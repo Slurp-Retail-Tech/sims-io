@@ -55,17 +55,11 @@ export async function PATCH(request: NextRequest) {
 
   const body = (await request.json()) as {
     isEnabled?: boolean
-    senderEmail?: string
     recipients?: string
   }
 
   if (typeof body.isEnabled !== "boolean") {
     return NextResponse.json({ error: "Invalid notification status." }, { status: 400 })
-  }
-
-  const senderEmail = body.senderEmail?.trim().toLowerCase() ?? ""
-  if (!isValidEmail(senderEmail)) {
-    return NextResponse.json({ error: "Invalid sender email." }, { status: 400 })
   }
 
   const recipients = parseLeadNotificationRecipients(body.recipients ?? "")
@@ -79,14 +73,12 @@ export async function PATCH(request: NextRequest) {
       INSERT INTO lead_notification_settings (
         id,
         is_enabled,
-        sender_email,
         recipients,
         updated_by
       )
-      VALUES (?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE
         is_enabled = VALUES(is_enabled),
-        sender_email = VALUES(sender_email),
         recipients = VALUES(recipients),
         updated_by = VALUES(updated_by),
         updated_at = CURRENT_TIMESTAMP(3)
@@ -94,7 +86,6 @@ export async function PATCH(request: NextRequest) {
     [
       LEAD_NOTIFICATION_SETTINGS_ID,
       body.isEnabled,
-      senderEmail,
       serializeLeadNotificationRecipients(recipients) || null,
       userId,
     ]
