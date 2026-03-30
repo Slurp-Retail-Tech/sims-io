@@ -1,4 +1,32 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## SIMS
+
+SIMS is an internal Next.js App Router workspace for Support, Sales, Merchant Success, Renewal & Retention, merchant operations, and related back-office workflows.
+
+The current production codebase is a single Next.js app at the repo root with:
+- UI routes under `src/app/`
+- API endpoints under `src/app/api/`
+- shared business logic under `src/lib/`
+- shared components under `src/components/`
+- database schema in `schema.sql`
+
+The long-term product vision in `docs/PRD.md` and `docs/TDD.md` is broader than the current implementation. Those docs now distinguish between the current app and planned future architecture.
+
+## Current Product Areas
+
+- Merchant Success tickets, ticket history, and ClickUp task sync
+- Merchant directory, POS import, and PLUS merchant workflows
+- Sales leads and appointments
+- Onboarding appointments
+- User management, activation, reset-password, and Google auth
+- Public support and demo forms
+- Merchant map and knowledge base
+
+## Current Known Gaps
+
+- Some dashboards are still UI previews or placeholder analytics.
+- Renewal & Retention overview currently shows sample data only and is not live reporting.
+- External messaging-channel integration from the PRD/TDD is not implemented in this app.
+- Automated tests have not been added yet.
 
 ## Getting Started
 
@@ -14,11 +42,7 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `src/app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load Geist.
+Open [http://localhost:3000](http://localhost:3000) with your browser to access the app.
 
 ## Environment Variables
 
@@ -190,6 +214,10 @@ The KB workflow is Notion-first and publishes approved content manually into the
 - Program runbook: `docs/knowledge-base-program.md`
 - In-app KB contract: `src/lib/knowledge-base.ts`
 - In-app KB page: `src/app/(app)/knowledge-base/page.tsx`
+
+## Renewal Overview Status
+
+The Renewal & Retention overview page is currently a preview-only UI surface. It intentionally shows sample KPI cards and placeholder chart content until a live renewal analytics data source is connected.
 
 ## Deployment
 

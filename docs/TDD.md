@@ -23,6 +23,33 @@
 
 **Ticket creation rule (current).** Tickets are created and managed inside the app workflow.
 
+## Current Implementation Snapshot
+
+The current repository does not yet implement the full service split described below. Today, the live codebase is a single Next.js App Router application with:
+
+* UI routes in `src/app/`
+* API handlers in `src/app/api/`
+* Shared server and integration logic in `src/lib/`
+* MySQL access through `mysql2`
+* MinIO-backed uploads
+* POS and ClickUp integrations invoked from route handlers and shared library code
+
+The current app already supports internal ticket workflows, merchant import/browsing, sales leads, onboarding appointments, user management, public forms, and selected analytics surfaces.
+
+### Current Architecture Notes
+
+* The app is currently deployed as one web application rather than separate `api/`, `worker/`, and `packages/shared/` services.
+* The schema in `schema.sql` is the current operational schema and should be treated as the source of truth for implemented tables.
+* Redis-, RabbitMQ-, and webhook-driven messaging components in this document are target-state design, not current runtime dependencies.
+* Some pages are intentionally UI previews. In particular, the Renewal & Retention overview page currently shows sample KPI cards and placeholder chart panels instead of live reporting.
+
+### Current Gaps to Track
+
+* Renewal analytics are not fully wired to live data.
+* Messaging-provider webhook ingestion is not implemented.
+* Automated renewal messaging and full CSAT flow are not implemented.
+* Automated test coverage is not present yet.
+
 ## Requirements
 
 **MoSCoW Prioritization**
@@ -61,6 +88,8 @@
 * Automated LLM agent handling without human‑in‑the‑loop.
 
 ## Method
+
+The sections below describe the intended target-state architecture. Use them for direction-setting and future design, but verify current implementation details against the live codebase before making assumptions about what already exists.
 
 ### Architecture Overview (MVP)
 

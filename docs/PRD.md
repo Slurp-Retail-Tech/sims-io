@@ -12,6 +12,10 @@ We're building a centralized **Support, Sales, and Renewal Engagement Platform**
 
 **Ticket creation (current):** Tickets are created and managed inside the app workflow.
 
+**Current app scope:** The live repository implements an internal Next.js workspace with support tickets, merchant operations, ClickUp sync, sales leads, onboarding appointments, user management, public forms, and selected analytics pages.
+
+**Current analytics note:** Not every dashboard in the app is backed by live metrics yet. The Renewal & Retention overview page is currently a preview-only screen with sample KPI values and placeholder chart content.
+
 ---
 
 ## 🛠 2. Problem Statement
@@ -54,6 +58,32 @@ We need a single, scalable platform for all merchant-facing teams.
 ---
 
 ## 📦 4. Core Features (MoSCoW Prioritized)
+
+### Current Release Snapshot
+
+Implemented in the current app:
+
+* Internal ticket creation and management in the app
+* Merchant import and POS-backed merchant browsing
+* ClickUp task creation/linking/status sync for tickets
+* Sales lead capture and appointment scheduling
+* Onboarding appointment workflows
+* User management, activation, password reset, and Google auth
+* Public support and demo intake forms
+* In-app knowledge base scaffolding
+
+Partially implemented or still preview-only:
+
+* Renewal analytics dashboards
+* Some operational dashboards and KPI surfaces
+* Knowledge base publishing workflow
+
+Planned but not implemented in the current app:
+
+* Messaging webhook ingestion and outbound messaging orchestration
+* Automated renewal reminder delivery
+* Full CSAT messaging flow defined in the target-state product
+* Queue/worker-based background processing from the target architecture
 
 ### ✅ Must-Have
 
