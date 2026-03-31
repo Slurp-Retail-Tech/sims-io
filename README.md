@@ -11,6 +11,19 @@ The current production codebase is a single Next.js app at the repo root with:
 
 The long-term product vision in `docs/PRD.md` and `docs/TDD.md` is broader than the current implementation. Those docs now distinguish between the current app and planned future architecture.
 
+## Tech Stack
+
+- Next.js 16 App Router
+- React 19
+- TypeScript 5
+- Tailwind CSS 4
+- MySQL with `mysql2`
+- MinIO via AWS S3 SDK
+- ClickUp API integration
+- POS API integration
+- Nodemailer for email delivery
+- Mapbox GL for map views
+
 ## Current Product Areas
 
 - Merchant Success tickets, ticket history, and ClickUp task sync
@@ -206,14 +219,6 @@ All file uploads should go through the shared API: `POST /api/uploads`.
 See `docs/uploads.md` for request format and folder conventions.
 
 This project relies on `schema.sql` for database updates. If you already have data in MySQL, back it up before reloading the schema.
-
-## Knowledge Base Operations
-
-The KB workflow is Notion-first and publishes approved content manually into the in-app Knowledge Base.
-
-- Program runbook: `docs/knowledge-base-program.md`
-- In-app KB contract: `src/lib/knowledge-base.ts`
-- In-app KB page: `src/app/(app)/knowledge-base/page.tsx`
 
 ## Renewal Overview Status
 

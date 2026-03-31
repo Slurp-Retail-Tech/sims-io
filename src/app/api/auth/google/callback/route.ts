@@ -4,6 +4,7 @@ import { queryWithReconnect } from "@/lib/db"
 import {
   getGoogleClientConfig,
   normalizeEmail,
+  resolveAppBaseUrl,
   setAuthCookie,
   type UserStatus,
 } from "@/lib/auth"
@@ -37,7 +38,8 @@ type UserRow = {
 }
 
 function redirectToLogin(request: NextRequest, error: string) {
-  return NextResponse.redirect(new URL(`/login?error=${error}`, request.url))
+  const base = resolveAppBaseUrl(request.nextUrl.origin)
+  return NextResponse.redirect(new URL(`/login?error=${error}`, base))
 }
 
 export async function GET(request: NextRequest) {
@@ -163,7 +165,8 @@ export async function GET(request: NextRequest) {
     [userInfo.sub, hostedDomain, user.id]
   )
 
-  const response = NextResponse.redirect(new URL("/overview", request.url))
+  const base = resolveAppBaseUrl(request.nextUrl.origin)
+  const response = NextResponse.redirect(new URL("/overview", base))
   response.cookies.set(GOOGLE_STATE_COOKIE, "", { maxAge: 0, path: "/" })
   setAuthCookie(response, user.id, true)
   return response
