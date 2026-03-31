@@ -6,8 +6,10 @@ import {
   ChevronsUpDown,
   LogOut,
   Settings,
+  Tag,
 } from "lucide-react"
 
+import pkg from "../../package.json"
 import { clearSession } from "@/lib/session"
 import {
   Avatar,
@@ -105,6 +107,13 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
+              <DropdownMenuItem className="pointer-events-none cursor-default">
+                <Tag />
+                v{pkg.version}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
               <DropdownMenuItem onSelect={() => router.push("/profile")}>
                 <BadgeCheck />
                 Profile
@@ -114,7 +123,7 @@ export function NavUser({
                 Preferences
               </DropdownMenuItem>
             </DropdownMenuGroup>
-          <DropdownMenuSeparator />
+            <DropdownMenuSeparator />
             <DropdownMenuItem
               onSelect={() => {
                 clearSession()

@@ -8,6 +8,8 @@ import {
   CalendarCheck2,
   CalendarClock,
   CalendarRange,
+  Check,
+  ChevronsUpDown,
   ClipboardCheck,
   ClipboardList,
   LayoutDashboard,
@@ -30,6 +32,12 @@ import {
   GENERAL_OVERVIEW_PATH,
   hasPageAccessForPath,
 } from "@/lib/page-access"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Sidebar,
   SidebarContent,
@@ -304,6 +312,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     ? allDepartmentGroups
     : allDepartmentGroups
 
+  const [selectedWorkspace, setSelectedWorkspace] = React.useState("All")
+
+  const filteredDepartments =
+    selectedWorkspace === "All"
+      ? visibleDepartments
+      : visibleDepartments.filter((g) => g.label === selectedWorkspace)
+
   const allowedGroups = [
     ...visibleDepartments,
     { label: "General", items: generalItems },
@@ -331,29 +346,75 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" asChild>
-              <a href={homeHref}>
-                <div className="flex aspect-square size-8 items-center justify-center rounded-lg">
-                  <Image
-                    src="/system-logo-v2.png"
-                    alt="SIMS"
-                    width={32}
-                    height={32}
-                    className="h-8 w-8"
-                    priority
-                  />
-                </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">SIMS</span>
-                  <span className="truncate text-xs">{userDepartment}</span>
-                </div>
-              </a>
-            </SidebarMenuButton>
+            {visibleDepartments.length > 1 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <SidebarMenuButton
+                    size="lg"
+                    className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+                  >
+                    <div className="flex aspect-square size-8 items-center justify-center rounded-lg">
+                      <Image
+                        src="/system-logo-v2.png"
+                        alt="SIMS"
+                        width={32}
+                        height={32}
+                        className="h-8 w-8"
+                        priority
+                      />
+                    </div>
+                    <div className="grid flex-1 text-left text-sm leading-tight">
+                      <span className="truncate font-medium">SIMS</span>
+                      <span className="truncate text-xs">{selectedWorkspace}</span>
+                    </div>
+                    <ChevronsUpDown className="ml-auto size-4" />
+                  </SidebarMenuButton>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded-lg"
+                  align="start"
+                  sideOffset={4}
+                >
+                  <DropdownMenuItem onSelect={() => setSelectedWorkspace("All")}>
+                    <span className="flex-1">All</span>
+                    {selectedWorkspace === "All" && <Check className="size-4" />}
+                  </DropdownMenuItem>
+                  {visibleDepartments.map((group) => (
+                    <DropdownMenuItem
+                      key={group.label}
+                      onSelect={() => setSelectedWorkspace(group.label)}
+                    >
+                      <span className="flex-1">{group.label}</span>
+                      {selectedWorkspace === group.label && <Check className="size-4" />}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <SidebarMenuButton size="lg" asChild>
+                <a href={homeHref}>
+                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg">
+                    <Image
+                      src="/system-logo-v2.png"
+                      alt="SIMS"
+                      width={32}
+                      height={32}
+                      className="h-8 w-8"
+                      priority
+                    />
+                  </div>
+                  <div className="grid flex-1 text-left text-sm leading-tight">
+                    <span className="truncate font-medium">SIMS</span>
+                    <span className="truncate text-xs">{userDepartment}</span>
+                  </div>
+                </a>
+              </SidebarMenuButton>
+            )}
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {visibleDepartments.map((group) => (
+        {filteredDepartments.map((group) => (
           <NavMain key={group.label} label={group.label} items={group.items} />
         ))}
         {generalItems.length ? <NavMain label="General" items={generalItems} /> : null}
