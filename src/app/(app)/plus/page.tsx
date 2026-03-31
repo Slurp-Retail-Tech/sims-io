@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ChevronDown, ChevronRight, LoaderCircle, Upload } from "lucide-react"
+import { ChevronDown, ChevronRight, Download, LoaderCircle, Upload } from "lucide-react"
 
 import { formatDateTime as formatAppDateTime } from "@/lib/dates"
 import { getOutletStatusClasses, getOutletStatusLabel } from "@/lib/outlet-map"
@@ -24,6 +24,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import {
   Pagination,
@@ -201,6 +207,43 @@ export default function PlusPage() {
   const [expandedId, setExpandedId] = React.useState<string | null>(null)
   const [outletsByMerchant, setOutletsByMerchant] = React.useState<Record<string, Outlet[]>>({})
   const [loadingOutlets, setLoadingOutlets] = React.useState<Record<string, boolean>>({})
+
+  const [exportLoading, setExportLoading] = React.useState(false)
+
+  const handleExport = React.useCallback(
+    async (format: "csv" | "xlsx" | "pdf") => {
+      const user = getSessionUser()
+      if (!user?.id || exportLoading) return
+
+      setExportLoading(true)
+      try {
+        const response = await fetch(`/api/plus/export?format=${format}`, {
+          headers: { "x-user-id": user.id },
+        })
+        if (!response.ok) {
+          throw new Error("Unable to export PLUS merchants.")
+        }
+        const blob = await response.blob()
+        const contentDisposition = response.headers.get("Content-Disposition") ?? ""
+        const filenameMatch = contentDisposition.match(/filename="([^"]+)"/)
+        const filename = filenameMatch?.[1] ?? `plus-merchants.${format}`
+        const url = URL.createObjectURL(blob)
+        const anchor = document.createElement("a")
+        anchor.href = url
+        anchor.download = filename
+        document.body.appendChild(anchor)
+        anchor.click()
+        anchor.remove()
+        URL.revokeObjectURL(url)
+      } catch (error) {
+        console.error(error)
+        showToast("Unable to export PLUS merchants.", "error")
+      } finally {
+        setExportLoading(false)
+      }
+    },
+    [exportLoading, showToast]
+  )
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null)
@@ -597,6 +640,30 @@ export default function PlusPage() {
           <span className="text-muted-foreground text-sm">
             Last updated: {formatDateTime(lastUpdated)}
           </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" disabled={exportLoading}>
+                {exportLoading ? (
+                  <LoaderCircle className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 size-4" />
+                )}
+                Export
+                <ChevronDown className="ml-1 size-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => void handleExport("csv")}>
+                Export as CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void handleExport("xlsx")}>
+                Export as XLSX
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void handleExport("pdf")}>
+                Export as PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button onClick={() => setDialogOpen(true)}>
             <Upload className="mr-2 size-4" />
             Update PLUS

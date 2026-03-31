@@ -5,7 +5,7 @@ import Link from "next/link"
 
 import { formatDateTime } from "@/lib/dates"
 import { getOutletStatusClasses, getOutletStatusLabel } from "@/lib/outlet-map"
-import { ChevronDown, ChevronRight } from "lucide-react"
+import { ChevronDown, ChevronRight, Download, LoaderCircle } from "lucide-react"
 import { getSessionUser } from "@/lib/session"
 import {
   Collapsible,
@@ -35,6 +35,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { ExternalLink } from "@/components/external-link"
 import { useToast } from "@/components/toast-provider"
 
@@ -166,6 +172,53 @@ export default function MerchantsPage() {
   >({})
   const { showToast } = useToast()
   const pollRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
+  const [exportLoading, setExportLoading] = React.useState(false)
+
+  const handleExport = React.useCallback(
+    async (format: "csv" | "xlsx" | "pdf") => {
+      const user = getSessionUser()
+      if (!user?.id || exportLoading) return
+
+      setExportLoading(true)
+      try {
+        const params = new URLSearchParams()
+        params.set("format", format)
+        if (search.trim()) params.set("q", search.trim())
+        if (statusFilter !== "all") params.set("status", statusFilter)
+        if (selectedBranchGroup !== "all" && selectedBranchId === "all") {
+          params.set("branch_group", selectedBranchGroup)
+        }
+        if (selectedBranchId !== "all") {
+          params.set("branch_id", selectedBranchId)
+        }
+
+        const response = await fetch(`/api/merchants/export?${params.toString()}`, {
+          headers: { "x-user-id": user.id },
+        })
+        if (!response.ok) {
+          throw new Error("Unable to export merchants.")
+        }
+        const blob = await response.blob()
+        const contentDisposition = response.headers.get("Content-Disposition") ?? ""
+        const filenameMatch = contentDisposition.match(/filename="([^"]+)"/)
+        const filename = filenameMatch?.[1] ?? `merchants-export.${format}`
+        const url = URL.createObjectURL(blob)
+        const anchor = document.createElement("a")
+        anchor.href = url
+        anchor.download = filename
+        document.body.appendChild(anchor)
+        anchor.click()
+        anchor.remove()
+        URL.revokeObjectURL(url)
+      } catch (error) {
+        console.error(error)
+        showToast("Unable to export merchants.", "error")
+      } finally {
+        setExportLoading(false)
+      }
+    },
+    [exportLoading, search, statusFilter, selectedBranchGroup, selectedBranchId, showToast]
+  )
 
   const branchGroups = React.useMemo(() => {
     const groups = Array.from(
@@ -494,6 +547,30 @@ export default function MerchantsPage() {
               Importing {importRun.records_imported} records
             </span>
           ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline" disabled={exportLoading}>
+                {exportLoading ? (
+                  <LoaderCircle className="mr-2 size-4 animate-spin" />
+                ) : (
+                  <Download className="mr-2 size-4" />
+                )}
+                Export
+                <ChevronDown className="ml-1 size-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => void handleExport("csv")}>
+                Export as CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void handleExport("xlsx")}>
+                Export as XLSX
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void handleExport("pdf")}>
+                Export as PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button size="sm" onClick={handleImport} disabled={isImporting}>
             {isImporting ? "Importing..." : "Import now"}
           </Button>
