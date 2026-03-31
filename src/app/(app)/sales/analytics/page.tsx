@@ -1,78 +1,115 @@
 import type { Metadata } from "next"
-import { ArrowDownRight, ArrowUpRight } from "lucide-react"
+import { cookies } from "next/headers"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
+  SALES_ANALYTICS_FILTER_COOKIE_NAME,
+  parseSalesFilterCookie,
+} from "../filter-state"
+import {
+  getSalesAnalyticsData,
+  getSalesAvailablePeriods,
+  resolveSalesFilter,
+} from "./data"
+import { SalesAnalyticsCharts } from "./charts"
+import { SalesAnalyticsHeaderFilters } from "./header-filters"
 
 export const metadata: Metadata = {
   title: "Sales Analytics",
 }
 
-const metrics = [
-  { label: "Lead response", value: "6m", delta: "-8%", trend: "down" },
-  { label: "Qualified rate", value: "54%", delta: "+5%", trend: "up" },
-  { label: "Won deals", value: "21", delta: "+3", trend: "up" },
-]
+function formatRate(value: number | null): string {
+  if (value === null) return "--"
+  return `${value.toFixed(1)}%`
+}
 
-export default function SalesAnalyticsPage() {
+export default async function SalesAnalyticsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ period?: string; month?: string; year?: string }>
+}) {
+  const params = searchParams ? await searchParams : undefined
+  const cookieStore = await cookies()
+  const persistedFilter = parseSalesFilterCookie(
+    cookieStore.get(SALES_ANALYTICS_FILTER_COOKIE_NAME)?.value
+  )
+
+  const { months: monthOptions, years: yearOptions } = await getSalesAvailablePeriods()
+
+  const { mode, selectedMonth, selectedYear, fromDate, toDate } = resolveSalesFilter({
+    query: {
+      period: params?.period ?? persistedFilter?.period,
+      month: params?.month ?? persistedFilter?.month,
+      year: params?.year ?? persistedFilter?.year,
+    },
+    availableMonths: monthOptions,
+    availableYears: yearOptions,
+  })
+
+  const data = await getSalesAnalyticsData({ mode, fromDate, toDate })
+
+  const kpis = [
+    {
+      label: "Total Leads",
+      value: data.totalLeads.toLocaleString(),
+    },
+    {
+      label: "Archived Leads",
+      value: data.archivedLeads.toLocaleString(),
+    },
+    {
+      label: "Appointments Booked",
+      value: (
+        data.appointmentsPending +
+        data.appointmentsCompleted +
+        data.appointmentsCanceled
+      ).toLocaleString(),
+    },
+    {
+      label: "Completion Rate",
+      value: formatRate(data.completionRate),
+    },
+    {
+      label: "Cancellation Rate",
+      value: formatRate(data.cancellationRate),
+    },
+  ]
+
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Sales Analytics</h1>
-        <p className="text-muted-foreground text-sm">
-          Pipeline insights for lead qualification.
-        </p>
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Sales Analytics</h1>
+          <p className="text-muted-foreground text-sm">
+            Lead intake and appointment performance by period.
+          </p>
+        </div>
+        <SalesAnalyticsHeaderFilters
+          mode={mode}
+          selectedMonth={selectedMonth}
+          selectedYear={selectedYear}
+          monthOptions={monthOptions}
+          yearOptions={yearOptions}
+        />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        {metrics.map((metric) => (
-          <Card key={metric.label}>
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+        {kpis.map((kpi) => (
+          <Card key={kpi.label}>
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">
-                {metric.label}
-              </CardTitle>
+              <CardDescription>{kpi.label}</CardDescription>
+              <CardTitle className="text-3xl">{kpi.value}</CardTitle>
             </CardHeader>
-            <CardContent className="flex items-center justify-between">
-              <div className="text-2xl font-semibold">{metric.value}</div>
-              <div className="flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-300">
-                {metric.trend === "up" ? (
-                  <ArrowUpRight className="size-3" />
-                ) : (
-                  <ArrowDownRight className="size-3" />
-                )}
-                {metric.delta}
-              </div>
-            </CardContent>
           </Card>
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Lead conversion</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="bg-muted/60 h-56 rounded-xl" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Top regions</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            {[
-              { label: "Kuala Lumpur", value: "42%" },
-              { label: "Selangor", value: "28%" },
-              { label: "Johor", value: "15%" },
-            ].map((row) => (
-              <div key={row.label} className="flex items-center justify-between">
-                <span>{row.label}</span>
-                <span className="text-muted-foreground">{row.value}</span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
+      <SalesAnalyticsCharts data={data} />
     </div>
   )
 }

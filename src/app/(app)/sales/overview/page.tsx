@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
-import { ArrowUpRight, CalendarCheck2, Target, TrendingUp } from "lucide-react"
+import Link from "next/link"
+import { CalendarCheck2, Target, TrendingUp } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -7,41 +8,51 @@ import {
   CardContent,
   CardDescription,
   CardHeader,
-  CardTitle,
 } from "@/components/ui/card"
+import { getSalesOverviewData } from "./data"
+import { SalesOverviewCharts } from "./charts"
 
 export const metadata: Metadata = {
   title: "Sales Overview",
 }
 
-const kpis = [
-  {
-    label: "New leads",
-    value: "78",
-    delta: "+14%",
-    icon: Target,
-  },
-  {
-    label: "Qualified",
-    value: "42",
-    delta: "+9%",
-    icon: TrendingUp,
-  },
-  {
-    label: "Appointments",
-    value: "18",
-    delta: "+3",
-    icon: CalendarCheck2,
-  },
-  {
-    label: "Win rate",
-    value: "21%",
-    delta: "+2%",
-    icon: ArrowUpRight,
-  },
-]
+function formatRate(value: number | null): string {
+  if (value === null) return "--"
+  return `${value.toFixed(1)}%`
+}
 
-export default function SalesOverviewPage() {
+function formatDelta(value: number): string {
+  if (value === 0) return "No change"
+  return value > 0 ? `+${value} vs last month` : `${value} vs last month`
+}
+
+export default async function SalesOverviewPage() {
+  const data = await getSalesOverviewData()
+
+  const kpis = [
+    {
+      label: "Leads This Month",
+      value: data.leadsThisMonth.toLocaleString(),
+      delta: formatDelta(data.leadsDelta),
+      positive: data.leadsDelta >= 0,
+      icon: Target,
+    },
+    {
+      label: "Appointments This Month",
+      value: data.appointmentsThisMonth.toLocaleString(),
+      delta: formatDelta(data.appointmentsDelta),
+      positive: data.appointmentsDelta >= 0,
+      icon: CalendarCheck2,
+    },
+    {
+      label: "Completion Rate",
+      value: formatRate(data.completionRate),
+      delta: "Completed vs closed",
+      positive: true,
+      icon: TrendingUp,
+    },
+  ]
+
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -50,13 +61,15 @@ export default function SalesOverviewPage() {
             Sales &amp; Marketing Overview
           </h1>
           <p className="text-muted-foreground text-sm">
-            Lead intake and conversion performance.
+            Lead intake and appointment performance.
           </p>
         </div>
-        <Button size="sm">Create lead</Button>
+        <Button size="sm" asChild>
+          <Link href="/sales/leads">View Leads</Link>
+        </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-3">
         {kpis.map((item) => {
           const Icon = item.icon
           return (
@@ -69,7 +82,13 @@ export default function SalesOverviewPage() {
               </CardHeader>
               <CardContent className="flex items-end justify-between">
                 <div className="text-2xl font-semibold">{item.value}</div>
-                <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                <span
+                  className={`text-xs ${
+                    item.positive
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-rose-600 dark:text-rose-400"
+                  }`}
+                >
                   {item.delta}
                 </span>
               </CardContent>
@@ -78,34 +97,7 @@ export default function SalesOverviewPage() {
         })}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Lead pipeline</CardTitle>
-            <CardDescription>Last 30 days movement.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="bg-muted/60 h-56 rounded-xl" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Top performing sources</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            {[
-              { label: "Web form", value: "44%" },
-              { label: "Referrals", value: "30%" },
-              { label: "Outbound campaigns", value: "16%" },
-            ].map((row) => (
-              <div key={row.label} className="flex items-center justify-between">
-                <span>{row.label}</span>
-                <span className="text-muted-foreground">{row.value}</span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
+      <SalesOverviewCharts data={data} />
     </div>
   )
 }
