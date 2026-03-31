@@ -164,7 +164,7 @@ export async function POST(request: NextRequest) {
   const { franchiseName, outletName } = await resolveMerchantNames(pool, fid, oid)
   const [insertResult] = await pool.query<ResultSetHeader>(
     `
-    INSERT INTO support_requests (
+    INSERT INTO tickets (
       merchant_name,
       outlet_name_resolved,
       phone_number,
@@ -184,7 +184,8 @@ export async function POST(request: NextRequest) {
       hidden,
       ms_pic_user_id,
       status,
-      clickup_link
+      clickup_link,
+      opened_at
     )
     VALUES (
       ?,
@@ -206,7 +207,8 @@ export async function POST(request: NextRequest) {
       FALSE,
       NULL,
       'Open',
-      NULL
+      NULL,
+      NOW(3)
     )
   `,
     [

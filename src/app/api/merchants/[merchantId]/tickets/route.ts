@@ -41,11 +41,11 @@ export async function GET(
     return NextResponse.json({ tickets: [], total: 0, page, perPage })
   }
 
-  const whereClauses = ["support_requests.fid = ?"]
+  const whereClauses = ["tickets.fid = ?"]
   const values: Array<string | number> = [merchant.fid]
 
   if (outletId) {
-    whereClauses.push("support_requests.oid = ?")
+    whereClauses.push("tickets.oid = ?")
     values.push(outletId)
   }
 
@@ -54,7 +54,7 @@ export async function GET(
   const [countRows] = await pool.query(
     `
     SELECT COUNT(*) AS total
-    FROM support_requests
+    FROM tickets
     ${whereSql}
   `,
     values
@@ -68,30 +68,30 @@ export async function GET(
   const [rows] = await pool.query(
     `
     SELECT
-      support_requests.id,
-      support_requests.merchant_name AS customer_name,
-      support_requests.phone_number AS customer_phone,
-      support_requests.franchise_name_resolved AS franchise_name,
-      support_requests.outlet_name_resolved AS outlet_name,
-      support_requests.fid,
-      support_requests.oid,
-      support_requests.status,
-      support_requests.hidden,
-      support_requests.issue_type AS category,
-      support_requests.issue_subcategory1 AS subcategory_1,
-      support_requests.issue_subcategory2 AS subcategory_2,
-      support_requests.clickup_link,
-      support_requests.clickup_task_id,
-      support_requests.clickup_task_status,
-      COALESCE(support_requests.closed_at, support_requests.updated_at) AS resolved_at,
-      support_requests.created_at,
-      support_requests.updated_at AS last_message_at,
+      tickets.id,
+      tickets.merchant_name AS customer_name,
+      tickets.phone_number AS customer_phone,
+      tickets.franchise_name_resolved AS franchise_name,
+      tickets.outlet_name_resolved AS outlet_name,
+      tickets.fid,
+      tickets.oid,
+      tickets.status,
+      tickets.hidden,
+      tickets.issue_type AS category,
+      tickets.issue_subcategory1 AS subcategory_1,
+      tickets.issue_subcategory2 AS subcategory_2,
+      tickets.clickup_link,
+      tickets.clickup_task_id,
+      tickets.clickup_task_status,
+      COALESCE(tickets.closed_at, tickets.updated_at) AS resolved_at,
+      tickets.created_at,
+      tickets.updated_at AS last_message_at,
       users.name AS ms_agent_name
-    FROM support_requests
+    FROM tickets
     LEFT JOIN users
-      ON users.id = support_requests.ms_pic_user_id
+      ON users.id = tickets.ms_pic_user_id
     ${whereSql}
-    ORDER BY support_requests.created_at DESC
+    ORDER BY tickets.created_at DESC
     LIMIT ? OFFSET ?
   `,
     [...values, perPage, offset]

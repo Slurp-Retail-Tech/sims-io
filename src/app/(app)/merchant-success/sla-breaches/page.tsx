@@ -157,29 +157,29 @@ async function getSlaBreaches() {
   const [rows] = await queryWithReconnect<SlaBreachRow[]>(
     `
       SELECT
-        support_requests.id,
-        support_requests.merchant_name AS customer_name,
-        support_requests.phone_number AS customer_phone,
-        support_requests.franchise_name_resolved AS franchise_name,
-        support_requests.outlet_name_resolved AS outlet_name,
-        support_requests.fid,
-        support_requests.oid,
-        support_requests.status,
-        support_requests.issue_type AS category,
-        support_requests.issue_subcategory1 AS subcategory_1,
-        support_requests.issue_subcategory2 AS subcategory_2,
-        support_requests.clickup_link,
-        support_requests.clickup_task_id,
-        support_requests.clickup_task_status,
-        support_requests.created_at,
+        tickets.id,
+        tickets.merchant_name AS customer_name,
+        tickets.phone_number AS customer_phone,
+        tickets.franchise_name_resolved AS franchise_name,
+        tickets.outlet_name_resolved AS outlet_name,
+        tickets.fid,
+        tickets.oid,
+        tickets.status,
+        tickets.issue_type AS category,
+        tickets.issue_subcategory1 AS subcategory_1,
+        tickets.issue_subcategory2 AS subcategory_2,
+        tickets.clickup_link,
+        tickets.clickup_task_id,
+        tickets.clickup_task_status,
+        COALESCE(tickets.opened_at, tickets.created_at) AS created_at,
         users.name AS ms_agent_name
-      FROM support_requests
+      FROM tickets
       LEFT JOIN users
-        ON users.id = support_requests.ms_pic_user_id
-      WHERE support_requests.hidden = FALSE
-        AND support_requests.status <> 'Resolved'
-        AND support_requests.created_at <= UTC_TIMESTAMP() - INTERVAL 3 DAY
-      ORDER BY support_requests.created_at ASC, support_requests.id ASC
+        ON users.id = tickets.ms_pic_user_id
+      WHERE tickets.hidden = FALSE
+        AND tickets.status <> 'Resolved'
+        AND COALESCE(tickets.opened_at, tickets.created_at) <= UTC_TIMESTAMP() - INTERVAL 3 DAY
+      ORDER BY COALESCE(tickets.opened_at, tickets.created_at) ASC, tickets.id ASC
     `
   )
 

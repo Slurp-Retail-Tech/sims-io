@@ -28,6 +28,8 @@ type TicketDetailRow = RowDataPacket & {
   attachment_url: string | null
   attachment_url_2: string | null
   attachment_url_3: string | null
+  opened_at: string | null
+  merchant_sentiment: string | null
   created_at: string
   updated_at: string
   closed_at: string | null
@@ -53,7 +55,7 @@ type CsatResponseRow = RowDataPacket & {
 }
 
 type CsatSendHistoryRow = RowDataPacket & {
-  request_id: string
+  ticket_id: string
 }
 
 async function getActorLabel(userId: string) {
@@ -167,40 +169,42 @@ export async function GET(
   const [ticketRows] = await pool.query<TicketDetailRow[]>(
     `
     SELECT
-      support_requests.id,
-      support_requests.merchant_name,
-      support_requests.phone_number,
-      support_requests.franchise_name_resolved,
-      support_requests.outlet_name_resolved,
-      support_requests.fid,
-      support_requests.oid,
-      support_requests.status,
-      support_requests.hidden,
-      support_requests.issue_type,
-      support_requests.issue_subcategory1,
-      support_requests.issue_subcategory2,
-      support_requests.issue_description,
-      support_requests.ticket_description,
-      support_requests.clickup_link,
-      support_requests.clickup_task_id,
-      support_requests.clickup_task_status,
-      support_requests.clickup_task_status_synced_at,
-      support_requests.attachment_url,
-      support_requests.attachment_url_2,
-      support_requests.attachment_url_3,
-      support_requests.created_at,
-      support_requests.updated_at,
-      support_requests.closed_at,
-      support_requests.updated_by,
+      tickets.id,
+      tickets.merchant_name,
+      tickets.phone_number,
+      tickets.franchise_name_resolved,
+      tickets.outlet_name_resolved,
+      tickets.fid,
+      tickets.oid,
+      tickets.status,
+      tickets.hidden,
+      tickets.issue_type,
+      tickets.issue_subcategory1,
+      tickets.issue_subcategory2,
+      tickets.issue_description,
+      tickets.ticket_description,
+      tickets.clickup_link,
+      tickets.clickup_task_id,
+      tickets.clickup_task_status,
+      tickets.clickup_task_status_synced_at,
+      tickets.attachment_url,
+      tickets.attachment_url_2,
+      tickets.attachment_url_3,
+      tickets.opened_at,
+      tickets.merchant_sentiment,
+      tickets.created_at,
+      tickets.updated_at,
+      tickets.closed_at,
+      tickets.updated_by,
       updater.name AS updated_by_display,
-      support_requests.ms_pic_user_id,
+      tickets.ms_pic_user_id,
       users.name AS ms_pic_name
-    FROM support_requests
+    FROM tickets
     LEFT JOIN users
-      ON users.id = support_requests.ms_pic_user_id
+      ON users.id = tickets.ms_pic_user_id
     LEFT JOIN users AS updater
-      ON updater.id = support_requests.updated_by
-    WHERE support_requests.id = ?
+      ON updater.id = tickets.updated_by
+    WHERE tickets.id = ?
     LIMIT 1
   `,
     [ticketId]
@@ -215,7 +219,7 @@ export async function GET(
     `
     SELECT token, created_at, expires_at, used_at
     FROM csat_tokens
-    WHERE request_id = ?
+    WHERE ticket_id = ?
     ORDER BY id DESC
     LIMIT 1
   `,
@@ -227,7 +231,7 @@ export async function GET(
     `
     SELECT support_score, support_reason, product_score, product_feedback, submitted_at
     FROM csat_responses
-    WHERE request_id = ?
+    WHERE ticket_id = ?
     ORDER BY id DESC
     LIMIT 1
   `,
@@ -237,9 +241,9 @@ export async function GET(
 
   const [sendRows] = await pool.query<CsatSendHistoryRow[]>(
     `
-    SELECT request_id
-    FROM support_request_history
-    WHERE request_id = ?
+    SELECT ticket_id
+    FROM ticket_history
+    WHERE ticket_id = ?
       AND field_name IN ('csat_link_shared', 'csat_link_shared_at')
     LIMIT 1
   `,
@@ -276,6 +280,8 @@ export async function GET(
       clickupTaskStatus: row.clickup_task_status,
       clickupTaskStatusSyncedAt: row.clickup_task_status_synced_at,
       attachments,
+      openedAt: row.opened_at,
+      merchantSentiment: row.merchant_sentiment,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       closedAt: row.closed_at,
@@ -332,6 +338,8 @@ export async function PATCH(
     clickupLink?: string | null
     clickupTaskStatus?: string | null
     clickupTaskStatusSyncedAt?: string | null
+    openedAt?: string | null
+    merchantSentiment?: string | null
   }
 
   const pool = getPool()
@@ -356,8 +364,10 @@ export async function PATCH(
       clickup_task_id,
       clickup_link,
       clickup_task_status,
-      clickup_task_status_synced_at
-    FROM support_requests
+      clickup_task_status_synced_at,
+      opened_at,
+      merchant_sentiment
+    FROM tickets
     WHERE id = ?
     LIMIT 1
   `,
@@ -521,6 +531,23 @@ export async function PATCH(
       normalizedSyncedAt
     )
   }
+  if (body.openedAt !== undefined) {
+    const normalizedOpenedAt = normalizeDateTimeForMysqlInput(body.openedAt)
+    compareAndPush(
+      "opened_at",
+      "opened_at",
+      current.opened_at,
+      normalizedOpenedAt
+    )
+  }
+  if (body.merchantSentiment !== undefined) {
+    compareAndPush(
+      "merchant_sentiment",
+      "merchant_sentiment",
+      current.merchant_sentiment,
+      body.merchantSentiment ?? null
+    )
+  }
 
   if (!updates.length) {
     return NextResponse.json({ ok: true, updated: false })
@@ -549,7 +576,7 @@ export async function PATCH(
 
   await pool.query(
     `
-    UPDATE support_requests
+    UPDATE tickets
     SET ${setClauses.join(", ")}
     WHERE id = ?
   `,
@@ -559,8 +586,8 @@ export async function PATCH(
   for (const item of history) {
     await pool.query(
       `
-      INSERT INTO support_request_history (
-        request_id,
+      INSERT INTO ticket_history (
+        ticket_id,
         field_name,
         old_value,
         new_value,
@@ -578,7 +605,7 @@ export async function PATCH(
       `
       UPDATE csat_tokens
       SET used_at = COALESCE(used_at, NOW(3))
-      WHERE request_id = ?
+      WHERE ticket_id = ?
         AND used_at IS NULL
     `,
       [ticketId]
@@ -587,7 +614,7 @@ export async function PATCH(
     generatedCsatToken = randomUUID()
     await pool.query(
       `
-      INSERT INTO csat_tokens (request_id, token, expires_at)
+      INSERT INTO csat_tokens (ticket_id, token, expires_at)
       VALUES (?, ?, DATE_ADD(NOW(3), INTERVAL 3 DAY))
     `,
       [ticketId, generatedCsatToken]
@@ -595,8 +622,8 @@ export async function PATCH(
 
     await pool.query(
       `
-      INSERT INTO support_request_history (
-        request_id,
+      INSERT INTO ticket_history (
+        ticket_id,
         field_name,
         old_value,
         new_value,

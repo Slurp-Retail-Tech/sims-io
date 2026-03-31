@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   const values: Array<string | number> = []
 
   if (ticketId) {
-    whereClauses.push("CAST(history.request_id AS CHAR) LIKE ?")
+    whereClauses.push("CAST(history.ticket_id AS CHAR) LIKE ?")
     values.push(`%${ticketId}%`)
   }
 
@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
   const [countRows] = await pool.query<RowDataPacket[]>(
     `
     SELECT COUNT(*) AS total
-    FROM support_request_history AS history
+    FROM ticket_history AS history
     ${whereSql}
   `,
     values
@@ -72,13 +72,13 @@ export async function GET(request: NextRequest) {
     `
     SELECT
       history.id,
-      history.request_id AS ticket_id,
+      history.ticket_id AS ticket_id,
       history.field_name,
       history.old_value,
       history.new_value,
       history.changed_at,
       COALESCE(actor.name, actor.email, history.changed_by) AS changed_by_display
-    FROM support_request_history AS history
+    FROM ticket_history AS history
     LEFT JOIN users AS actor
       ON actor.id = history.changed_by
     ${whereSql}

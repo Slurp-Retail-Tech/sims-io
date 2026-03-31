@@ -15,6 +15,7 @@ type TicketExportRow = {
   "Phone Number": string
   FID: string
   OID: string
+  "Merchant Sentiment": string
   "Issue Type": string
   "Issue Subcategory 1": string
   "Issue Subcategory 2": string
@@ -27,6 +28,7 @@ type TicketExportRow = {
   Status: string
   "Closed By": string
   "Closed At": string
+  "Opened At": string
   "Assigned MS PIC": string
   "Created At": string
   "CSAT Link Shared": string
@@ -53,6 +55,7 @@ const exportColumnOrder: Array<keyof TicketExportRow> = [
   "Phone Number",
   "FID",
   "OID",
+  "Merchant Sentiment",
   "Issue Type",
   "Issue Subcategory 1",
   "Issue Subcategory 2",
@@ -65,6 +68,7 @@ const exportColumnOrder: Array<keyof TicketExportRow> = [
   "Status",
   "Closed By",
   "Closed At",
+  "Opened At",
   "Assigned MS PIC",
   "Created At",
   "CSAT Link Shared",
@@ -169,7 +173,7 @@ export async function GET(request: NextRequest) {
   if (query) {
     const likeValue = `%${query}%`
     whereClauses.push(
-      `(LOWER(support_requests.merchant_name) LIKE ? OR LOWER(support_requests.phone_number) LIKE ? OR LOWER(support_requests.franchise_name_resolved) LIKE ? OR LOWER(support_requests.outlet_name_resolved) LIKE ? OR LOWER(support_requests.fid) LIKE ? OR LOWER(support_requests.oid) LIKE ? OR LOWER(support_requests.issue_type) LIKE ? OR LOWER(support_requests.issue_subcategory1) LIKE ? OR LOWER(support_requests.issue_subcategory2) LIKE ?)`
+      `(LOWER(tickets.merchant_name) LIKE ? OR LOWER(tickets.phone_number) LIKE ? OR LOWER(tickets.franchise_name_resolved) LIKE ? OR LOWER(tickets.outlet_name_resolved) LIKE ? OR LOWER(tickets.fid) LIKE ? OR LOWER(tickets.oid) LIKE ? OR LOWER(tickets.issue_type) LIKE ? OR LOWER(tickets.issue_subcategory1) LIKE ? OR LOWER(tickets.issue_subcategory2) LIKE ?)`
     )
     values.push(
       likeValue,
@@ -185,39 +189,39 @@ export async function GET(request: NextRequest) {
   }
 
   if (status && status !== "all") {
-    whereClauses.push("support_requests.status = ?")
+    whereClauses.push("tickets.status = ?")
     values.push(status)
   }
 
   if (archive === "active") {
-    whereClauses.push("support_requests.hidden = FALSE")
+    whereClauses.push("tickets.hidden = FALSE")
   } else if (archive === "archived") {
-    whereClauses.push("support_requests.hidden = TRUE")
+    whereClauses.push("tickets.hidden = TRUE")
   }
 
   if (clickup === "with") {
     whereClauses.push(
       `(
-        (support_requests.clickup_task_id IS NOT NULL AND support_requests.clickup_task_id <> '')
-        OR (support_requests.clickup_link IS NOT NULL AND support_requests.clickup_link <> '')
+        (tickets.clickup_task_id IS NOT NULL AND tickets.clickup_task_id <> '')
+        OR (tickets.clickup_link IS NOT NULL AND tickets.clickup_link <> '')
       )`
     )
   } else if (clickup === "without") {
     whereClauses.push(
       `(
-        (support_requests.clickup_task_id IS NULL OR support_requests.clickup_task_id = '')
-        AND (support_requests.clickup_link IS NULL OR support_requests.clickup_link = '')
+        (tickets.clickup_task_id IS NULL OR tickets.clickup_task_id = '')
+        AND (tickets.clickup_link IS NULL OR tickets.clickup_link = '')
       )`
     )
   }
 
   if (startDate) {
-    whereClauses.push("DATE(support_requests.created_at) >= ?")
+    whereClauses.push("DATE(COALESCE(tickets.opened_at, tickets.created_at)) >= ?")
     values.push(startDate)
   }
 
   if (endDate) {
-    whereClauses.push("DATE(support_requests.created_at) <= ?")
+    whereClauses.push("DATE(COALESCE(tickets.opened_at, tickets.created_at)) <= ?")
     values.push(endDate)
   }
 
@@ -229,65 +233,67 @@ export async function GET(request: NextRequest) {
   const [rows] = await pool.query(
     `
     SELECT
-      support_requests.id,
-      support_requests.merchant_name,
-      support_requests.franchise_name_resolved,
-      support_requests.outlet_name_resolved,
-      support_requests.phone_number,
-      support_requests.fid,
-      support_requests.oid,
-      support_requests.issue_type,
-      support_requests.issue_subcategory1,
-      support_requests.issue_subcategory2,
-      support_requests.issue_description,
-      support_requests.ticket_description,
-      support_requests.clickup_link,
-      support_requests.clickup_task_id,
-      support_requests.clickup_task_status,
-      support_requests.clickup_task_status_synced_at,
-      support_requests.status,
-      support_requests.updated_by,
-      support_requests.closed_at,
-      support_requests.created_at,
+      tickets.id,
+      tickets.merchant_name,
+      tickets.franchise_name_resolved,
+      tickets.outlet_name_resolved,
+      tickets.phone_number,
+      tickets.fid,
+      tickets.oid,
+      tickets.issue_type,
+      tickets.issue_subcategory1,
+      tickets.issue_subcategory2,
+      tickets.issue_description,
+      tickets.ticket_description,
+      tickets.clickup_link,
+      tickets.clickup_task_id,
+      tickets.clickup_task_status,
+      tickets.clickup_task_status_synced_at,
+      tickets.status,
+      tickets.updated_by,
+      tickets.closed_at,
+      tickets.opened_at,
+      tickets.merchant_sentiment,
+      tickets.created_at,
       users.name AS assigned_ms_pic,
       CASE
-        WHEN csat_sent.request_id IS NULL THEN FALSE
+        WHEN csat_sent.ticket_id IS NULL THEN FALSE
         ELSE TRUE
       END AS csat_link_shared,
       csat.support_score AS csat_support_score,
       csat.support_reason AS csat_support_comment,
       csat.product_score AS csat_product_score,
       csat.product_feedback AS csat_product_feedback
-    FROM support_requests
+    FROM tickets
     LEFT JOIN users
-      ON users.id = support_requests.ms_pic_user_id
+      ON users.id = tickets.ms_pic_user_id
     LEFT JOIN csat_tokens
-      ON csat_tokens.request_id = support_requests.id
+      ON csat_tokens.ticket_id = tickets.id
       AND csat_tokens.id = (
         SELECT MAX(tokens.id)
         FROM csat_tokens AS tokens
-        WHERE tokens.request_id = support_requests.id
+        WHERE tokens.ticket_id = tickets.id
       )
     LEFT JOIN (
       SELECT latest.*
       FROM csat_responses AS latest
       INNER JOIN (
-        SELECT request_id, MAX(id) AS max_id
+        SELECT ticket_id, MAX(id) AS max_id
         FROM csat_responses
-        GROUP BY request_id
+        GROUP BY ticket_id
       ) grouped
         ON grouped.max_id = latest.id
     ) csat
-      ON csat.request_id = support_requests.id
+      ON csat.ticket_id = tickets.id
     LEFT JOIN (
-      SELECT request_id
-      FROM support_request_history
+      SELECT ticket_id
+      FROM ticket_history
       WHERE field_name IN ('csat_link_shared', 'csat_link_shared_at')
-      GROUP BY request_id
+      GROUP BY ticket_id
     ) csat_sent
-      ON csat_sent.request_id = support_requests.id
+      ON csat_sent.ticket_id = tickets.id
     ${whereSql}
-    ORDER BY support_requests.created_at DESC
+    ORDER BY tickets.created_at DESC
   `,
     values
   )
@@ -303,6 +309,7 @@ export async function GET(request: NextRequest) {
       "Phone Number": sanitizeValue(row.phone_number as string | null),
       FID: sanitizeValue(row.fid as string | null),
       OID: sanitizeValue(row.oid as string | null),
+      "Merchant Sentiment": sanitizeValue(row.merchant_sentiment as string | null),
       "Issue Type": sanitizeValue(row.issue_type as string | null),
       "Issue Subcategory 1": sanitizeValue(
         row.issue_subcategory1 as string | null
@@ -321,6 +328,7 @@ export async function GET(request: NextRequest) {
       Status: sanitizeValue(row.status as string | null),
       "Closed By": sanitizeValue(row.updated_by as string | null),
       "Closed At": formatExportDate((row.closed_at as string | null) ?? null),
+      "Opened At": formatExportDate((row.opened_at as string | null) ?? null),
       "Assigned MS PIC": sanitizeValue(row.assigned_ms_pic as string | null),
       "Created At": formatExportDate((row.created_at as string | null) ?? null),
       "CSAT Link Shared": row.csat_link_shared ? "True" : "False",

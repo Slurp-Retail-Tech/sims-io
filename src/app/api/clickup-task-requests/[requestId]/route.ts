@@ -89,7 +89,7 @@ export async function GET(
         clickup_task_id,
         clickup_link,
         clickup_task_status
-      FROM support_requests
+      FROM tickets
       WHERE id = ?
       LIMIT 1
     `,

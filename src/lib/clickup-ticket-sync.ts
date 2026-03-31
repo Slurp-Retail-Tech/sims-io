@@ -41,7 +41,7 @@ export async function applyClickUpSnapshotToTicket(input: {
   const [rows] = await pool.query<TicketClickUpRow[]>(
     `
     SELECT id, clickup_task_id, clickup_link, clickup_task_status
-    FROM support_requests
+    FROM tickets
     WHERE id = ?
     LIMIT 1
   `,
@@ -104,7 +104,7 @@ export async function applyClickUpSnapshotToTicket(input: {
 
   await pool.query(
     `
-    UPDATE support_requests
+    UPDATE tickets
     SET ${setClauses.join(", ")}
     WHERE id = ?
   `,
@@ -114,8 +114,8 @@ export async function applyClickUpSnapshotToTicket(input: {
   for (const change of changes) {
     await pool.query(
       `
-      INSERT INTO support_request_history (
-        request_id,
+      INSERT INTO ticket_history (
+        ticket_id,
         field_name,
         old_value,
         new_value,
@@ -149,7 +149,7 @@ export async function syncTicketClickUpStatusByTicketId(input: {
   const [rows] = await pool.query<TicketClickUpRow[]>(
     `
     SELECT id, clickup_task_id, clickup_link, clickup_task_status
-    FROM support_requests
+    FROM tickets
     WHERE id = ?
     LIMIT 1
   `,
@@ -188,7 +188,7 @@ export async function syncAllClickUpTicketStatuses(input: { actorLabel: string }
   const [rows] = await pool.query<TicketClickUpRow[]>(
     `
     SELECT id, clickup_task_id, clickup_link, clickup_task_status
-    FROM support_requests
+    FROM tickets
     WHERE (clickup_task_id IS NOT NULL AND clickup_task_id <> '')
        OR (clickup_link IS NOT NULL AND clickup_link <> '')
     ORDER BY id ASC

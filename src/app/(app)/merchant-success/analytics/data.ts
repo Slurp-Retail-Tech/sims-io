@@ -73,6 +73,11 @@ type DailyRow = {
   total: number | string
 }
 
+type SentimentRow = {
+  sentiment: string
+  total: number | string
+}
+
 type MonthRow = {
   month_value: string
 }
@@ -187,6 +192,7 @@ export type AnalyticsData = {
     avgDurationHours: number
   }
   daily: Array<{ day: string; total: number }>
+  sentimentBreakdown: Array<{ label: string; total: number }>
 }
 
 function toNumber(value: number | string | null | undefined) {
@@ -278,10 +284,10 @@ export function getMonthDateRange(monthValue: string | null) {
 export async function getAnalyticsAvailableMonths() {
   const [rows] = await queryWithReconnect<MonthRow[]>(
     `
-      SELECT DATE_FORMAT(support_requests.created_at, '%Y-%m') AS month_value
-      FROM support_requests
+      SELECT DATE_FORMAT(COALESCE(tickets.opened_at, tickets.created_at), '%Y-%m') AS month_value
+      FROM tickets
       WHERE ${activeSupportRequestWhere()}
-      GROUP BY DATE_FORMAT(support_requests.created_at, '%Y-%m')
+      GROUP BY DATE_FORMAT(COALESCE(tickets.opened_at, tickets.created_at), '%Y-%m')
       ORDER BY month_value DESC
     `
   )
@@ -436,7 +442,7 @@ export async function getMerchantSuccessAnalyticsData({
 }): Promise<AnalyticsData> {
   const applyPeriod = mode !== "all"
   const dateFilter = applyPeriod
-    ? buildDateWhereClause("support_requests.created_at", fromDate, toDate)
+    ? buildDateWhereClause("COALESCE(tickets.opened_at, tickets.created_at)", fromDate, toDate)
     : { sql: "", values: [] as string[] }
 
   const values = dateFilter.values
@@ -454,26 +460,27 @@ export async function getMerchantSuccessAnalyticsData({
     [msRows],
     [msMonthlyRows],
     [dailyRows],
+    [sentimentRows],
   ] = await Promise.all([
     queryWithReconnect<OverviewRow[]>(
       `
       SELECT
         COUNT(*) AS total_tickets,
-        SUM(CASE WHEN support_requests.status = 'Resolved' THEN 1 ELSE 0 END) AS resolved_tickets,
+        SUM(CASE WHEN tickets.status = 'Resolved' THEN 1 ELSE 0 END) AS resolved_tickets,
         AVG(
           CASE
-            WHEN support_requests.status = 'Resolved' THEN TIMESTAMPDIFF(
+            WHEN tickets.status = 'Resolved' THEN TIMESTAMPDIFF(
               MINUTE,
-              support_requests.created_at,
-              COALESCE(support_requests.closed_at, support_requests.updated_at)
+              COALESCE(tickets.opened_at, tickets.created_at),
+              COALESCE(tickets.closed_at, tickets.updated_at)
             )
             ELSE NULL
           END
         ) AS avg_resolve_minutes,
-        COUNT(DISTINCT DATE(support_requests.created_at)) AS active_days,
-        MIN(DATE(support_requests.created_at)) AS first_day,
-        MAX(DATE(support_requests.created_at)) AS last_day
-      FROM support_requests
+        COUNT(DISTINCT DATE(COALESCE(tickets.opened_at, tickets.created_at))) AS active_days,
+        MIN(DATE(COALESCE(tickets.opened_at, tickets.created_at))) AS first_day,
+        MAX(DATE(COALESCE(tickets.opened_at, tickets.created_at))) AS last_day
+      FROM tickets
       WHERE ${activeSupportRequestWhere()}
       ${dateFilter.sql}
     `,
@@ -482,12 +489,12 @@ export async function getMerchantSuccessAnalyticsData({
     queryWithReconnect<HourlyRow[]>(
       `
       SELECT
-        HOUR(support_requests.created_at) AS hour_of_day,
+        HOUR(COALESCE(tickets.opened_at, tickets.created_at)) AS hour_of_day,
         COUNT(*) AS total
-      FROM support_requests
+      FROM tickets
       WHERE ${activeSupportRequestWhere()}
       ${dateFilter.sql}
-      GROUP BY HOUR(support_requests.created_at)
+      GROUP BY HOUR(COALESCE(tickets.opened_at, tickets.created_at))
       ORDER BY hour_of_day ASC
     `,
       values
@@ -495,19 +502,19 @@ export async function getMerchantSuccessAnalyticsData({
     queryWithReconnect<MerchantOutletRow[]>(
       `
       SELECT
-        COALESCE(NULLIF(TRIM(support_requests.fid), ''), '--') AS fid,
-        COALESCE(NULLIF(TRIM(support_requests.franchise_name_resolved), ''), 'Unknown franchise') AS franchise_name,
-        COALESCE(NULLIF(TRIM(support_requests.oid), ''), '--') AS oid,
-        COALESCE(NULLIF(TRIM(support_requests.outlet_name_resolved), ''), 'Unknown outlet') AS outlet_name,
+        COALESCE(NULLIF(TRIM(tickets.fid), ''), '--') AS fid,
+        COALESCE(NULLIF(TRIM(tickets.franchise_name_resolved), ''), 'Unknown franchise') AS franchise_name,
+        COALESCE(NULLIF(TRIM(tickets.oid), ''), '--') AS oid,
+        COALESCE(NULLIF(TRIM(tickets.outlet_name_resolved), ''), 'Unknown outlet') AS outlet_name,
         COUNT(*) AS total
-      FROM support_requests
+      FROM tickets
       WHERE ${activeSupportRequestWhere()}
       ${dateFilter.sql}
       GROUP BY
-        COALESCE(NULLIF(TRIM(support_requests.fid), ''), '--'),
-        COALESCE(NULLIF(TRIM(support_requests.franchise_name_resolved), ''), 'Unknown franchise'),
-        COALESCE(NULLIF(TRIM(support_requests.oid), ''), '--'),
-        COALESCE(NULLIF(TRIM(support_requests.outlet_name_resolved), ''), 'Unknown outlet')
+        COALESCE(NULLIF(TRIM(tickets.fid), ''), '--'),
+        COALESCE(NULLIF(TRIM(tickets.franchise_name_resolved), ''), 'Unknown franchise'),
+        COALESCE(NULLIF(TRIM(tickets.oid), ''), '--'),
+        COALESCE(NULLIF(TRIM(tickets.outlet_name_resolved), ''), 'Unknown outlet')
       ORDER BY total DESC
     `,
       values
@@ -515,19 +522,19 @@ export async function getMerchantSuccessAnalyticsData({
     queryWithReconnect<MerchantFrequencyRow[]>(
       `
       SELECT
-        COALESCE(NULLIF(TRIM(support_requests.fid), ''), '--') AS fid,
-        COALESCE(NULLIF(TRIM(support_requests.franchise_name_resolved), ''), 'Unknown franchise') AS franchise_name,
-        COALESCE(NULLIF(TRIM(support_requests.issue_type), ''), 'Uncategorized') AS issue_type,
-        DATE_FORMAT(support_requests.created_at, '%Y-%m') AS month_value,
+        COALESCE(NULLIF(TRIM(tickets.fid), ''), '--') AS fid,
+        COALESCE(NULLIF(TRIM(tickets.franchise_name_resolved), ''), 'Unknown franchise') AS franchise_name,
+        COALESCE(NULLIF(TRIM(tickets.issue_type), ''), 'Uncategorized') AS issue_type,
+        DATE_FORMAT(COALESCE(tickets.opened_at, tickets.created_at), '%Y-%m') AS month_value,
         COUNT(*) AS total
-      FROM support_requests
+      FROM tickets
       WHERE ${activeSupportRequestWhere()}
       ${dateFilter.sql}
       GROUP BY
-        COALESCE(NULLIF(TRIM(support_requests.fid), ''), '--'),
-        COALESCE(NULLIF(TRIM(support_requests.franchise_name_resolved), ''), 'Unknown franchise'),
-        COALESCE(NULLIF(TRIM(support_requests.issue_type), ''), 'Uncategorized'),
-        DATE_FORMAT(support_requests.created_at, '%Y-%m')
+        COALESCE(NULLIF(TRIM(tickets.fid), ''), '--'),
+        COALESCE(NULLIF(TRIM(tickets.franchise_name_resolved), ''), 'Unknown franchise'),
+        COALESCE(NULLIF(TRIM(tickets.issue_type), ''), 'Uncategorized'),
+        DATE_FORMAT(COALESCE(tickets.opened_at, tickets.created_at), '%Y-%m')
       ORDER BY franchise_name ASC, fid ASC, issue_type ASC, month_value DESC
     `,
       values
@@ -535,27 +542,27 @@ export async function getMerchantSuccessAnalyticsData({
     queryWithReconnect<IssueRow[]>(
       `
       SELECT
-        COALESCE(NULLIF(TRIM(support_requests.issue_type), ''), 'Uncategorized') AS category,
-        COALESCE(NULLIF(TRIM(support_requests.issue_subcategory1), ''), 'Unspecified') AS subcategory1,
-        COALESCE(NULLIF(TRIM(support_requests.issue_subcategory2), ''), 'Unspecified') AS subcategory2,
+        COALESCE(NULLIF(TRIM(tickets.issue_type), ''), 'Uncategorized') AS category,
+        COALESCE(NULLIF(TRIM(tickets.issue_subcategory1), ''), 'Unspecified') AS subcategory1,
+        COALESCE(NULLIF(TRIM(tickets.issue_subcategory2), ''), 'Unspecified') AS subcategory2,
         COUNT(*) AS total,
         AVG(
           CASE
-            WHEN support_requests.status = 'Resolved' THEN TIMESTAMPDIFF(
+            WHEN tickets.status = 'Resolved' THEN TIMESTAMPDIFF(
               MINUTE,
-              support_requests.created_at,
-              COALESCE(support_requests.closed_at, support_requests.updated_at)
+              COALESCE(tickets.opened_at, tickets.created_at),
+              COALESCE(tickets.closed_at, tickets.updated_at)
             )
             ELSE NULL
           END
         ) AS avg_resolve_minutes
-      FROM support_requests
+      FROM tickets
       WHERE ${activeSupportRequestWhere()}
       ${dateFilter.sql}
       GROUP BY
-        COALESCE(NULLIF(TRIM(support_requests.issue_type), ''), 'Uncategorized'),
-        COALESCE(NULLIF(TRIM(support_requests.issue_subcategory1), ''), 'Unspecified'),
-        COALESCE(NULLIF(TRIM(support_requests.issue_subcategory2), ''), 'Unspecified')
+        COALESCE(NULLIF(TRIM(tickets.issue_type), ''), 'Uncategorized'),
+        COALESCE(NULLIF(TRIM(tickets.issue_subcategory1), ''), 'Unspecified'),
+        COALESCE(NULLIF(TRIM(tickets.issue_subcategory2), ''), 'Unspecified')
       ORDER BY total DESC
     `,
       values
@@ -563,26 +570,26 @@ export async function getMerchantSuccessAnalyticsData({
     queryWithReconnect<IssueMonthlyRow[]>(
       `
       SELECT
-        DATE_FORMAT(support_requests.created_at, '%Y-%m') AS month_value,
-        COALESCE(NULLIF(TRIM(support_requests.issue_type), ''), 'Uncategorized') AS category,
-        COALESCE(NULLIF(TRIM(support_requests.issue_subcategory1), ''), 'Unspecified') AS subcategory1,
-        COALESCE(NULLIF(TRIM(support_requests.issue_subcategory2), ''), 'Unspecified') AS subcategory2,
+        DATE_FORMAT(COALESCE(tickets.opened_at, tickets.created_at), '%Y-%m') AS month_value,
+        COALESCE(NULLIF(TRIM(tickets.issue_type), ''), 'Uncategorized') AS category,
+        COALESCE(NULLIF(TRIM(tickets.issue_subcategory1), ''), 'Unspecified') AS subcategory1,
+        COALESCE(NULLIF(TRIM(tickets.issue_subcategory2), ''), 'Unspecified') AS subcategory2,
         COUNT(*) AS total_tickets,
         SUM(
           TIMESTAMPDIFF(
             SECOND,
-            support_requests.created_at,
-            COALESCE(support_requests.closed_at, support_requests.updated_at, support_requests.created_at)
+            COALESCE(tickets.opened_at, tickets.created_at),
+            COALESCE(tickets.closed_at, tickets.updated_at, COALESCE(tickets.opened_at, tickets.created_at))
           )
         ) / 3600 AS duration_hours
-      FROM support_requests
+      FROM tickets
       WHERE ${activeSupportRequestWhere()}
       ${dateFilter.sql}
       GROUP BY
-        DATE_FORMAT(support_requests.created_at, '%Y-%m'),
-        COALESCE(NULLIF(TRIM(support_requests.issue_type), ''), 'Uncategorized'),
-        COALESCE(NULLIF(TRIM(support_requests.issue_subcategory1), ''), 'Unspecified'),
-        COALESCE(NULLIF(TRIM(support_requests.issue_subcategory2), ''), 'Unspecified')
+        DATE_FORMAT(COALESCE(tickets.opened_at, tickets.created_at), '%Y-%m'),
+        COALESCE(NULLIF(TRIM(tickets.issue_type), ''), 'Uncategorized'),
+        COALESCE(NULLIF(TRIM(tickets.issue_subcategory1), ''), 'Unspecified'),
+        COALESCE(NULLIF(TRIM(tickets.issue_subcategory2), ''), 'Unspecified')
       ORDER BY month_value DESC, category ASC, subcategory1 ASC, subcategory2 ASC
     `,
       values
@@ -590,12 +597,12 @@ export async function getMerchantSuccessAnalyticsData({
     queryWithReconnect<LabelCountRow[]>(
       `
       SELECT
-        COALESCE(NULLIF(TRIM(support_requests.issue_type), ''), 'Uncategorized') AS label,
+        COALESCE(NULLIF(TRIM(tickets.issue_type), ''), 'Uncategorized') AS label,
         COUNT(*) AS total
-      FROM support_requests
+      FROM tickets
       WHERE ${activeSupportRequestWhere()}
       ${dateFilter.sql}
-      GROUP BY COALESCE(NULLIF(TRIM(support_requests.issue_type), ''), 'Uncategorized')
+      GROUP BY COALESCE(NULLIF(TRIM(tickets.issue_type), ''), 'Uncategorized')
       ORDER BY total DESC
       LIMIT 8
     `,
@@ -604,12 +611,12 @@ export async function getMerchantSuccessAnalyticsData({
     queryWithReconnect<LabelCountRow[]>(
       `
       SELECT
-        COALESCE(NULLIF(TRIM(support_requests.issue_subcategory1), ''), 'Unspecified') AS label,
+        COALESCE(NULLIF(TRIM(tickets.issue_subcategory1), ''), 'Unspecified') AS label,
         COUNT(*) AS total
-      FROM support_requests
+      FROM tickets
       WHERE ${activeSupportRequestWhere()}
       ${dateFilter.sql}
-      GROUP BY COALESCE(NULLIF(TRIM(support_requests.issue_subcategory1), ''), 'Unspecified')
+      GROUP BY COALESCE(NULLIF(TRIM(tickets.issue_subcategory1), ''), 'Unspecified')
       ORDER BY total DESC
       LIMIT 8
     `,
@@ -618,12 +625,12 @@ export async function getMerchantSuccessAnalyticsData({
     queryWithReconnect<LabelCountRow[]>(
       `
       SELECT
-        COALESCE(NULLIF(TRIM(support_requests.issue_subcategory2), ''), 'Unspecified') AS label,
+        COALESCE(NULLIF(TRIM(tickets.issue_subcategory2), ''), 'Unspecified') AS label,
         COUNT(*) AS total
-      FROM support_requests
+      FROM tickets
       WHERE ${activeSupportRequestWhere()}
       ${dateFilter.sql}
-      GROUP BY COALESCE(NULLIF(TRIM(support_requests.issue_subcategory2), ''), 'Unspecified')
+      GROUP BY COALESCE(NULLIF(TRIM(tickets.issue_subcategory2), ''), 'Unspecified')
       ORDER BY total DESC
       LIMIT 8
     `,
@@ -634,20 +641,20 @@ export async function getMerchantSuccessAnalyticsData({
       SELECT
         COALESCE(NULLIF(TRIM(users.name), ''), 'Unassigned') AS ms_name,
         COUNT(*) AS total_tickets,
-        SUM(CASE WHEN support_requests.status = 'Resolved' THEN 1 ELSE 0 END) AS resolved_tickets,
+        SUM(CASE WHEN tickets.status = 'Resolved' THEN 1 ELSE 0 END) AS resolved_tickets,
         AVG(
           CASE
-            WHEN support_requests.status = 'Resolved' THEN TIMESTAMPDIFF(
+            WHEN tickets.status = 'Resolved' THEN TIMESTAMPDIFF(
               MINUTE,
-              support_requests.created_at,
-              COALESCE(support_requests.closed_at, support_requests.updated_at)
+              COALESCE(tickets.opened_at, tickets.created_at),
+              COALESCE(tickets.closed_at, tickets.updated_at)
             )
             ELSE NULL
           END
         ) AS avg_resolve_minutes
-      FROM support_requests
+      FROM tickets
       LEFT JOIN users
-        ON users.id = support_requests.ms_pic_user_id
+        ON users.id = tickets.ms_pic_user_id
       WHERE ${activeSupportRequestWhere()}
       ${dateFilter.sql}
       GROUP BY COALESCE(NULLIF(TRIM(users.name), ''), 'Unassigned')
@@ -658,27 +665,27 @@ export async function getMerchantSuccessAnalyticsData({
     queryWithReconnect<MsMonthlyRow[]>(
       `
       SELECT
-        DATE_FORMAT(support_requests.created_at, '%Y-%m') AS month_value,
+        DATE_FORMAT(COALESCE(tickets.opened_at, tickets.created_at), '%Y-%m') AS month_value,
         COALESCE(NULLIF(TRIM(users.name), ''), 'Unassigned') AS ms_name,
         COUNT(*) AS total_tickets,
         SUM(
           TIMESTAMPDIFF(
             SECOND,
-            support_requests.created_at,
+            COALESCE(tickets.opened_at, tickets.created_at),
             COALESCE(
-              support_requests.closed_at,
-              support_requests.updated_at,
-              support_requests.created_at
+              tickets.closed_at,
+              tickets.updated_at,
+              COALESCE(tickets.opened_at, tickets.created_at)
             )
           )
         ) / 60 AS duration_minutes
-      FROM support_requests
+      FROM tickets
       LEFT JOIN users
-        ON users.id = support_requests.ms_pic_user_id
+        ON users.id = tickets.ms_pic_user_id
       WHERE ${activeSupportRequestWhere()}
       ${dateFilter.sql}
       GROUP BY
-        DATE_FORMAT(support_requests.created_at, '%Y-%m'),
+        DATE_FORMAT(COALESCE(tickets.opened_at, tickets.created_at), '%Y-%m'),
         COALESCE(NULLIF(TRIM(users.name), ''), 'Unassigned')
       ORDER BY month_value ASC, total_tickets DESC, ms_name ASC
     `,
@@ -687,13 +694,26 @@ export async function getMerchantSuccessAnalyticsData({
     queryWithReconnect<DailyRow[]>(
       `
       SELECT
-        DATE(support_requests.created_at) AS day,
+        DATE(COALESCE(tickets.opened_at, tickets.created_at)) AS day,
         COUNT(*) AS total
-      FROM support_requests
+      FROM tickets
       WHERE ${activeSupportRequestWhere()}
       ${dateFilter.sql}
-      GROUP BY DATE(support_requests.created_at)
+      GROUP BY DATE(COALESCE(tickets.opened_at, tickets.created_at))
       ORDER BY day ASC
+    `,
+      values
+    ),
+    queryWithReconnect<SentimentRow[]>(
+      `
+      SELECT
+        COALESCE(NULLIF(TRIM(tickets.merchant_sentiment), ''), 'Not Set') AS sentiment,
+        COUNT(*) AS total
+      FROM tickets
+      WHERE ${activeSupportRequestWhere()}
+      ${dateFilter.sql}
+      GROUP BY COALESCE(NULLIF(TRIM(tickets.merchant_sentiment), ''), 'Not Set')
+      ORDER BY total DESC
     `,
       values
     ),
@@ -1222,6 +1242,10 @@ export async function getMerchantSuccessAnalyticsData({
     msPivotRows,
     msPivotGrandTotal,
     daily: dailyRows.map((row) => ({ day: row.day, total: toNumber(row.total) })),
+    sentimentBreakdown: sentimentRows.map((row) => ({
+      label: normalizeLabel(row.sentiment, "Not Set"),
+      total: toNumber(row.total),
+    })),
   }
 }
 

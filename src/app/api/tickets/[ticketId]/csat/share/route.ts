@@ -36,7 +36,7 @@ export async function POST(
     `
     SELECT id, token, expires_at, used_at
     FROM csat_tokens
-    WHERE request_id = ?
+    WHERE ticket_id = ?
     ORDER BY id DESC
     LIMIT 1
   `,
@@ -59,8 +59,8 @@ export async function POST(
   const actorLabel = await getActorLabel(userId)
   await pool.query(
     `
-    INSERT INTO support_request_history (
-      request_id,
+    INSERT INTO ticket_history (
+      ticket_id,
       field_name,
       old_value,
       new_value,

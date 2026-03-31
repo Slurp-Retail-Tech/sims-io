@@ -170,7 +170,7 @@ export async function lookupTicketContext(pool: Pool, ticketId: number) {
   >(
     `
     SELECT id, fid, oid, franchise_name_resolved, outlet_name_resolved
-    FROM support_requests
+    FROM tickets
     WHERE id = ?
     LIMIT 1
   `,

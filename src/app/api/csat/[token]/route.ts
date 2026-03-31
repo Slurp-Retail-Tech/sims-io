@@ -5,12 +5,11 @@ import getPool from "@/lib/db"
 
 type TokenRow = RowDataPacket & {
   id: string
-  request_id: string
+  ticket_id: string
   token: string
   expires_at: string
   used_at: string | null
   created_at: string
-  ticket_id: string
   merchant_name: string | null
   phone_number: string | null
   franchise_name_resolved: string | null
@@ -44,19 +43,18 @@ export async function GET(
     `
     SELECT
       csat_tokens.id,
-      csat_tokens.request_id,
+      csat_tokens.ticket_id,
       csat_tokens.token,
       csat_tokens.expires_at,
       csat_tokens.used_at,
       csat_tokens.created_at,
-      support_requests.id AS ticket_id,
-      support_requests.merchant_name,
-      support_requests.phone_number,
-      support_requests.franchise_name_resolved,
-      support_requests.outlet_name_resolved
+      tickets.merchant_name,
+      tickets.phone_number,
+      tickets.franchise_name_resolved,
+      tickets.outlet_name_resolved
     FROM csat_tokens
-    INNER JOIN support_requests
-      ON support_requests.id = csat_tokens.request_id
+    INNER JOIN tickets
+      ON tickets.id = csat_tokens.ticket_id
     WHERE csat_tokens.token = ?
     LIMIT 1
   `,
@@ -121,7 +119,7 @@ export async function POST(
   const pool = getPool()
   const [tokenRows] = await pool.query<TokenRow[]>(
     `
-    SELECT id, request_id, token, expires_at, used_at, created_at
+    SELECT id, ticket_id, token, expires_at, used_at, created_at
     FROM csat_tokens
     WHERE token = ?
     LIMIT 1
@@ -154,7 +152,7 @@ export async function POST(
   await pool.query(
     `
     INSERT INTO csat_responses (
-      request_id,
+      ticket_id,
       token_id,
       support_score,
       support_reason,
@@ -164,7 +162,7 @@ export async function POST(
     VALUES (?, ?, ?, ?, ?, ?)
   `,
     [
-      tokenRow.request_id,
+      tokenRow.ticket_id,
       tokenRow.id,
       supportScore,
       supportReason,

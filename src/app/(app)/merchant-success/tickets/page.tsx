@@ -112,6 +112,8 @@ type TicketDetail = {
   clickupTaskId: string | null
   clickupTaskStatus: string | null
   clickupTaskStatusSyncedAt: string | null
+  openedAt: string | null
+  merchantSentiment: string | null
   attachments: string[]
   createdAt: string
   updatedAt: string
@@ -150,6 +152,14 @@ const statusOptions = [
   "In Progress",
   "Pending Customer",
   "Resolved",
+]
+
+const sentimentOptions = [
+  "Angry 🔥",
+  "Frustrated 😤",
+  "Confused 🤔",
+  "Urgent 🚨",
+  "Satisfied 😄",
 ]
 
 const formatStatusLabel = (value: string) => {
@@ -253,6 +263,8 @@ const historyFieldLabels: Record<string, string> = {
   closed_at: "Closed At",
   csat_token_generated: "CSAT Link Generated",
   csat_link_shared: "CSAT Link Shared",
+  opened_at: "Opened At",
+  merchant_sentiment: "Merchant Sentiment",
 }
 
 function toProperCase(value: string | null) {
@@ -284,6 +296,7 @@ function formatHistoryField(field: string) {
 const historyDateFields = new Set([
   "clickup_task_status_synced_at",
   "closed_at",
+  "opened_at",
   "csat_link_shared_at",
 ])
 
@@ -806,6 +819,8 @@ export default function MerchantSuccessTicketsPage() {
           clickupTaskStatus: ticketDraft.clickupTaskStatus ?? null,
           clickupTaskStatusSyncedAt:
             ticketDraft.clickupTaskStatusSyncedAt ?? null,
+          openedAt: ticketDraft.openedAt ?? null,
+          merchantSentiment: ticketDraft.merchantSentiment ?? null,
         }),
       })
       if (!response.ok) {
@@ -1966,6 +1981,51 @@ export default function MerchantSuccessTicketsPage() {
                           </SelectContent>
                         </Select>
                       </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="text-muted-foreground mb-1 text-xs">Opened At</div>
+                      <Input
+                        type="datetime-local"
+                        value={
+                          ticketDraft.openedAt
+                            ? ticketDraft.openedAt.replace(" ", "T").slice(0, 16)
+                            : ""
+                        }
+                        onChange={(event) =>
+                          setTicketDraft({
+                            ...ticketDraft,
+                            openedAt: event.target.value
+                              ? event.target.value.replace("T", " ") + ":00.000"
+                              : null,
+                          })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground mb-1 text-xs">Merchant Sentiment</div>
+                      <Select
+                        value={ticketDraft.merchantSentiment ?? "__none"}
+                        onValueChange={(value) =>
+                          setTicketDraft({
+                            ...ticketDraft,
+                            merchantSentiment: value === "__none" ? null : value,
+                          })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select sentiment" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none">Not set</SelectItem>
+                          {sentimentOptions.map((sentiment) => (
+                            <SelectItem key={sentiment} value={sentiment}>
+                              {sentiment}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

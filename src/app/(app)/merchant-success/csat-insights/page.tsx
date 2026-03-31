@@ -43,7 +43,7 @@ type BreakdownRow = {
 }
 
 type FeedbackRow = {
-  request_id: number | string
+  ticket_id: number | string
   merchant_name: string | null
   outlet_name_resolved: string | null
   support_reason: string | null
@@ -174,15 +174,15 @@ async function getCsatInsights({
       ? buildDateWhereClause("csat_responses.submitted_at", fromDate, toDate)
       : { sql: "", values: [] as string[] }
     const sentDateFilter = applyPeriod
-      ? buildDateWhereClause("support_request_history.changed_at", fromDate, toDate)
+      ? buildDateWhereClause("ticket_history.changed_at", fromDate, toDate)
       : { sql: "", values: [] as string[] }
 
     const [responseRows] = await queryWithReconnect<CountRow[]>(
       `
       SELECT COUNT(*) AS total
       FROM csat_responses
-      INNER JOIN support_requests
-        ON support_requests.id = csat_responses.request_id
+      INNER JOIN tickets
+        ON tickets.id = csat_responses.ticket_id
       WHERE ${activeSupportRequestWhere()}
       ${responseDateFilter.sql}
     `,
@@ -193,12 +193,12 @@ async function getCsatInsights({
       `
       SELECT COUNT(*) AS total
       FROM (
-        SELECT DISTINCT support_request_history.request_id
-        FROM support_request_history
-        INNER JOIN support_requests
-          ON support_requests.id = support_request_history.request_id
+        SELECT DISTINCT ticket_history.ticket_id
+        FROM ticket_history
+        INNER JOIN tickets
+          ON tickets.id = ticket_history.ticket_id
         WHERE ${activeSupportRequestWhere()}
-          AND support_request_history.field_name IN (
+          AND ticket_history.field_name IN (
             'csat_link_shared',
             'csat_link_shared_at'
           )
@@ -214,8 +214,8 @@ async function getCsatInsights({
         AVG(${SCORE_CASE_SQL.replace(/%COLUMN%/g, "support_score")}) AS support_satisfaction,
         AVG(${SCORE_CASE_SQL.replace(/%COLUMN%/g, "product_score")}) AS product_satisfaction
       FROM csat_responses
-      INNER JOIN support_requests
-        ON support_requests.id = csat_responses.request_id
+      INNER JOIN tickets
+        ON tickets.id = csat_responses.ticket_id
       WHERE ${activeSupportRequestWhere()}
       ${responseDateFilter.sql}
     `,
@@ -228,8 +228,8 @@ async function getCsatInsights({
         CAST(${SCORE_CASE_SQL.replace(/%COLUMN%/g, "support_score")} AS CHAR) AS score_label,
         COUNT(*) AS total
       FROM csat_responses
-      INNER JOIN support_requests
-        ON support_requests.id = csat_responses.request_id
+      INNER JOIN tickets
+        ON tickets.id = csat_responses.ticket_id
       WHERE ${activeSupportRequestWhere()}
       ${responseDateFilter.sql}
       GROUP BY score_label
@@ -244,8 +244,8 @@ async function getCsatInsights({
         CAST(${SCORE_CASE_SQL.replace(/%COLUMN%/g, "product_score")} AS CHAR) AS score_label,
         COUNT(*) AS total
       FROM csat_responses
-      INNER JOIN support_requests
-        ON support_requests.id = csat_responses.request_id
+      INNER JOIN tickets
+        ON tickets.id = csat_responses.ticket_id
       WHERE ${activeSupportRequestWhere()}
       ${responseDateFilter.sql}
       GROUP BY score_label
@@ -257,15 +257,15 @@ async function getCsatInsights({
     const [feedbackRows] = await queryWithReconnect<FeedbackRow[]>(
       `
       SELECT
-        csat_responses.request_id,
-        support_requests.merchant_name,
-        support_requests.outlet_name_resolved,
+        csat_responses.ticket_id,
+        tickets.merchant_name,
+        tickets.outlet_name_resolved,
         csat_responses.support_reason,
         csat_responses.product_feedback,
         csat_responses.submitted_at
       FROM csat_responses
-      INNER JOIN support_requests
-        ON support_requests.id = csat_responses.request_id
+      INNER JOIN tickets
+        ON tickets.id = csat_responses.ticket_id
       WHERE ${activeSupportRequestWhere()}
       ${responseDateFilter.sql}
         AND (
@@ -480,11 +480,11 @@ export default async function MerchantSuccessCsatInsightsPage({
         <CardContent className="space-y-4">
           {data.feedbackRows.length ? (
             data.feedbackRows.map((row, index) => (
-              <div key={`${row.request_id}-${row.submitted_at}`} className="space-y-3">
+              <div key={`${row.ticket_id}-${row.submitted_at}`} className="space-y-3">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-sm font-semibold">
-                      #{row.request_id} - {(row.merchant_name?.trim() || "Merchant")} -{" "}
+                      #{row.ticket_id} - {(row.merchant_name?.trim() || "Merchant")} -{" "}
                       {row.outlet_name_resolved?.trim() || "Outlet"}
                     </div>
                     <div className="text-muted-foreground text-xs">

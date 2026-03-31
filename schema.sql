@@ -98,10 +98,9 @@ CREATE TABLE IF NOT EXISTS ticket_categories (
   INDEX idx_ticket_categories_parent (parent_id)
 );
 
-CREATE TABLE IF NOT EXISTS support_requests (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS tickets (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   merchant_name VARCHAR(255) NOT NULL,
-  outlet_name_resolved VARCHAR(255) NOT NULL,
   phone_number VARCHAR(32) NOT NULL,
   email VARCHAR(255) DEFAULT NULL,
   fid VARCHAR(4) NOT NULL,
@@ -120,26 +119,29 @@ CREATE TABLE IF NOT EXISTS support_requests (
   attachment_url_3 VARCHAR(512) DEFAULT NULL,
   status ENUM('Open', 'In Progress', 'Pending Customer', 'Resolved') NOT NULL DEFAULT 'Open',
   closed_at DATETIME(3) DEFAULT NULL,
+  opened_at DATETIME(3) DEFAULT NULL,
+  merchant_sentiment VARCHAR(50) DEFAULT NULL,
   updated_by VARCHAR(255) DEFAULT NULL,
-  ms_pic_user_id BIGINT UNSIGNED DEFAULT NULL,
-  hidden BOOLEAN NOT NULL DEFAULT FALSE,
+  ms_pic_user_id BIGINT DEFAULT NULL,
+  hidden TINYINT(1) NOT NULL DEFAULT 0,
   franchise_name_resolved VARCHAR(255) DEFAULT NULL,
+  outlet_name_resolved VARCHAR(255) DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-  INDEX support_requests_status_created_idx (status, created_at)
+  INDEX tickets_status_opened_idx (status, opened_at)
 );
 
-CREATE TABLE IF NOT EXISTS support_request_history (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  request_id BIGINT UNSIGNED NOT NULL,
+CREATE TABLE IF NOT EXISTS ticket_history (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  ticket_id BIGINT NOT NULL,
   field_name VARCHAR(255) NOT NULL,
   old_value TEXT DEFAULT NULL,
   new_value TEXT DEFAULT NULL,
   changed_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   changed_by VARCHAR(255) DEFAULT NULL,
-  CONSTRAINT fk_support_request_history_request_id
-    FOREIGN KEY (request_id) REFERENCES support_requests(id) ON DELETE CASCADE,
-  INDEX support_request_history_request_idx (request_id, changed_at)
+  CONSTRAINT fk_ticket_history_ticket_id
+    FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+  INDEX ticket_history_ticket_idx (ticket_id, changed_at)
 );
 
 CREATE TABLE IF NOT EXISTS clickup_task_requests (
@@ -176,14 +178,14 @@ CREATE TABLE IF NOT EXISTS clickup_task_requests (
 );
 
 CREATE TABLE IF NOT EXISTS clickup_task_request_attachments (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  request_id BIGINT UNSIGNED NOT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  clickup_task_request_id BIGINT NOT NULL,
   storage_key VARCHAR(512) NOT NULL,
   original_name VARCHAR(255) DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  CONSTRAINT fk_clickup_task_request_attachments_request_id
-    FOREIGN KEY (request_id) REFERENCES clickup_task_requests(id) ON DELETE CASCADE,
-  INDEX clickup_task_request_attachments_request_idx (request_id, created_at)
+  CONSTRAINT fk_clickup_task_request_attachments_clickup_task_request_id
+    FOREIGN KEY (clickup_task_request_id) REFERENCES clickup_task_requests(id) ON DELETE CASCADE,
+  INDEX clickup_task_request_attachments_request_idx (clickup_task_request_id, created_at)
 );
 
 CREATE TABLE IF NOT EXISTS onboarding_appointments (
@@ -270,32 +272,34 @@ VALUES (
 ON DUPLICATE KEY UPDATE id = VALUES(id);
 
 CREATE TABLE IF NOT EXISTS csat_tokens (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  request_id BIGINT UNSIGNED NOT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  ticket_id BIGINT NOT NULL,
   token VARCHAR(255) NOT NULL UNIQUE,
   expires_at DATETIME(3) NOT NULL,
   used_at DATETIME(3) DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  CONSTRAINT fk_csat_tokens_request_id
-    FOREIGN KEY (request_id) REFERENCES support_requests(id) ON DELETE CASCADE,
-  INDEX csat_tokens_request_idx (request_id)
+  CONSTRAINT fk_csat_tokens_ticket_id
+    FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+  INDEX csat_tokens_ticket_idx (ticket_id)
 );
+-- NOTE: live DB still has column named request_id — run migration below to rename to ticket_id
 
 CREATE TABLE IF NOT EXISTS csat_responses (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  request_id BIGINT UNSIGNED NOT NULL,
-  token_id BIGINT UNSIGNED DEFAULT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  ticket_id BIGINT NOT NULL,
+  token_id BIGINT DEFAULT NULL,
   support_score VARCHAR(32) NOT NULL,
   support_reason TEXT DEFAULT NULL,
   product_score VARCHAR(32) NOT NULL,
   product_feedback TEXT DEFAULT NULL,
   submitted_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  CONSTRAINT fk_csat_responses_request_id
-    FOREIGN KEY (request_id) REFERENCES support_requests(id) ON DELETE CASCADE,
+  CONSTRAINT fk_csat_responses_ticket_id
+    FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
   CONSTRAINT fk_csat_responses_token_id
     FOREIGN KEY (token_id) REFERENCES csat_tokens(id) ON DELETE SET NULL,
   UNIQUE KEY csat_responses_token_id_idx (token_id)
 );
+-- NOTE: live DB still has column named request_id — run migration below to rename to ticket_id
 
 CREATE TABLE IF NOT EXISTS franchise_import_jobs (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

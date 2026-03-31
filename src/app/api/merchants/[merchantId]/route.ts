@@ -224,7 +224,7 @@ export async function GET(
     ? await pool.query(
         `
         SELECT status, COUNT(*) AS total
-        FROM support_requests
+        FROM tickets
         WHERE fid = ?
         GROUP BY status
       `,

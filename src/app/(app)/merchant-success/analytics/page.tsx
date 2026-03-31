@@ -195,6 +195,37 @@ export default async function MerchantSuccessAnalyticsPage({
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Merchant Sentiment Breakdown</CardTitle>
+          <CardDescription>Ticket distribution by reported merchant sentiment</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {data.sentimentBreakdown.filter((row) => row.label !== "Not Set").length === 0 ? (
+            <p className="text-muted-foreground text-sm">No sentiment data recorded yet.</p>
+          ) : (
+            (() => {
+              const withSentiment = data.sentimentBreakdown.filter((row) => row.label !== "Not Set")
+              const maxTotal = withSentiment.reduce((max, row) => (row.total > max ? row.total : max), 0)
+              return withSentiment.map((row) => {
+                const width = maxTotal ? Math.max((row.total / maxTotal) * 100, 6) : 0
+                return (
+                  <div key={row.label} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span>{row.label}</span>
+                      <span className="text-muted-foreground">{row.total}</span>
+                    </div>
+                    <div className="bg-muted h-2 overflow-hidden rounded-full">
+                      <div className="h-full rounded-full bg-red-500" style={{ width: `${width}%` }} />
+                    </div>
+                  </div>
+                )
+              })
+            })()
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

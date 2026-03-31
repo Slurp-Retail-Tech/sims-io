@@ -27,8 +27,8 @@ export async function GET(
   const [rows] = await pool.query<HistoryRow[]>(
     `
     SELECT id, field_name, old_value, new_value, changed_at, changed_by
-    FROM support_request_history
-    WHERE request_id = ?
+    FROM ticket_history
+    WHERE ticket_id = ?
     ORDER BY changed_at DESC, id DESC
   `,
     [ticketId]

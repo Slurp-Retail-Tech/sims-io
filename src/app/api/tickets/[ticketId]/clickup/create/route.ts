@@ -79,7 +79,7 @@ export async function POST(
       issue_description,
       ticket_description,
       clickup_task_id
-    FROM support_requests
+    FROM tickets
     WHERE id = ?
     LIMIT 1
   `,
