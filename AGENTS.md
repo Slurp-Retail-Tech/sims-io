@@ -6,6 +6,7 @@ This repository contains planning documents for the Unified Engagement Platform 
 - Current docs: `docs/PRD.md` (product requirements), `docs/TDD.md` (technical design), and `docs/CODEX_STYLE_GUIDE.md` (Codex contribution style guide).
 - Target-state layout from `docs/TDD.md`: `api/`, `worker/`, `packages/shared/`, and the web UI at repo root.
 - Current layout includes the Next.js UI at repo root, with app code under `src/`, static assets under `public/`, SQL schema in `schema.sql`, and operational scripts under `scripts/`.
+- Database compatibility migrations now live under `migrations/`, applied automatically by Compose via the `db-migrate` service before the app starts.
 - Current API handlers live in `src/app/api/`, and shared business logic lives in `src/lib/`.
 - Editor settings live in `.vscode/` for workspace linting configuration.
 - Infrastructure and deployment artifacts should live under `deploy/`, and database migrations under `migrations/`.
@@ -21,7 +22,9 @@ This repository contains planning documents for the Unified Engagement Platform 
 - Local data and storage services:
   - `docker compose up -d`
   - `npm run db:import:platform-data`
-- Current `docker-compose.yml` builds the app on `localhost:3000` and provisions MySQL on `localhost:3307`, phpMyAdmin on `localhost:8081`, MinIO API on `localhost:9002`, MinIO console on `localhost:9003`, and Redis on `localhost:6379`.
+- Current `docker-compose.yml` builds the app and uses env-driven service credentials and host ports. The defaults in `.env.compose.example` expose MySQL on `localhost:3308`, phpMyAdmin on `localhost:8081`, MinIO API on `localhost:9002`, MinIO console on `localhost:9003`, and Redis on `localhost:6379`.
+- Current `docker-compose.yml` also runs a one-shot `db-migrate` container that applies `schema.sql` and ordered SQL files from `migrations/` automatically on deploy.
+- Compose and deployment secrets must come from environment variables or the Compose env file; do not hard-code credentials in `docker-compose.yml`.
 - Import helpers live under `scripts/`; prefer the existing npm script for platform data imports before adding one-off commands.
 
 ## Coding Style and Naming Conventions

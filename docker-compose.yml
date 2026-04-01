@@ -4,38 +4,54 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      NODE_ENV: production
-      APP_BASE_URL: http://localhost:3000
-      NEXT_PUBLIC_APP_URL: http://localhost:3000
-      DATABASE_URL: mysql://sims:tZf.QdVIa4R=nz}BWUjBaRSRyDH7LU%%@mysql:3306/sims-dev
-      REDIS_URL: redis://redis:6379
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_PUBLIC_URL: http://localhost:9002
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: jZT75?W;xXa[pK(nsw3Gw=eGy6<6P;TR
-      MINIO_BUCKET: sims-dev
-      MINIO_REGION: us-east-1
+      NODE_ENV: ${NODE_ENV:-production}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      DATABASE_URL: ${APP_DATABASE_URL:?APP_DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9002}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
+      MINIO_BUCKET: ${MINIO_BUCKET:?MINIO_BUCKET is required}
+      MINIO_REGION: ${MINIO_REGION:-us-east-1}
+      TRUSTED_PROXY: ${TRUSTED_PROXY:-}
     depends_on:
-      mysql:
-        condition: service_healthy
+      db-migrate:
+        condition: service_completed_successfully
       minio:
         condition: service_started
       redis:
         condition: service_started
+  db-migrate:
+    image: mysql:8.4
+    environment:
+      MYSQL_HOST: ${MYSQL_HOST:-mysql}
+      MYSQL_PORT: ${MYSQL_PORT:-3306}
+      MYSQL_USER: ${MYSQL_USER:-sims}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ./schema.sql:/schema/schema.sql:ro
+      - ./migrations:/schema/migrations:ro
+      - ./scripts/apply-schema.sh:/scripts/apply-schema.sh:ro
+    command: ["sh", "/scripts/apply-schema.sh"]
   mysql:
     image: mysql:8.4
     ports:
-      - "3308:3306"
+      - "${MYSQL_HOST_PORT:-3308}:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: RTj,GeM^PC-e@ZqbZPltE|f4&!EmbfyN
-      MYSQL_DATABASE: sims-dev
-      MYSQL_USER: sims
-      MYSQL_PASSWORD: tZf.QdVIa4R=nz}BWUjBaRSRyDH7LU%
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?MYSQL_DATABASE is required}
+      MYSQL_USER: ${MYSQL_USER:-sims}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "sims", "-ptZf.QdVIa4R=nz}BWUjBaRSRyDH7LU%"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u \"$${MYSQL_USER}\" -p\"$${MYSQL_PASSWORD}\" --silent"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -43,29 +59,29 @@ services:
   phpmyadmin:
     image: phpmyadmin/phpmyadmin:5
     ports:
-      - "8081:80"
+      - "${PHPMYADMIN_HOST_PORT:-8081}:80"
     environment:
       PMA_HOST: mysql
-      PMA_USER: root
-      PMA_PASSWORD: RTj,GeM^PC-e@ZqbZPltE|f4&!EmbfyN
+      PMA_USER: ${PHPMYADMIN_USER:-root}
+      PMA_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
     depends_on:
       mysql:
         condition: service_healthy
   minio:
     image: minio/minio:RELEASE.2025-02-18T16-25-55Z
     ports:
-      - "9002:9000"
-      - "9003:9003"
+      - "${MINIO_API_HOST_PORT:-9002}:9000"
+      - "${MINIO_CONSOLE_HOST_PORT:-9003}:9003"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: jZT75?W;xXa[pK(nsw3Gw=eGy6<6P;TR
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
     command: server /data --console-address ":9003"
     volumes:
       - minio_data:/data
   redis:
     image: redis:7
     ports:
-      - "6379:6379"
+      - "${REDIS_HOST_PORT:-6379}:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
