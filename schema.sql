@@ -178,8 +178,8 @@ CREATE TABLE IF NOT EXISTS clickup_task_requests (
 );
 
 CREATE TABLE IF NOT EXISTS clickup_task_request_attachments (
-  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  clickup_task_request_id BIGINT NOT NULL,
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  clickup_task_request_id BIGINT UNSIGNED NOT NULL,
   storage_key VARCHAR(512) NOT NULL,
   original_name VARCHAR(255) DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
