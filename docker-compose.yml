@@ -94,8 +94,7 @@ services:
       mysql:
         condition: service_healthy
     volumes:
-      - ./schema.sql:/workspace/schema.sql:ro
-      - ./migrations:/workspace/migrations:ro
+      - ./:/workspace:ro
     entrypoint:
       - /bin/sh
       - -ec
