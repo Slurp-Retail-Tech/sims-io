@@ -345,9 +345,7 @@ export default function MerchantDetailPage() {
       setLoading(true)
       setError(null)
       try {
-        const response = await fetch(`/api/merchants/${merchantId}`, {
-          headers: { "x-user-id": user.id },
-        })
+        const response = await fetch(`/api/merchants/${merchantId}`)
         if (!response.ok) {
           const payload = (await response.json().catch(() => ({}))) as { error?: string }
           throw new Error(payload.error ?? "Unable to load merchant.")
@@ -416,9 +414,7 @@ export default function MerchantDetailPage() {
           params.set("outlet_id", selectedOutletId)
         }
 
-        const response = await fetch(`/api/merchants/${merchantId}/tickets?${params.toString()}`, {
-          headers: { "x-user-id": user.id },
-        })
+        const response = await fetch(`/api/merchants/${merchantId}/tickets?${params.toString()}`)
         if (!response.ok) {
           const payload = (await response.json().catch(() => ({}))) as { error?: string }
           throw new Error(payload.error ?? "Unable to load tickets.")
@@ -466,9 +462,7 @@ export default function MerchantDetailPage() {
       setDetailError(null)
       setTicketDetail(null)
       try {
-        const response = await fetch(`/api/tickets/${selectedTicketId}`, {
-          headers: { "x-user-id": user.id },
-        })
+        const response = await fetch(`/api/tickets/${selectedTicketId}`)
         if (!response.ok) {
           const payload = (await response.json().catch(() => ({}))) as { error?: string }
           throw new Error(payload.error ?? "Unable to load ticket details.")

@@ -1,15 +1,17 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { resolveActorLabel, syncTicketClickUpStatusByTicketId } from "@/lib/clickup-ticket-sync"
+import { requireAuthenticatedUser } from "@/lib/auth"
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ ticketId: string }> }
 ) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
+  const userId = user.id
 
   const { ticketId } = await params
   const actorLabel = await resolveActorLabel(userId)

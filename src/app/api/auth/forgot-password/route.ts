@@ -6,6 +6,7 @@ import {
   createStoredTokenRecord,
   sendResetPasswordEmail,
 } from "@/lib/auth-email"
+import { checkRateLimit, getRateLimitIp } from "@/lib/rate-limit"
 
 const genericResponse = {
   ok: true,
@@ -14,6 +15,18 @@ const genericResponse = {
 }
 
 export async function POST(request: NextRequest) {
+  const ip = getRateLimitIp(request)
+  const rl = await checkRateLimit(`forgot-password:${ip}`, 5, 900) // 5 per 15 minutes
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rl.retryAfterSeconds) },
+      }
+    )
+  }
+
   const body = (await request.json()) as { email?: string }
   const email = normalizeEmail(body.email)
 

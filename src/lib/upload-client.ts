@@ -1,8 +1,9 @@
+import { CSRF_HEADER_NAME, getClientCsrfToken } from "@/lib/csrf"
+
 type UploadFolder = "avatars" | "uploads"
 
 type UploadParams = {
   file: File
-  userId: string
   folder?: UploadFolder
 }
 
@@ -11,17 +12,18 @@ type UploadResponse = {
   key: string
 }
 
-export async function uploadFile({ file, userId, folder }: UploadParams) {
+export async function uploadFile({ file, folder }: UploadParams) {
   const formData = new FormData()
   formData.append("file", file)
   if (folder) {
     formData.append("folder", folder)
   }
 
+  const csrfToken = getClientCsrfToken()
   const response = await fetch("/api/uploads", {
     method: "POST",
     headers: {
-      "x-user-id": userId,
+      [CSRF_HEADER_NAME]: csrfToken,
     },
     body: formData,
   })

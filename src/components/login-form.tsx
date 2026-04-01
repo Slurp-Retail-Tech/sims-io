@@ -28,15 +28,12 @@ const noticeMessages: Record<string, string> = {
 }
 
 const errorMessages: Record<string, string> = {
-  activation_required:
-    "Your account is still pending activation. Use the activation email to finish setting your password.",
   sso_unavailable: "Google Workspace sign-in is not configured right now.",
   sso_failed: "Google sign-in could not be completed. Please try again.",
   sso_not_allowed:
     "That Google Workspace account is not allowed for this SIMS workspace.",
   sso_conflict:
     "This Google account cannot be linked to the matching SIMS user.",
-  account_inactive: "This account is inactive. Contact an administrator.",
 }
 
 function GoogleLogo() {
@@ -99,7 +96,6 @@ export function LoginForm({
 
       const data = (await response.json()) as {
         error?: string
-        code?: string
         user?: {
           id: string
           name: string
@@ -112,10 +108,6 @@ export function LoginForm({
       }
 
       if (!response.ok || !data.user) {
-        if (data.code === "activation_required") {
-          setErrorMessage(errorMessages.activation_required)
-          return
-        }
         setErrorMessage(data.error ?? "Login failed.")
         return
       }

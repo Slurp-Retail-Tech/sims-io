@@ -3,6 +3,7 @@ import type { RowDataPacket } from "mysql2"
 
 import { fetchClickUpListFields } from "@/lib/clickup"
 import getPool from "@/lib/db"
+import { requireAuthenticatedUser } from "@/lib/auth"
 
 type UserRow = RowDataPacket & {
   id: string
@@ -20,10 +21,11 @@ function getConfiguredFieldIds() {
 }
 
 export async function GET(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
+  const userId = user.id
 
   const pool = getPool()
   const [rows] = await pool.query<UserRow[]>(
@@ -36,8 +38,8 @@ export async function GET(request: NextRequest) {
     [userId]
   )
 
-  const user = rows[0]
-  if (!user || user.status !== "active") {
+  const dbUser = rows[0]
+  if (!dbUser || dbUser.status !== "active") {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 

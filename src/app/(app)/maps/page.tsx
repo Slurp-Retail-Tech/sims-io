@@ -214,9 +214,7 @@ export default function MapsPage() {
           params.set("q", searchQuery)
         }
 
-        const response = await fetch(`/api/maps/outlets?${params.toString()}`, {
-          headers: { "x-user-id": user.id },
-        })
+        const response = await fetch(`/api/maps/outlets?${params.toString()}`)
         if (!response.ok) {
           throw new Error("Unable to load map outlets.")
         }

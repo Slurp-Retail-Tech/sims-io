@@ -1,4 +1,3 @@
-import * as XLSX from "xlsx"
 import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise"
 
 import getPool from "@/lib/db"
@@ -10,6 +9,7 @@ import {
   resolvePosMerchantIdApiUrl,
   resolvePosApiUrl,
 } from "@/lib/pos-api"
+import { readWorkbookRows } from "@/lib/spreadsheet"
 import { deleteObject, getObjectBuffer } from "@/lib/storage"
 
 const TARGET_OID = "1"
@@ -169,19 +169,8 @@ function getOutletCurrentState(payload: JsonRecord | null): CurrentOutletState {
   }
 }
 
-function parseTemplateRows(buffer: Buffer) {
-  const workbook = XLSX.read(buffer, { type: "buffer" })
-  const firstSheetName = workbook.SheetNames[0]
-  if (!firstSheetName) {
-    throw new Error("Template does not contain any sheets.")
-  }
-
-  const worksheet = workbook.Sheets[firstSheetName]
-  const rows = XLSX.utils.sheet_to_json<(string | number | null)[]>(worksheet, {
-    header: 1,
-    raw: false,
-    defval: "",
-  })
+async function parseTemplateRows(buffer: Buffer) {
+  const rows = await readWorkbookRows(buffer)
 
   return rows
     .slice(DATA_START_ROW_INDEX)
@@ -277,7 +266,7 @@ async function buildPreviewFromBuffer(
   buffer: Buffer,
   categories: CategoryBusinessOption[]
 ) {
-  const rows = parseTemplateRows(buffer)
+  const rows = await parseTemplateRows(buffer)
   const uniqueFids = Array.from(new Set(rows.map((row) => row.fid).filter(Boolean)))
   const duplicates = new Set<string>()
   const seen = new Set<string>()

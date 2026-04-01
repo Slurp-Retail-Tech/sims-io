@@ -30,8 +30,8 @@ export async function GET(request: NextRequest) {
   const response = NextResponse.redirect(url)
   response.cookies.set(GOOGLE_STATE_COOKIE, state, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    secure: process.env.NODE_ENV === "production" || process.env.APP_BASE_URL?.startsWith("https://"),
     maxAge: 10 * 60,
     path: "/",
   })

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
-import getPool from "@/lib/db"
+import getPool, { queryWithReconnect } from "@/lib/db"
 import { hashOpaqueToken, hashPassword } from "@/lib/auth"
 
 export async function POST(request: NextRequest) {
@@ -14,9 +14,16 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     )
   }
+  if (password.length < 12) {
+    return NextResponse.json(
+      { error: "Password must be at least 12 characters." },
+      { status: 400 }
+    )
+  }
 
   const pool = getPool()
   const connection = await pool.getConnection()
+  let userId: string | null = null
 
   try {
     await connection.beginTransaction()
@@ -47,6 +54,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    userId = record.user_id
+
     await connection.query(
       `
         UPDATE users
@@ -73,6 +82,13 @@ export async function POST(request: NextRequest) {
     )
   } finally {
     connection.release()
+  }
+
+  if (userId) {
+    await queryWithReconnect(
+      `DELETE FROM sessions WHERE user_id = ?`,
+      [userId]
+    ).catch(() => {})
   }
 
   return NextResponse.json({ ok: true })

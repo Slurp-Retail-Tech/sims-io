@@ -21,7 +21,7 @@ This repository contains planning documents for the Unified Engagement Platform 
 - Local data and storage services:
   - `docker compose up -d`
   - `npm run db:import:platform-data`
-- Current `docker-compose.yml` provisions MySQL on `localhost:3307`, phpMyAdmin on `localhost:8081`, MinIO API on `localhost:9002`, and MinIO console on `localhost:9003`.
+- Current `docker-compose.yml` provisions MySQL on `localhost:3307`, phpMyAdmin on `localhost:8081`, MinIO API on `localhost:9002`, MinIO console on `localhost:9003`, and Redis on `localhost:6379`.
 - Import helpers live under `scripts/`; prefer the existing npm script for platform data imports before adding one-off commands.
 
 ## Coding Style and Naming Conventions
@@ -43,5 +43,6 @@ This repository contains planning documents for the Unified Engagement Platform 
 
 ## Security and Configuration
 - Never commit secrets. Use `.env` and follow the variable names in `TDD.md` (for example, `POS_*`, `DATABASE_URL`).
+- Shared rate limiting depends on `REDIS_URL`; proxy IP headers are only trusted when `TRUSTED_PROXY` is set.
 - Follow PDPA constraints: minimize PII, document retention, and include erasure or audit considerations with data model changes.
 - When documenting dashboards, distinguish clearly between live metrics and preview-only UI. The Renewal & Retention overview is currently preview-only and should not be described as production analytics.

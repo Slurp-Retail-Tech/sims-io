@@ -3,11 +3,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { isRetryableConnectionError, queryWithReconnect } from "@/lib/db"
 import {
   buildSessionUser,
+  createSession,
   normalizeEmail,
   setAuthCookie,
   verifyPassword,
   type UserStatus,
 } from "@/lib/auth"
+import { checkRateLimit, getRateLimitIp } from "@/lib/rate-limit"
 
 type UserRow = {
   id: string
@@ -26,6 +28,18 @@ function isDatabaseConnectionError(error: unknown) {
 }
 
 export async function POST(request: NextRequest) {
+  const ip = getRateLimitIp(request)
+  const rl = await checkRateLimit(`login:${ip}`, 10, 900) // 10 attempts per 15 minutes
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many login attempts. Please try again later." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rl.retryAfterSeconds) },
+      }
+    )
+  }
+
   const body = (await request.json()) as {
     email?: string
     password?: string
@@ -75,7 +89,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: "Your account is pending activation. Use the activation email to set your password first.",
-        code: "activation_required",
       },
       { status: 403 }
     )
@@ -115,10 +128,11 @@ export async function POST(request: NextRequest) {
   }
 
   const remember = body.remember === true
+  const sessionToken = await createSession(user.id, remember)
   const response = NextResponse.json({
     user: buildSessionUser(user),
   })
-  setAuthCookie(response, user.id, remember)
+  setAuthCookie(response, sessionToken, remember)
 
   return response
 }

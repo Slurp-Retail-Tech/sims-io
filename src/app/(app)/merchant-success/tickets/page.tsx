@@ -549,9 +549,7 @@ export default function MerchantSuccessTicketsPage() {
       return
     }
     try {
-      const response = await fetch("/api/users/agents", {
-        headers: { "x-user-id": user.id },
-      })
+      const response = await fetch("/api/users/agents")
       if (!response.ok) {
         throw new Error("Unable to load agents.")
       }
@@ -572,9 +570,7 @@ export default function MerchantSuccessTicketsPage() {
       return
     }
     try {
-      const response = await fetch("/api/ticket-categories", {
-        headers: { "x-user-id": user.id },
-      })
+      const response = await fetch("/api/ticket-categories")
       if (!response.ok) {
         throw new Error("Unable to load ticket categories.")
       }
@@ -656,9 +652,7 @@ export default function MerchantSuccessTicketsPage() {
       params.set("page", String(page))
       params.set("per_page", String(perPage))
 
-      const response = await fetch(`/api/tickets?${params.toString()}`, {
-        headers: { "x-user-id": user.id },
-      })
+      const response = await fetch(`/api/tickets?${params.toString()}`)
       if (!response.ok) {
         throw new Error("Unable to load tickets.")
       }
@@ -685,9 +679,7 @@ export default function MerchantSuccessTicketsPage() {
       try {
         const params = buildFilterParams()
         params.set("format", format)
-        const response = await fetch(`/api/tickets/export?${params.toString()}`, {
-          headers: { "x-user-id": user.id },
-        })
+        const response = await fetch(`/api/tickets/export?${params.toString()}`)
         if (!response.ok) {
           throw new Error("Unable to export tickets.")
         }
@@ -722,9 +714,7 @@ export default function MerchantSuccessTicketsPage() {
     }
     setDetailLoading(true)
     try {
-      const response = await fetch(`/api/tickets/${ticketId}`, {
-        headers: { "x-user-id": user.id },
-      })
+      const response = await fetch(`/api/tickets/${ticketId}`)
       if (!response.ok) {
         throw new Error("Unable to load ticket details.")
       }
@@ -745,9 +735,7 @@ export default function MerchantSuccessTicketsPage() {
     }
     setHistoryLoading(true)
     try {
-      const response = await fetch(`/api/tickets/${ticketId}/history`, {
-        headers: { "x-user-id": user.id },
-      })
+      const response = await fetch(`/api/tickets/${ticketId}/history`)
       if (!response.ok) {
         throw new Error("Unable to load ticket history.")
       }
@@ -799,7 +787,6 @@ export default function MerchantSuccessTicketsPage() {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": user.id,
         },
         body: JSON.stringify({
           status: ticketDraft.status,
@@ -877,7 +864,6 @@ export default function MerchantSuccessTicketsPage() {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
-            "x-user-id": sessionUser.id,
           },
           body: JSON.stringify({
             msPicUserId: sessionUser.id,
@@ -971,9 +957,6 @@ export default function MerchantSuccessTicketsPage() {
     try {
       const response = await fetch(`/api/tickets/${selectedTicketId}/csat/share`, {
         method: "POST",
-        headers: {
-          "x-user-id": user.id,
-        },
       })
       if (!response.ok) {
         throw new Error("Unable to track CSAT link share.")
@@ -1046,7 +1029,6 @@ export default function MerchantSuccessTicketsPage() {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": user.id,
         },
         body: JSON.stringify({
           clickupTaskId: extractedTaskId,
@@ -1062,9 +1044,6 @@ export default function MerchantSuccessTicketsPage() {
 
       const syncResponse = await fetch(`/api/tickets/${selectedTicketId}/clickup/sync`, {
         method: "POST",
-        headers: {
-          "x-user-id": user.id,
-        },
       })
       if (!syncResponse.ok) {
         const payload = (await syncResponse.json().catch(() => null)) as
@@ -1138,9 +1117,6 @@ export default function MerchantSuccessTicketsPage() {
     try {
       const response = await fetch(`/api/tickets/${selectedTicketId}/clickup/sync`, {
         method: "POST",
-        headers: {
-          "x-user-id": user.id,
-        },
       })
       if (!response.ok) {
         const payload = (await response.json().catch(() => null)) as
@@ -1175,7 +1151,6 @@ export default function MerchantSuccessTicketsPage() {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": user.id,
         },
         body: JSON.stringify({
           hidden: !ticketDraft.hidden,
@@ -1220,10 +1195,7 @@ export default function MerchantSuccessTicketsPage() {
     try {
       if (ticketDraft.oid?.trim()) {
         const outletResponse = await fetch(
-          `/api/merchants/lookup?oid=${encodeURIComponent(ticketDraft.oid.trim())}`,
-          {
-            headers: { "x-user-id": user.id },
-          }
+          `/api/merchants/lookup?oid=${encodeURIComponent(ticketDraft.oid.trim())}`
         )
         if (outletResponse.ok) {
           const outletData = (await outletResponse.json()) as {
@@ -1237,10 +1209,7 @@ export default function MerchantSuccessTicketsPage() {
 
       if (ticketDraft.fid?.trim()) {
         const franchiseResponse = await fetch(
-          `/api/merchants/lookup?fid=${encodeURIComponent(ticketDraft.fid.trim())}`,
-          {
-            headers: { "x-user-id": user.id },
-          }
+          `/api/merchants/lookup?fid=${encodeURIComponent(ticketDraft.fid.trim())}`
         )
         if (franchiseResponse.ok) {
           const franchiseData = (await franchiseResponse.json()) as {

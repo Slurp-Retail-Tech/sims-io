@@ -4,6 +4,7 @@ import type { RowDataPacket } from "mysql2"
 import { createClickUpTask } from "@/lib/clickup"
 import { applyClickUpSnapshotToTicket, resolveActorLabel } from "@/lib/clickup-ticket-sync"
 import getPool from "@/lib/db"
+import { requireAuthenticatedUser } from "@/lib/auth"
 
 type TicketForTaskRow = RowDataPacket & {
   id: string
@@ -55,10 +56,11 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ ticketId: string }> }
 ) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
+  const userId = user.id
 
   const actorLabel = await resolveActorLabel(userId)
   const { ticketId } = await params

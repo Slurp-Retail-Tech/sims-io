@@ -312,9 +312,7 @@ export default function MerchantSuccessAuditTrailPage() {
       params.set("page", String(page))
       params.set("per_page", String(perPage))
 
-      const response = await fetch(`/api/tickets/history?${params.toString()}`, {
-        headers: { "x-user-id": user.id },
-      })
+      const response = await fetch(`/api/tickets/history?${params.toString()}`)
       if (!response.ok) {
         throw new Error("Unable to load audit history.")
       }
@@ -372,9 +370,7 @@ export default function MerchantSuccessAuditTrailPage() {
     setTicketDetail(null)
     setDetailError(null)
     try {
-      const response = await fetch(`/api/tickets/${ticketId}`, {
-        headers: { "x-user-id": user.id },
-      })
+      const response = await fetch(`/api/tickets/${ticketId}`)
       if (!response.ok) {
         throw new Error("Unable to load ticket details.")
       }

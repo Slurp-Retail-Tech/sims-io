@@ -98,10 +98,7 @@ export default function RenewalDuePage() {
         params.set("page", String(page))
         params.set("per_page", String(perPage))
         const response = await fetch(
-          `/api/renewals/expiring?${params.toString()}`,
-          {
-            headers: { "x-user-id": user.id },
-          }
+          `/api/renewals/expiring?${params.toString()}`
         )
         if (!response.ok) {
           throw new Error("Unable to load renewal due outlets.")

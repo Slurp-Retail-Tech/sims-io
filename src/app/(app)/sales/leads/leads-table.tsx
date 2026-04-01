@@ -138,9 +138,7 @@ export default function LeadsTable() {
         params.set("q", searchQuery)
       }
 
-      const response = await fetch(`/api/leads?${params.toString()}`, {
-        headers: { "x-user-id": user.id },
-      })
+      const response = await fetch(`/api/leads?${params.toString()}`)
       if (!response.ok) {
         throw new Error("Unable to load leads.")
       }
@@ -169,9 +167,7 @@ export default function LeadsTable() {
       params.set("archived", "true")
       params.set("all", "true")
 
-      const response = await fetch(`/api/leads?${params.toString()}`, {
-        headers: { "x-user-id": user.id },
-      })
+      const response = await fetch(`/api/leads?${params.toString()}`)
       if (!response.ok) {
         throw new Error("Unable to load archived leads.")
       }
@@ -200,9 +196,7 @@ export default function LeadsTable() {
     const loadSettings = async () => {
       setSettingsLoading(true)
       try {
-        const response = await fetch("/api/leads/notification-settings", {
-          headers: { "x-user-id": user.id },
-        })
+        const response = await fetch("/api/leads/notification-settings")
         if (!response.ok) {
           throw new Error("Unable to load notification settings.")
         }
@@ -235,7 +229,6 @@ export default function LeadsTable() {
         method: "PATCH",
         headers: {
           "content-type": "application/json",
-          "x-user-id": user.id,
         },
         body: JSON.stringify({ archived }),
       })
@@ -278,7 +271,6 @@ export default function LeadsTable() {
         method: "PATCH",
         headers: {
           "content-type": "application/json",
-          "x-user-id": user.id,
         },
         body: JSON.stringify({
           isEnabled: settings.isEnabled,

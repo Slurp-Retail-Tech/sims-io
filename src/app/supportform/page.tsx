@@ -5,6 +5,7 @@ import Image from "next/image"
 import { Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 
+import { CSRF_FORM_FIELD_NAME, getClientCsrfToken } from "@/lib/csrf"
 import { Button } from "@/components/ui/button"
 import {
   Select,
@@ -279,6 +280,7 @@ export default function SupportFormPage() {
     try {
       setSubmitting(true)
       const formData = new FormData(event.currentTarget)
+      formData.set(CSRF_FORM_FIELD_NAME, getClientCsrfToken())
       formData.set("fid", fid)
       formData.set("oid", oid)
       formData.set("merchant_name", merchantName)

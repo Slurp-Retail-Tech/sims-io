@@ -200,13 +200,9 @@ export default function SalesAppointmentsPage() {
     setReady(true)
   }, [])
 
-  const authHeaders = React.useMemo(
-    () => (sessionUser ? { "x-user-id": sessionUser.id } : null),
-    [sessionUser]
-  )
 
   const loadAppointments = React.useCallback(async () => {
-    if (!authHeaders) {
+    if (!sessionUser) {
       return
     }
     setLoading(true)
@@ -214,8 +210,7 @@ export default function SalesAppointmentsPage() {
       const start = startOfMonth(month).toISOString()
       const end = endOfMonth(month).toISOString()
       const response = await fetch(
-        `/api/sales-appointments?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
-        { headers: authHeaders }
+        `/api/sales-appointments?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
       )
       const payload = (await response.json()) as {
         appointments?: Appointment[]
@@ -233,16 +228,16 @@ export default function SalesAppointmentsPage() {
     } finally {
       setLoading(false)
     }
-  }, [authHeaders, month, showToast])
+  }, [sessionUser, month, showToast])
 
   React.useEffect(() => {
-    if (authHeaders) {
+    if (sessionUser) {
       void loadAppointments()
     }
-  }, [authHeaders, loadAppointments])
+  }, [sessionUser, loadAppointments])
 
   React.useEffect(() => {
-    if (!formOpen || !authHeaders) {
+    if (!formOpen || !sessionUser) {
       return
     }
 
@@ -263,7 +258,6 @@ export default function SalesAppointmentsPage() {
           q: query,
         })
         const response = await fetch(`/api/leads?${params.toString()}`, {
-          headers: authHeaders,
           signal: controller.signal,
         })
         const payload = (await response.json()) as {
@@ -289,7 +283,7 @@ export default function SalesAppointmentsPage() {
     })()
 
     return () => controller.abort()
-  }, [authHeaders, deferredLeadQuery, formOpen, showToast])
+  }, [sessionUser, deferredLeadQuery, formOpen, showToast])
 
   const appointmentDays = React.useMemo(
     () =>
@@ -358,7 +352,7 @@ export default function SalesAppointmentsPage() {
   }, [])
 
   const handleSubmit = React.useCallback(async () => {
-    if (!authHeaders) {
+    if (!sessionUser) {
       return
     }
 
@@ -391,7 +385,7 @@ export default function SalesAppointmentsPage() {
           : "/api/sales-appointments",
         {
           method: editingAppointment ? "PATCH" : "POST",
-          headers: { ...authHeaders, "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             leadId: formState.leadId,
             customerName: formState.customerName.trim(),
@@ -433,10 +427,10 @@ export default function SalesAppointmentsPage() {
     } finally {
       setFormLoading(false)
     }
-  }, [authHeaders, editingAppointment, formState, resetFormState, showToast])
+  }, [sessionUser, editingAppointment, formState, resetFormState, showToast])
 
   const handleActionSubmit = React.useCallback(async () => {
-    if (!authHeaders || !actionTarget) {
+    if (!sessionUser || !actionTarget) {
       return
     }
 
@@ -456,7 +450,7 @@ export default function SalesAppointmentsPage() {
         `/api/sales-appointments/${actionTarget.id}/${actionType}`,
         {
           method: "POST",
-          headers: { ...authHeaders, "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ reason: actionReason.trim() }),
         }
       )
@@ -486,7 +480,7 @@ export default function SalesAppointmentsPage() {
     } finally {
       setActionLoading(false)
     }
-  }, [actionReason, actionTarget, actionType, authHeaders, showToast])
+  }, [actionReason, actionTarget, actionType, sessionUser, showToast])
 
   if (!ready) {
     return (

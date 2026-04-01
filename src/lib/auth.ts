@@ -128,59 +128,81 @@ export function getSessionMaxAge(remember: boolean) {
   return remember ? REMEMBER_SESSION_TTL_SECONDS : DEFAULT_SESSION_TTL_SECONDS
 }
 
+export async function createSession(userId: string, remember: boolean): Promise<string> {
+  const token = randomBytes(32).toString("hex")
+  const tokenHash = hashOpaqueToken(token)
+  const maxAge = getSessionMaxAge(remember)
+  await queryWithReconnect(
+    `INSERT INTO sessions (user_id, token_hash, remember, expires_at)
+     VALUES (?, ?, ?, DATE_ADD(NOW(3), INTERVAL ? SECOND))`,
+    [userId, tokenHash, remember ? 1 : 0, maxAge]
+  )
+  return token
+}
+
 export function setAuthCookie(
   response: NextResponse,
-  userId: string,
+  sessionToken: string,
   remember: boolean
 ) {
-  response.cookies.set(SESSION_COOKIE_NAME, userId, {
+  response.cookies.set(SESSION_COOKIE_NAME, sessionToken, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    secure: process.env.NODE_ENV === "production" || process.env.APP_BASE_URL?.startsWith("https://"),
     maxAge: getSessionMaxAge(remember),
     path: "/",
   })
 }
 
-export function clearAuthCookie(response: NextResponse) {
+export async function deleteSession(token: string): Promise<void> {
+  const tokenHash = hashOpaqueToken(token)
+  await queryWithReconnect(
+    `DELETE FROM sessions WHERE token_hash = ?`,
+    [tokenHash]
+  ).catch(() => {})
+}
+
+export async function clearAuthCookie(response: NextResponse, sessionToken?: string): Promise<void> {
+  if (sessionToken) {
+    await deleteSession(sessionToken)
+  }
   response.cookies.set(SESSION_COOKIE_NAME, "", {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    secure: process.env.NODE_ENV === "production" || process.env.APP_BASE_URL?.startsWith("https://"),
     maxAge: 0,
     path: "/",
   })
 }
 
 export async function getAuthenticatedUser(request: NextRequest) {
-  const userId = request.cookies.get(SESSION_COOKIE_NAME)?.value?.trim()
-  if (!userId) {
-    return null
-  }
+  const token = request.cookies.get(SESSION_COOKIE_NAME)?.value?.trim()
+  if (!token) return null
 
+  const tokenHash = hashOpaqueToken(token)
   const [rows] = await queryWithReconnect<UserRow[]>(
-    `
-      SELECT
-        id,
-        name,
-        email,
-        avatar_url,
-        department,
-        role,
-        status,
-        password_hash,
-        page_access,
-        google_subject,
-        google_workspace_domain
-      FROM users
-      WHERE id = ?
-      LIMIT 1
-    `,
-    [userId]
+    `SELECT u.id, u.name, u.email, u.avatar_url, u.department, u.role,
+            u.status, u.password_hash, u.page_access,
+            u.google_subject, u.google_workspace_domain,
+            s.id AS session_id
+     FROM sessions s
+     INNER JOIN users u ON u.id = s.user_id
+     WHERE s.token_hash = ?
+       AND s.expires_at > NOW(3)
+     LIMIT 1`,
+    [tokenHash]
   )
 
-  const user = rows[0]
-  return user ? buildAuthenticatedUser(user) : null
+  const row = rows[0]
+  if (!row) return null
+
+  // Fire-and-forget last_seen_at update
+  queryWithReconnect(
+    `UPDATE sessions SET last_seen_at = NOW(3) WHERE token_hash = ?`,
+    [tokenHash]
+  ).catch(() => {})
+
+  return buildAuthenticatedUser(row)
 }
 
 export async function requireAuthenticatedUser(request: NextRequest) {

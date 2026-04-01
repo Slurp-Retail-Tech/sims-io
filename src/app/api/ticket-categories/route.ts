@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import type { ResultSetHeader } from "mysql2/promise"
 
 import getPool from "@/lib/db"
+import { requireAuthenticatedUser } from "@/lib/auth"
 
 type CategoryRow = {
   id: string
@@ -49,8 +50,8 @@ function buildTree(rows: CategoryRow[]) {
 }
 
 export async function GET(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
@@ -69,8 +70,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
@@ -126,8 +127,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
@@ -185,8 +186,8 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 

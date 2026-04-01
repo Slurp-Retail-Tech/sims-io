@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { queryWithReconnect } from "@/lib/db"
 import {
+  createSession,
   getGoogleClientConfig,
   normalizeEmail,
   resolveAppBaseUrl,
@@ -134,11 +135,8 @@ export async function GET(request: NextRequest) {
   if (!user) {
     return redirectToLogin(request, "sso_not_allowed")
   }
-  if (user.status === "pending_activation") {
-    return redirectToLogin(request, "activation_required")
-  }
   if (user.status !== "active") {
-    return redirectToLogin(request, "account_inactive")
+    return redirectToLogin(request, "sso_not_allowed")
   }
 
   if (user.google_subject && user.google_subject !== userInfo.sub) {
@@ -165,9 +163,10 @@ export async function GET(request: NextRequest) {
     [userInfo.sub, hostedDomain, user.id]
   )
 
+  const sessionToken = await createSession(user.id, true)
   const base = resolveAppBaseUrl(request.nextUrl.origin)
   const response = NextResponse.redirect(new URL("/overview", base))
   response.cookies.set(GOOGLE_STATE_COOKIE, "", { maxAge: 0, path: "/" })
-  setAuthCookie(response, user.id, true)
+  setAuthCookie(response, sessionToken, true)
   return response
 }

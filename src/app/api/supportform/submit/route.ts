@@ -3,6 +3,8 @@ import type { ResultSetHeader } from "mysql2/promise"
 
 import getPool from "@/lib/db"
 import { buildObjectKey, getProxyObjectUrl, uploadObject } from "@/lib/storage"
+import { checkRateLimit, getRateLimitIp } from "@/lib/rate-limit"
+import { validateMultipartCsrf } from "@/lib/csrf"
 
 export const runtime = "nodejs"
 
@@ -120,7 +122,31 @@ async function resolveMerchantNames(
 }
 
 export async function POST(request: NextRequest) {
-  const formData = await request.formData()
+  const ip = getRateLimitIp(request)
+  const rl = await checkRateLimit(`supportform:${ip}`, 5, 60) // 5 per minute
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many submissions. Please try again later." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rl.retryAfterSeconds) },
+      }
+    )
+  }
+
+  const csrf = await validateMultipartCsrf(request)
+  if (!csrf.valid) {
+    return NextResponse.json({ error: "Invalid CSRF token." }, { status: 403 })
+  }
+
+  const formData = csrf.formData ?? (await request.formData())
+
+  // Honeypot check — bots fill hidden fields
+  const honeypot = formData.get("website")
+  if (honeypot && typeof honeypot === "string" && honeypot.trim().length > 0) {
+    // Return success silently to not reveal the honeypot
+    return NextResponse.json({ requestId: "0", franchiseName: null, outletName: null, whatsappUrl: null })
+  }
 
   const fid = normalizeText(formData.get("fid"))
   const oid = normalizeText(formData.get("oid"))

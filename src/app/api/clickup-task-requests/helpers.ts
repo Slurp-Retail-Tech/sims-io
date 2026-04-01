@@ -1,6 +1,7 @@
 import type { Pool, RowDataPacket } from "mysql2/promise"
 import { NextRequest, NextResponse } from "next/server"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import { resolveStoredObjectUrl } from "@/lib/storage"
 
 export type AuthUser = {
@@ -92,8 +93,8 @@ export async function resolveAuthUser(
   request: NextRequest,
   pool: Pool
 ): Promise<{ user: AuthUser } | { response: NextResponse }> {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const sessionUser = await requireAuthenticatedUser(request)
+  if (!sessionUser) {
     return {
       response: NextResponse.json({ error: "Unauthorized." }, { status: 401 }),
     }
@@ -106,7 +107,7 @@ export async function resolveAuthUser(
     WHERE id = ?
     LIMIT 1
   `,
-    [userId]
+    [sessionUser.id]
   )
 
   const user = rows[0]

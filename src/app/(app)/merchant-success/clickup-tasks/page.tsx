@@ -310,9 +310,7 @@ export default function ClickupTasksPage() {
         sort_by: pendingSortBy,
         direction: pendingDirection,
       })
-      const response = await fetch(`/api/clickup-task-requests?${params.toString()}`, {
-        headers: { "x-user-id": sessionUser.id },
-      })
+      const response = await fetch(`/api/clickup-task-requests?${params.toString()}`)
       const payload = (await response.json()) as { requests?: TaskRequest[]; error?: string }
       if (!response.ok) {
         throw new Error(payload.error ?? "Unable to load pending requests.")
@@ -342,9 +340,7 @@ export default function ClickupTasksPage() {
         page: String(completedPage),
         per_page: String(completedPerPage),
       })
-      const response = await fetch(`/api/clickup-task-requests?${params.toString()}`, {
-        headers: { "x-user-id": sessionUser.id },
-      })
+      const response = await fetch(`/api/clickup-task-requests?${params.toString()}`)
       const payload = (await response.json()) as {
         requests?: TaskRequest[]
         total?: number
@@ -393,11 +389,7 @@ export default function ClickupTasksPage() {
     }
     const loadCustomFieldOptions = async () => {
       try {
-        const response = await fetch("/api/clickup/custom-fields", {
-          headers: {
-            "x-user-id": sessionUser.id,
-          },
-        })
+        const response = await fetch("/api/clickup/custom-fields")
         const payload = (await response.json()) as {
           error?: string
           options?: {
@@ -472,9 +464,7 @@ export default function ClickupTasksPage() {
     setDetailLoading(true)
     setDetailData(null)
     try {
-      const response = await fetch(`/api/clickup-task-requests/${requestId}`, {
-        headers: { "x-user-id": sessionUser.id },
-      })
+      const response = await fetch(`/api/clickup-task-requests/${requestId}`)
       const payload = (await response.json()) as DetailResponse & { error?: string }
       if (!response.ok) {
         throw new Error(payload.error ?? "Unable to load request details.")
@@ -504,9 +494,7 @@ export default function ClickupTasksPage() {
     setFormError(null)
     setFormTicketLookupLoading(true)
     try {
-      const response = await fetch(`/api/tickets/${encodeURIComponent(ticketId)}`, {
-        headers: { "x-user-id": sessionUser.id },
-      })
+      const response = await fetch(`/api/tickets/${encodeURIComponent(ticketId)}`)
       const payload = (await response.json()) as {
         error?: string
         ticket?: {
@@ -579,7 +567,6 @@ export default function ClickupTasksPage() {
       for (const file of formState.newFiles) {
         const uploaded = await uploadFile({
           file,
-          userId: sessionUser.id,
           folder: "uploads",
         })
         uploadedUrls.push(uploaded.url)
@@ -611,7 +598,6 @@ export default function ClickupTasksPage() {
         method,
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": sessionUser.id,
         },
         body: JSON.stringify(payload),
       })
@@ -662,7 +648,6 @@ export default function ClickupTasksPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-user-id": sessionUser.id,
           },
           body: JSON.stringify({
             action: reviewAction,

@@ -20,17 +20,17 @@ If Coolify lets you set the timezone, choose `Asia/Kuala_Lumpur`.
 
 Command example using a platform env var:
 ```
-curl -X POST "https://your-app-domain.com/api/merchants/import" -H "x-user-id: ${MERCHANT_IMPORT_USER_ID}"
+curl -X POST "https://your-app-domain.com/api/merchants/import" -H "Cookie: sims-auth=${MERCHANT_IMPORT_SESSION_TOKEN}"
 ```
 
 Notes:
-- Store the user ID as a platform secret (for example, `MERCHANT_IMPORT_USER_ID`).
-- `x-user-id` must be an existing value from the `users.id` column, typically a Super Admin user.
+- Store a valid authenticated session token as a platform secret (for example, `MERCHANT_IMPORT_SESSION_TOKEN`).
+- The session must belong to an active user allowed to trigger merchant imports, typically a Super Admin user.
 - The import creates an entry in `merchant_import_runs`.
 - You can test the same call locally with `http://localhost:3000`.
 - Keep the command on one line in Coolify.
 - Quote both the URL and the header value exactly as shown above.
-- The current merchant import endpoint uses `x-user-id`. It does not use a cron secret.
+- The current merchant import endpoint uses authenticated session cookies. It does not use a cron secret.
 
 ## ClickUp ticket status sync endpoint
 

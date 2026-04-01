@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server"
-import * as XLSX from "xlsx"
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 
 import getPool from "@/lib/db"
@@ -10,6 +9,8 @@ import {
   isPosApiRecord,
   resolvePosBranchUrl,
 } from "@/lib/pos-api"
+import { requireAuthenticatedUser } from "@/lib/auth"
+import { rowsToCsv, workbookToBuffer } from "@/lib/spreadsheet"
 
 export const dynamic = "force-dynamic"
 
@@ -328,8 +329,8 @@ async function generatePdf(rows: ExportRow[]): Promise<Uint8Array> {
 }
 
 export async function GET(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
@@ -350,7 +351,7 @@ export async function GET(request: NextRequest) {
   )
 
   // Load branch data: used both for filtering PLUS merchants and resolving branch names
-  let branchIdsForPlus = new Set<string>()
+  const branchIdsForPlus = new Set<string>()
   const branchNameById = new Map<string, string>()
   try {
     const branchRows = await loadBranchRows()
@@ -495,10 +496,7 @@ async function buildResponse(rows: ExportRow[], format: ExportFormat) {
   ]
 
   if (format === "xlsx") {
-    const workbook = XLSX.utils.book_new()
-    const worksheet = XLSX.utils.aoa_to_sheet(tableRows)
-    XLSX.utils.book_append_sheet(workbook, worksheet, "PLUS Merchants")
-    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer
+    const buffer = await workbookToBuffer("PLUS Merchants", tableRows)
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -507,7 +505,7 @@ async function buildResponse(rows: ExportRow[], format: ExportFormat) {
     })
   }
 
-  const csv = XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet(tableRows))
+  const csv = rowsToCsv(tableRows)
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",

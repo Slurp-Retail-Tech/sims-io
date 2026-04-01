@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from "next/server"
 
 import getPool from "@/lib/db"
 import { createPlusUpdateJob, previewPlusTemplate } from "@/lib/plus-import"
+import { requireAuthenticatedUser } from "@/lib/auth"
 
 export async function POST(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
+  const userId = user.id
 
   try {
     const payload = (await request.json()) as { key?: string }
@@ -27,10 +29,7 @@ export async function POST(request: NextRequest) {
     console.error(error)
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unable to preview PLUS template.",
+        error: "An unexpected error occurred. Please try again.",
       },
       { status: 500 }
     )

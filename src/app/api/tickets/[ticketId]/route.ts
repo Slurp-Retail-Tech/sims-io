@@ -3,6 +3,7 @@ import type { RowDataPacket } from "mysql2"
 import { randomUUID } from "node:crypto"
 
 import getPool from "@/lib/db"
+import { hashOpaqueToken, requireAuthenticatedUser } from "@/lib/auth"
 import { normalizeDateTimeForMysqlInput } from "@/lib/mysql-datetime"
 import { resolveStoredObjectUrl } from "@/lib/storage"
 
@@ -40,7 +41,7 @@ type TicketDetailRow = RowDataPacket & {
 }
 
 type CsatTokenRow = RowDataPacket & {
-  token: string
+  token_hash: string
   created_at: string
   expires_at: string
   used_at: string | null
@@ -158,8 +159,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ ticketId: string }> }
 ) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
@@ -217,7 +218,7 @@ export async function GET(
 
   const [tokenRows] = await pool.query<CsatTokenRow[]>(
     `
-    SELECT token, created_at, expires_at, used_at
+    SELECT token_hash, created_at, expires_at, used_at
     FROM csat_tokens
     WHERE ticket_id = ?
     ORDER BY id DESC
@@ -290,9 +291,9 @@ export async function GET(
       msPicName: row.ms_pic_name,
       csat: {
         surveyStatus: toSurveyStatus(token, response, wasWhatsappSent),
-        token: token?.token ?? null,
-        tokenPreview: token?.token
-          ? `${token.token.slice(0, 8)}...${token.token.slice(-4)}`
+        token: null,
+        tokenPreview: token?.token_hash
+          ? `${token.token_hash.slice(0, 8)}...${token.token_hash.slice(-4)}`
           : null,
         createdAt: token?.created_at ?? null,
         expiresAt: token?.expires_at ?? null,
@@ -315,10 +316,11 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ ticketId: string }> }
 ) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
+  const userId = user.id
 
   const { ticketId } = await params
   const body = (await request.json()) as {
@@ -614,10 +616,10 @@ export async function PATCH(
     generatedCsatToken = randomUUID()
     await pool.query(
       `
-      INSERT INTO csat_tokens (ticket_id, token, expires_at)
+      INSERT INTO csat_tokens (ticket_id, token_hash, expires_at)
       VALUES (?, ?, DATE_ADD(NOW(3), INTERVAL 3 DAY))
     `,
-      [ticketId, generatedCsatToken]
+      [ticketId, hashOpaqueToken(generatedCsatToken)]
     )
 
     await pool.query(

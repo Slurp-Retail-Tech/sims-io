@@ -192,9 +192,7 @@ export default function MerchantsPage() {
           params.set("branch_id", selectedBranchId)
         }
 
-        const response = await fetch(`/api/merchants/export?${params.toString()}`, {
-          headers: { "x-user-id": user.id },
-        })
+        const response = await fetch(`/api/merchants/export?${params.toString()}`)
         if (!response.ok) {
           throw new Error("Unable to export merchants.")
         }
@@ -288,9 +286,7 @@ export default function MerchantsPage() {
         params.set("branch_id", selectedBranch.id)
       }
 
-      const response = await fetch(`/api/merchants?${params.toString()}`, {
-        headers: { "x-user-id": user.id },
-      })
+      const response = await fetch(`/api/merchants?${params.toString()}`)
       if (!response.ok) {
         showToast("Unable to load merchants.", "error")
         return
@@ -348,9 +344,7 @@ export default function MerchantsPage() {
     const loadBranches = async () => {
       setBranchesLoading(true)
       try {
-        const response = await fetch("/api/branches", {
-          headers: { "x-user-id": user.id },
-        })
+        const response = await fetch("/api/branches")
         if (!response.ok) {
           showToast("Unable to load branches.", "error")
           return
@@ -384,9 +378,7 @@ export default function MerchantsPage() {
       return
     }
     try {
-      const response = await fetch("/api/merchants/import/status", {
-        headers: { "x-user-id": user.id },
-      })
+      const response = await fetch("/api/merchants/import/status")
       if (!response.ok) {
         return
       }
@@ -436,7 +428,6 @@ export default function MerchantsPage() {
       void loadImportStatus()
       const response = await fetch("/api/merchants/import", {
         method: "POST",
-        headers: { "x-user-id": user.id },
       })
       if (!response.ok) {
         const data = (await response.json()) as { error?: string }
@@ -469,10 +460,7 @@ export default function MerchantsPage() {
       setLoadingOutlets((prev) => ({ ...prev, [merchantKey]: true }))
       try {
         const response = await fetch(
-          `/api/merchants/${merchantFid}/outlets`,
-          {
-            headers: { "x-user-id": user.id },
-          }
+          `/api/merchants/${merchantFid}/outlets`
         )
         if (!response.ok) {
           showToast("Unable to load outlets.", "error")

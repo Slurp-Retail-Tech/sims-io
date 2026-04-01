@@ -5,7 +5,7 @@ type PosApiAuthSession = {
 }
 
 const DEFAULT_AUTH_URL = "https://api.getslurp.com/api/login"
-const DEFAULT_IMPORT_URL = "http://api.getslurp.com/api/franchise-retrieve/"
+const DEFAULT_IMPORT_URL = "https://api.getslurp.com/api/franchise-retrieve/"
 const DEFAULT_BRANCH_PATH = "/api/branch"
 
 function mergeHeaders(...headersList: Array<HeadersInit | undefined>) {

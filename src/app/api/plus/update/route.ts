@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { runPlusUpdate } from "@/lib/plus-import"
+import { requireAuthenticatedUser } from "@/lib/auth"
 
 const encoder = new TextEncoder()
 
@@ -9,10 +10,11 @@ function encodeEvent(payload: Record<string, unknown>) {
 }
 
 export async function POST(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
+  const userId = user.id
 
   const payload = (await request.json().catch(() => null)) as { key?: string } | null
   const key = payload?.key?.trim()
@@ -39,10 +41,7 @@ export async function POST(request: NextRequest) {
           console.error(error)
           emit({
             type: "error",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Unable to run PLUS update.",
+            message: "An unexpected error occurred. Please try again.",
           })
         } finally {
           controller.close()

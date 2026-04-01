@@ -6,15 +6,23 @@ import {
   getPublicObjectUrl,
   uploadObject,
 } from "@/lib/storage"
+import { validateMultipartCsrf } from "@/lib/csrf"
+import { requireAuthenticatedUser } from "@/lib/auth"
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 const ALLOWED_FOLDERS = new Set(["avatars", "uploads"])
 
 export async function POST(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const csrf = await validateMultipartCsrf(request)
+  if (!csrf.valid) {
+    return NextResponse.json({ error: "Invalid CSRF token." }, { status: 403 })
+  }
+
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
+  const userId = user.id
 
   const bucket = process.env.MINIO_BUCKET
   if (!bucket) {
@@ -24,7 +32,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const formData = await request.formData()
+  const formData = csrf.formData ?? (await request.formData())
   const file = formData.get("file")
   const folderValue = formData.get("folder")
   const folder =

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import getPool from "@/lib/db"
+import { requireAuthenticatedUser } from "@/lib/auth"
 
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ merchantId: string }> }
 ) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 

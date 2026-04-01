@@ -27,6 +27,20 @@ function useChart() {
   return context
 }
 
+function isSafeCssColor(value: string): boolean {
+  const normalized = value.trim()
+  return (
+    /^#[0-9a-fA-F]{3,8}$/.test(normalized) ||
+    /^rgba?\(\s*\d{1,3}(?:\s*,\s*\d{1,3}){2}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/.test(
+      normalized
+    ) ||
+    /^hsla?\(\s*\d{1,3}(?:deg)?(?:\s*,\s*\d{1,3}%){2}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/.test(
+      normalized
+    ) ||
+    /^[a-zA-Z]{2,20}$/.test(normalized)
+  )
+}
+
 function ChartStyle({ id, config }: { id: string; config: ChartConfig }) {
   const colorConfig = Object.entries(config).filter(([, cfg]) => cfg.color)
 
@@ -40,7 +54,7 @@ function ChartStyle({ id, config }: { id: string; config: ChartConfig }) {
         __html: `
 ${colorConfig
   .map(([key, cfg]) => {
-    return `[data-chart=${id}] { --color-${key}: ${cfg.color}; }`
+    return `[data-chart=${id}] { --color-${key}: ${isSafeCssColor(cfg.color ?? "") ? cfg.color : "transparent"}; }`
   })
   .join("\n")}
 `,

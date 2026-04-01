@@ -3,6 +3,8 @@ import type { ResultSetHeader } from "mysql2/promise"
 
 import getPool from "@/lib/db"
 import { sendLeadNotificationEmail } from "@/lib/lead-notification"
+import { checkRateLimit, getRateLimitIp } from "@/lib/rate-limit"
+import { requireAuthenticatedUser } from "@/lib/auth"
 
 type LeadDbRow = {
   id: number | string
@@ -205,8 +207,8 @@ async function syncLeadToHubspot(params: {
 }
 
 export async function GET(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
@@ -313,6 +315,18 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const ip = getRateLimitIp(request)
+  const rl = await checkRateLimit(`leads:${ip}`, 3, 60) // 3 per minute
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many submissions. Please try again later." },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rl.retryAfterSeconds) },
+      }
+    )
+  }
+
   const formData = await request.formData()
 
   if (normalizeText(formData.get("company_site"))) {

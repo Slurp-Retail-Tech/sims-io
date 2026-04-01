@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import * as XLSX from "xlsx"
 
 import getPool from "@/lib/db"
+import { requireAuthenticatedUser } from "@/lib/auth"
+import { rowsToCsv, workbookToBuffer } from "@/lib/spreadsheet"
 
 export const dynamic = "force-dynamic"
 
@@ -140,8 +141,8 @@ function toFilterRows(context: ExportFilterContext) {
 }
 
 export async function GET(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
@@ -354,14 +355,7 @@ export async function GET(request: NextRequest) {
   const baseName = `tickets-export-${getNowToken()}`
 
   if (format === "xlsx") {
-    const workbook = XLSX.utils.book_new()
-    const worksheet = XLSX.utils.aoa_to_sheet(tableRows)
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Tickets")
-
-    const buffer = XLSX.write(workbook, {
-      type: "buffer",
-      bookType: "xlsx",
-    }) as Buffer
+    const buffer = await workbookToBuffer("Tickets", tableRows)
 
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
@@ -372,7 +366,7 @@ export async function GET(request: NextRequest) {
     })
   }
 
-  const csv = XLSX.utils.sheet_to_csv(XLSX.utils.aoa_to_sheet(tableRows))
+  const csv = rowsToCsv(tableRows)
   return new NextResponse(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",

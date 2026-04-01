@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { resolveActorLabel, syncAllClickUpTicketStatuses } from "@/lib/clickup-ticket-sync"
+import { requireAuthenticatedUser } from "@/lib/auth"
 
 function isCronAuthorized(request: NextRequest) {
   const cronSecret = process.env.CLICKUP_SYNC_CRON_SECRET?.trim()
@@ -9,13 +10,32 @@ function isCronAuthorized(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-
-  if (!userId && !isCronAuthorized(request)) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  if (isCronAuthorized(request)) {
+    const actorLabel = "ClickUp Cron Sync"
+    try {
+      const result = await syncAllClickUpTicketStatuses({ actorLabel })
+      return NextResponse.json({ result })
+    } catch (error) {
+      console.error(error)
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to run ClickUp status sync.",
+        },
+        { status: 500 }
+      )
+    }
   }
 
-  const actorLabel = userId ? await resolveActorLabel(userId) : "ClickUp Cron Sync"
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  }
+  const userId = user.id
+
+  const actorLabel = await resolveActorLabel(userId)
 
   try {
     const result = await syncAllClickUpTicketStatuses({ actorLabel })

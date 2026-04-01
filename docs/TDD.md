@@ -32,6 +32,7 @@ The current repository does not yet implement the full service split described b
 * Shared server and integration logic in `src/lib/`
 * MySQL access through `mysql2`
 * MinIO-backed uploads
+* Redis-backed shared rate limiting via `REDIS_URL`
 * POS and ClickUp integrations invoked from route handlers and shared library code
 
 The current app already supports internal ticket workflows, merchant import/browsing, sales leads, onboarding appointments, user management, public forms, and selected analytics surfaces.
@@ -40,7 +41,7 @@ The current app already supports internal ticket workflows, merchant import/brow
 
 * The app is currently deployed as one web application rather than separate `api/`, `worker/`, and `packages/shared/` services.
 * The schema in `schema.sql` is the current operational schema and should be treated as the source of truth for implemented tables.
-* Redis-, RabbitMQ-, and webhook-driven messaging components in this document are target-state design, not current runtime dependencies.
+* Redis is now a current runtime dependency for shared rate limiting. RabbitMQ- and webhook-driven messaging components in this document remain target-state design.
 * Some pages are intentionally UI previews. In particular, the Renewal & Retention overview page currently shows sample KPI cards and placeholder chart panels instead of live reporting.
 
 ### Current Gaps to Track
@@ -458,7 +459,7 @@ outlet "1" -- "*" user_scope
 
 **Environment variables (Coolify → each app)**
 
-* Shared: `DATABASE_URL`, `REDIS_URL`, `RABBITMQ_URL`, `MINIO_*`, `POS_*`, `messaging_provider_*`, `APP_BASE_URL`.
+* Shared: `DATABASE_URL`, `REDIS_URL`, `TRUSTED_PROXY`, `RABBITMQ_URL`, `MINIO_*`, `POS_*`, `messaging_provider_*`, `APP_BASE_URL`.
 * API-only: `PORT=8080`.
 * Web-only: `PORT=3000`, `NEXT_PUBLIC_API_BASE`.
 * Worker-only: `WORKER=1` (if you reuse API image).
