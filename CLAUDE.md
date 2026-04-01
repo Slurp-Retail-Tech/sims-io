@@ -20,7 +20,7 @@ docker compose up -d
 npm run db:import:platform-data  # Import platform data from SQL dump
 ```
 
-There is currently no automated test suite. For linting only `npm run lint` is available.
+No automated test suite exists yet. Use the `test-writer` agent when adding tests. For linting only `npm run lint` is available.
 
 ## Architecture
 
@@ -38,7 +38,7 @@ src/app/
 └── supportform/, demoform/, csat/   # Public-facing forms
 ```
 
-**Middleware** (`middleware.ts`) guards the `(app)/` routes by checking the `sims-auth` cookie and redirecting to `/login`.
+**Middleware** (`middleware.ts`) guards the `(app)/` routes by checking the `sims-auth` cookie and redirecting to `/login`. Middleware does not cover API routes — each route self-validates.
 
 ### Key Directories
 
@@ -50,6 +50,7 @@ src/app/
 | `schema.sql` | Authoritative MySQL schema (snake_case tables/columns) |
 | `docs/` | PRD, TDD, style guide, operational docs |
 | `scripts/` | Database and import scripts |
+| `security-audit/` | Security audit reports — one file per run |
 
 ### Data Flow
 
@@ -57,9 +58,28 @@ All API routes live at `src/app/api/**/route.ts` and must stay thin — move bus
 
 ### Authentication
 
-- Session stored in `sims-auth` cookie (httpOnly, secure in production, 7-day TTL / 30-day with "remember me")
-- Passwords hashed with scrypt (salt + 64-byte hash) — see `src/lib/auth.ts`
-- Google Workspace SSO with domain allowlist via `GOOGLE_WORKSPACE_DOMAINS`
+Session cookies store an opaque random token (not the user ID). The flow:
+
+1. **Login / Google SSO** → `createSession(userId, remember)` inserts a hashed token into the `sessions` table and returns the raw token → stored in the `sims-auth` httpOnly cookie.
+2. **Per-request validation** → `requireAuthenticatedUser(request)` reads the cookie, SHA-256 hashes it, JOINs `sessions` + `users`, checks `expires_at`, and returns the user or `null`.
+3. **Logout** → `clearAuthCookie(response, sessionToken)` deletes the session row and clears the cookie.
+4. **Password reset** → invalidates all existing sessions for the user via `DELETE FROM sessions WHERE user_id = ?`.
+
+All protected API routes call `requireAuthenticatedUser(request)` from `src/lib/auth.ts`. Public API endpoints (no auth required): `/api/auth/*`, `/api/supportform/*`, `/api/csat/*`, and `POST /api/leads`.
+
+Cookie flags: `httpOnly`, `SameSite=strict`, `Secure` when `NODE_ENV=production` or `APP_BASE_URL` starts with `https://`. TTL: 7 days default, 30 days with "remember me".
+
+Passwords: scrypt with a 16-byte random salt, 64-byte hash. Minimum length: 12 characters.
+
+### Rate Limiting
+
+`src/lib/rate-limit.ts` + `src/lib/rate-limit-store.ts` provide per-IP rate limiting:
+
+- **Redis** (`REDIS_URL`) when configured — required in production.
+- **In-memory fallback** when `REDIS_URL` is absent — development only; limits are per-process.
+- IP extraction: reads `x-forwarded-for` only when `TRUSTED_PROXY` env var is set; otherwise falls back to `"direct"` to prevent header spoofing.
+
+Applied limits: login (10/15 min), forgot-password (5/15 min), support form (5/min), leads form (3/min).
 
 ### External Integrations
 
@@ -72,6 +92,7 @@ All API routes live at `src/app/api/**/route.ts` and must stay thin — move bus
 | Email (Google SMTP) | `SMTP_*` | `src/lib/mail.ts`, `auth-email.ts` |
 | MinIO/S3 | `MINIO_*` | `src/lib/storage.ts` |
 | Mapbox | `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` | `src/lib/outlet-map.ts` |
+| Redis (rate limiting) | `REDIS_URL` | `src/lib/rate-limit-store.ts` |
 
 ## Conventions
 
@@ -82,6 +103,15 @@ All API routes live at `src/app/api/**/route.ts` and must stay thin — move bus
 - **Exported functions in `src/lib/`**: explicit return types
 - Reuse `src/components/ui/` primitives before adding new ones
 - Keep loading, empty, and error states explicit in async UI
+- API routes return generic error messages to clients; log full details server-side
+
+## Schema Notes
+
+`schema.sql` is the single source of truth. Notable tables:
+
+- `sessions` — server-side session store; rows expire and are deleted on logout/password reset
+- `auth_tokens` — activation and password-reset tokens stored as SHA-256 hashes (`token_hash`)
+- `csat_tokens` — CSAT survey tokens stored as SHA-256 hashes (`token_hash`); raw token sent only in the survey URL
 
 ## Documentation Alignment
 
