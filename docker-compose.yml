@@ -9,13 +9,13 @@ services:
       NODE_ENV: production
       APP_BASE_URL: http://localhost:3000
       NEXT_PUBLIC_APP_URL: http://localhost:3000
-      DATABASE_URL: mysql://sims:sims-password@mysql:3306/sims-local
+      DATABASE_URL: mysql://sims:tZf.QdVIa4R=nz}BWUjBaRSRy$DH7LU%@mysql:3306/sims-dev
       REDIS_URL: redis://redis:6379
       MINIO_ENDPOINT: http://minio:9000
       MINIO_PUBLIC_URL: http://localhost:9002
       MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: sims-local
+      MINIO_SECRET_KEY: jZT75?W;xXa[pK(nsw3Gw=eGy6<6P;TR
+      MINIO_BUCKET: sims-dev
       MINIO_REGION: us-east-1
     depends_on:
       mysql:
@@ -29,15 +29,15 @@ services:
     ports:
       - "3307:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: sims-local
+      MYSQL_ROOT_PASSWORD: RTj,GeM^PC-e@ZqbZPltE|f4&!EmbfyN
+      MYSQL_DATABASE: sims-dev
       MYSQL_USER: sims
-      MYSQL_PASSWORD: sims-password
+      MYSQL_PASSWORD: tZf.QdVIa4R=nz}BWUjBaRSRy$DH7LU%
     volumes:
       - mysql_data:/var/lib/mysql
       - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "sims", "-psims-password"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "sims", "-ptZf.QdVIa4R=nz}BWUjBaRSRy$DH7LU%"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -47,8 +47,8 @@ services:
       - "8081:80"
     environment:
       PMA_HOST: mysql
-      PMA_USER: sims
-      PMA_PASSWORD: sims-password
+      PMA_USER: root
+      PMA_PASSWORD: RTj,GeM^PC-e@ZqbZPltE|f4&!EmbfyN
     depends_on:
       mysql:
         condition: service_healthy
@@ -59,7 +59,7 @@ services:
       - "9003:9003"
     environment:
       MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_PASSWORD: jZT75?W;xXa[pK(nsw3Gw=eGy6<6P;TR
     command: server /data --console-address ":9003"
     volumes:
       - minio_data:/data
