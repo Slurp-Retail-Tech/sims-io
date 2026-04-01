@@ -37,8 +37,43 @@ services:
     volumes:
       - ./schema.sql:/schema/schema.sql:ro
       - ./migrations:/schema/migrations:ro
-      - ./scripts:/scripts:ro
-    entrypoint: ["/bin/sh", "/scripts/apply-schema.sh"]
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        echo "Waiting for MySQL at $${MYSQL_HOST}:$${MYSQL_PORT}..."
+        until mysqladmin ping \
+          -h"$${MYSQL_HOST}" \
+          -P"$${MYSQL_PORT}" \
+          -u"$${MYSQL_USER}" \
+          -p"$${MYSQL_PASSWORD}" \
+          --silent; do
+          sleep 2
+        done
+
+        echo "Applying schema.sql..."
+        mysql \
+          -h"$${MYSQL_HOST}" \
+          -P"$${MYSQL_PORT}" \
+          -u"$${MYSQL_USER}" \
+          -p"$${MYSQL_PASSWORD}" \
+          "$${MYSQL_DATABASE}" < /schema/schema.sql
+
+        if [ -d /schema/migrations ]; then
+          for file in /schema/migrations/*.sql; do
+            if [ -f "$${file}" ]; then
+              echo "Applying migration $${file}..."
+              mysql \
+                -h"$${MYSQL_HOST}" \
+                -P"$${MYSQL_PORT}" \
+                -u"$${MYSQL_USER}" \
+                -p"$${MYSQL_PASSWORD}" \
+                "$${MYSQL_DATABASE}" < "$${file}"
+            fi
+          done
+        fi
+
+        echo "Schema apply completed."
     restart: "no"
   mysql:
     image: mysql:8.4
