@@ -35,8 +35,7 @@ services:
       mysql:
         condition: service_healthy
     volumes:
-      - ./schema.sql:/schema/schema.sql:ro
-      - ./migrations:/schema/migrations:ro
+      - ./:/workspace:ro
     entrypoint:
       - /bin/sh
       - -ec
@@ -57,10 +56,10 @@ services:
           -P"$${MYSQL_PORT}" \
           -u"$${MYSQL_USER}" \
           -p"$${MYSQL_PASSWORD}" \
-          "$${MYSQL_DATABASE}" < /schema/schema.sql
+          "$${MYSQL_DATABASE}" < /workspace/schema.sql
 
-        if [ -d /schema/migrations ]; then
-          for file in /schema/migrations/*.sql; do
+        if [ -d /workspace/migrations ]; then
+          for file in /workspace/migrations/*.sql; do
             if [ -f "$${file}" ]; then
               echo "Applying migration $${file}..."
               mysql \
