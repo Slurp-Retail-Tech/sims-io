@@ -38,7 +38,8 @@ services:
       - ./schema.sql:/schema/schema.sql:ro
       - ./migrations:/schema/migrations:ro
       - ./scripts:/scripts:ro
-    command: ["sh", "/scripts/apply-schema.sh"]
+    entrypoint: ["/bin/sh", "/scripts/apply-schema.sh"]
+    restart: "no"
   mysql:
     image: mysql:8.4
     ports:
