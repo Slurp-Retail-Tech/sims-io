@@ -37,7 +37,7 @@ services:
     volumes:
       - ./schema.sql:/schema/schema.sql:ro
       - ./migrations:/schema/migrations:ro
-      - ./scripts/apply-schema.sh:/scripts/apply-schema.sh:ro
+      - ./scripts:/scripts:ro
     command: ["sh", "/scripts/apply-schema.sh"]
   mysql:
     image: mysql:8.4
