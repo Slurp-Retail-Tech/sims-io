@@ -1,0 +1,3 @@
+FROM mysql:8.4
+COPY schema.sql /workspace/schema.sql
+COPY migrations/ /workspace/migrations/

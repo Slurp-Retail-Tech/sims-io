@@ -83,7 +83,9 @@ services:
       redis:
         condition: service_healthy
   db-migrate:
-    image: mysql:8.4
+    build:
+      context: .
+      dockerfile: Dockerfile.migrate
     environment:
       MYSQL_HOST: ${MYSQL_HOST:-mysql}
       MYSQL_PORT: ${MYSQL_PORT:-3306}
@@ -93,8 +95,6 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-    volumes:
-      - ./:/workspace:ro
     entrypoint:
       - /bin/sh
       - -ec
