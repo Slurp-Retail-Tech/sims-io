@@ -27,7 +27,7 @@ services:
   mysql:
     image: mysql:8.4
     ports:
-      - "3307:3306"
+      - "3308:3306"
     environment:
       MYSQL_ROOT_PASSWORD: RTj,GeM^PC-e@ZqbZPltE|f4&!EmbfyN
       MYSQL_DATABASE: sims-dev
