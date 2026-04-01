@@ -21,7 +21,7 @@ This repository contains planning documents for the Unified Engagement Platform 
 - Local data and storage services:
   - `docker compose up -d`
   - `npm run db:import:platform-data`
-- Current `docker-compose.yml` provisions MySQL on `localhost:3307`, phpMyAdmin on `localhost:8081`, MinIO API on `localhost:9002`, MinIO console on `localhost:9003`, and Redis on `localhost:6379`.
+- Current `docker-compose.yml` builds the app on `localhost:3000` and provisions MySQL on `localhost:3307`, phpMyAdmin on `localhost:8081`, MinIO API on `localhost:9002`, MinIO console on `localhost:9003`, and Redis on `localhost:6379`.
 - Import helpers live under `scripts/`; prefer the existing npm script for platform data imports before adding one-off commands.
 
 ## Coding Style and Naming Conventions
