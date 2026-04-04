@@ -12,6 +12,7 @@ description: Turn merged work into concise release notes grouped by user impact.
 3. Separate new features, improvements, fixes, and breaking changes.
 4. Note any migrations, rollout steps, or operational changes.
 5. Remove internal-only noise unless it affects users.
+6. Create a release note markdown [version no.md] at /src/app/(app)/release-notes/content
 
 ## Output Format
 

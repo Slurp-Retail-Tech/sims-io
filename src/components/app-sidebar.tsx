@@ -312,12 +312,25 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     ? allDepartmentGroups
     : allDepartmentGroups
 
-  const [selectedWorkspace, setSelectedWorkspace] = React.useState("All")
+  const [selectedWorkspace, setSelectedWorkspace] = React.useState(() => {
+    if (typeof document === "undefined") return "All"
+    const match = document.cookie
+      .split("; ")
+      .find((c) => c.startsWith("sidebar_workspace="))
+    return match ? decodeURIComponent(match.slice("sidebar_workspace=".length)) : "All"
+  })
+
+  const selectWorkspace = React.useCallback((label: string) => {
+    setSelectedWorkspace(label)
+    document.cookie = `sidebar_workspace=${encodeURIComponent(label)}; Max-Age=${60 * 60 * 24 * 30}; Path=/`
+  }, [])
 
   const filteredDepartments =
     selectedWorkspace === "All"
       ? visibleDepartments
-      : visibleDepartments.filter((g) => g.label === selectedWorkspace)
+      : (visibleDepartments.filter((g) => g.label === selectedWorkspace).length > 0
+          ? visibleDepartments.filter((g) => g.label === selectedWorkspace)
+          : visibleDepartments)
 
   const allowedGroups = [
     ...visibleDepartments,
@@ -375,14 +388,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   align="start"
                   sideOffset={4}
                 >
-                  <DropdownMenuItem onSelect={() => setSelectedWorkspace("All")}>
+                  <DropdownMenuItem onSelect={() => selectWorkspace("All")}>
                     <span className="flex-1">All</span>
                     {selectedWorkspace === "All" && <Check className="size-4" />}
                   </DropdownMenuItem>
                   {visibleDepartments.map((group) => (
                     <DropdownMenuItem
                       key={group.label}
-                      onSelect={() => setSelectedWorkspace(group.label)}
+                      onSelect={() => selectWorkspace(group.label)}
                     >
                       <span className="flex-1">{group.label}</span>
                       {selectedWorkspace === group.label && <Check className="size-4" />}
