@@ -1,6 +1,6 @@
 {
   "name": "sims",
-  "version": "2.1.4",
+  "version": "2.1.5",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -26,6 +26,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "gray-matter": "^4.0.3",
     "lucide-react": "^0.562.0",
     "mapbox-gl": "^3.20.0",
     "mysql2": "^3.16.1",
