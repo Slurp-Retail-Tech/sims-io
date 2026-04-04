@@ -27,13 +27,14 @@ The long-term product vision in `docs/PRD.md` and `docs/TDD.md` is broader than 
 
 ## Current Product Areas
 
-- Merchant Success tickets, ticket history, and ClickUp task sync
+- Merchant Success — tickets, ticket history, SLA breaches, CSAT insights, audit trail, ticket categories, ClickUp task sync, onboarding appointments and schedule, analytics
 - Merchant directory, POS import, and PLUS merchant workflows
-- Sales leads and appointments
-- Onboarding appointments
-- User management, activation, reset-password, and Google auth
+- Sales — leads, appointments, overview, and analytics
+- Renewal & Retention — renewal due tracking and analytics overview
+- User management, activation, reset-password, and Google Workspace SSO
 - Public support and demo forms
 - Merchant map and knowledge base
+- Release notes
 
 ## Current Known Gaps
 
@@ -44,16 +45,9 @@ The long-term product vision in `docs/PRD.md` and `docs/TDD.md` is broader than 
 
 ## Getting Started
 
-First, run the development server:
-
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to access the app.
@@ -75,40 +69,49 @@ MYSQL_DATABASE=sims-local
 
 # ── Redis (rate limiting) ─────────────────────────────────────────────────────
 # Required in production. Falls back to in-memory store in development.
-REDIS_URL=redis://127.0.0.1:6379
+REDIS_URL=redis://localhost:6379
+# Set to any non-empty value when running behind a trusted reverse proxy
+# (e.g. Coolify, Nginx). Enables reading the real client IP from X-Forwarded-For.
+TRUSTED_PROXY=
 
 # ── MinIO / Object storage ────────────────────────────────────────────────────
-MINIO_ENDPOINT=http://127.0.0.1:9002
+MINIO_ENDPOINT=http://127.0.0.1:9000
 # Public URL for browser-facing file links (may differ from internal endpoint)
-MINIO_PUBLIC_URL=http://127.0.0.1:9002
+MINIO_PUBLIC_URL=http://127.0.0.1:9000
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
-MINIO_BUCKET=sims-assets
+MINIO_BUCKET=attachments
+MINIO_REGION=us-east-1
 
 # ── App ───────────────────────────────────────────────────────────────────────
 APP_BASE_URL=http://localhost:3000
-# Set to "true" when running behind a trusted reverse proxy (Coolify/Traefik).
-# Enables reading X-Forwarded-For for rate-limit IP derivation.
-TRUSTED_PROXY=
 
 # ── Google OAuth ──────────────────────────────────────────────────────────────
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
+# Optional — defaults to ${APP_BASE_URL}/api/auth/google/callback
+GOOGLE_REDIRECT_URI=
 # Comma-separated list of allowed Google Workspace domains for SSO
 GOOGLE_WORKSPACE_DOMAINS=
 
 # ── Email (Google Workspace SMTP) ─────────────────────────────────────────────
 SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
+SMTP_PORT=465
+SMTP_SECURE=true
 SMTP_USER=
 SMTP_PASS=
-SMTP_FROM=SIMS <noreply@example.com>
+SMTP_FROM_EMAIL=noreply@example.com
+SMTP_FROM_NAME=SIMS
 
 # ── POS API ───────────────────────────────────────────────────────────────────
 POS_API_EMAIL=
 POS_API_PASSWORD=
 POS_AUTH_URL=
+POS_API_BASE_URL=
 POS_IMPORT_URL=
+POS_BRANCH_URL=
+POS_MERCHANT_ID_BASE_URL=
+POS_CATEGORY_BUSINESS_BASE_URL=
 MERCHANT_IMPORT_USER_ID=
 
 # ── ClickUp ───────────────────────────────────────────────────────────────────
@@ -117,6 +120,17 @@ CLICKUP_LIST_ID=
 CLICKUP_API_BASE_URL=https://api.clickup.com/api/v2
 CLICKUP_SYNC_CRON_SECRET=
 NEXT_PUBLIC_CLICKUP_ENABLED=true
+# Optional custom field mapping for ClickUp task request approvals
+CLICKUP_CUSTOM_FIELD_PRODUCT_ID=
+CLICKUP_CUSTOM_FIELD_PRODUCT_OPTION_MAP=
+CLICKUP_CUSTOM_FIELD_DEPARTMENT_REQUEST_ID=
+CLICKUP_CUSTOM_FIELD_DEPARTMENT_REQUEST_OPTION_MAP=
+CLICKUP_CUSTOM_FIELD_OUTLET_NAME_ID=
+CLICKUP_CUSTOM_FIELD_PIC_NAME_ID=
+CLICKUP_CUSTOM_FIELD_PRIORITY_LEVEL_ID=
+CLICKUP_CUSTOM_FIELD_PRIORITY_LEVEL_OPTION_MAP=
+CLICKUP_CUSTOM_FIELD_SEVERITY_LEVEL_ID=
+CLICKUP_CUSTOM_FIELD_SEVERITY_LEVEL_OPTION_MAP=
 
 # ── HubSpot ───────────────────────────────────────────────────────────────────
 HUBSPOT_ACCESS_TOKEN=
@@ -178,21 +192,6 @@ Defaults:
 - MinIO API is at `http://localhost:9002`, console at `http://localhost:9003`.
 
 The schema file at `schema.sql` is loaded automatically the first time the container starts. If you need to re-run it, delete the `mysql_data` volume and restart.
-
-### Import data from `sims-platform (1).sql`
-
-Import data-only records (INSERT statements) from the phpMyAdmin dump into the
-current Docker MySQL (`sims-local`):
-
-```bash
-npm run db:import:platform-data
-```
-
-To import a different file path:
-
-```bash
-npm run db:import:platform-data -- "/absolute/path/to/file.sql"
-```
 
 ## Merchant Import
 
