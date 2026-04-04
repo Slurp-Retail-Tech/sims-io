@@ -73,10 +73,6 @@ MYSQL_USER=sims
 MYSQL_PASSWORD=sims-password
 MYSQL_DATABASE=sims-local
 
-# ── Session ───────────────────────────────────────────────────────────────────
-# Generate with: openssl rand -hex 32
-SESSION_SECRET=
-
 # ── Redis (rate limiting) ─────────────────────────────────────────────────────
 # Required in production. Falls back to in-memory store in development.
 REDIS_URL=redis://127.0.0.1:6379
@@ -145,7 +141,6 @@ NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=
 ```
 
 Notes:
-- `SESSION_SECRET` — required in production; generate with `openssl rand -hex 32`
 - `REDIS_URL` — required in production; in development, rate limiting falls back to an in-memory store
 - `TRUSTED_PROXY=true` — set when running behind Coolify/Traefik; enables `X-Forwarded-For` reading for rate-limit IP derivation
 - `MINIO_PUBLIC_URL` — set to the public-facing URL for MinIO when it differs from the internal `MINIO_ENDPOINT` (always the case in production behind a reverse proxy)

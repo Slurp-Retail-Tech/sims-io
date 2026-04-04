@@ -498,7 +498,6 @@ outlet "1" -- "*" user_scope
 |---|---|---|
 | `REDIS_URL` | Production required | Redis connection string for rate limiting (e.g. `redis://redis:6379`). Falls back to in-memory store in development; throws at startup in production if absent. |
 | `TRUSTED_PROXY` | Optional | Set to `"true"` when behind a reverse proxy (Coolify/Traefik) to enable `X-Forwarded-For` reading for IP-based rate limits. Leave unset when running without a proxy to prevent header spoofing. |
-| `SESSION_SECRET` | Recommended | Reserved for future HMAC signing of session-related payloads. Currently sessions use SHA-256 hashed opaque tokens — no HMAC secret is required for the current implementation. |
 | `MINIO_PUBLIC_URL` | Optional | Public base URL for MinIO presigned URLs served to browsers (e.g. `https://files.example.my`). Needed when the internal `MINIO_ENDPOINT` is not reachable from clients. |
 | `RECAPTCHA_SECRET_KEY` | Production required (demo form) | Google reCAPTCHA v2/v3 secret. If absent in production, the demo form `POST` returns HTTP 500 (fail-closed). |
 
