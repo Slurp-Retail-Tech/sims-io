@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { ResultSetHeader } from "mysql2"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import getPool from "@/lib/db"
 
 type ArchiveBody = {
@@ -11,8 +12,8 @@ export async function PATCH(
   request: NextRequest,
   context: { params: Promise<{ leadId: string }> }
 ) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 

@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
-import type { RowDataPacket } from "mysql2"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import { fetchClickUpListFields } from "@/lib/clickup"
-import getPool from "@/lib/db"
-
-type UserRow = RowDataPacket & {
-  id: string
-  status: "active" | "inactive"
-}
 
 function getConfiguredFieldIds() {
   return {
@@ -20,24 +14,8 @@ function getConfiguredFieldIds() {
 }
 
 export async function GET(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
-  }
-
-  const pool = getPool()
-  const [rows] = await pool.query<UserRow[]>(
-    `
-    SELECT id, status
-    FROM users
-    WHERE id = ?
-    LIMIT 1
-  `,
-    [userId]
-  )
-
-  const user = rows[0]
-  if (!user || user.status !== "active") {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 

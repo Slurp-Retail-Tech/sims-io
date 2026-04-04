@@ -346,7 +346,6 @@ export default function MerchantDetailPage() {
       setError(null)
       try {
         const response = await fetch(`/api/merchants/${merchantId}`, {
-          headers: { "x-user-id": user.id },
         })
         if (!response.ok) {
           const payload = (await response.json().catch(() => ({}))) as { error?: string }
@@ -417,7 +416,6 @@ export default function MerchantDetailPage() {
         }
 
         const response = await fetch(`/api/merchants/${merchantId}/tickets?${params.toString()}`, {
-          headers: { "x-user-id": user.id },
         })
         if (!response.ok) {
           const payload = (await response.json().catch(() => ({}))) as { error?: string }
@@ -467,7 +465,6 @@ export default function MerchantDetailPage() {
       setTicketDetail(null)
       try {
         const response = await fetch(`/api/tickets/${selectedTicketId}`, {
-          headers: { "x-user-id": user.id },
         })
         if (!response.ok) {
           const payload = (await response.json().catch(() => ({}))) as { error?: string }

@@ -6,6 +6,7 @@ import {
   createStoredTokenRecord,
   sendResetPasswordEmail,
 } from "@/lib/auth-email"
+import { checkRateLimit, getRateLimitIp } from "@/lib/rate-limit"
 
 const genericResponse = {
   ok: true,
@@ -14,6 +15,21 @@ const genericResponse = {
 }
 
 export async function POST(request: NextRequest) {
+  // SIMS-04: 5 requests per 15 minutes per IP.
+  const ip = getRateLimitIp(request)
+  const rateLimitResult = await checkRateLimit(`forgot-password:${ip}`, 5, 15 * 60)
+  if (!rateLimitResult.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rateLimitResult.retryAfterSeconds),
+        },
+      }
+    )
+  }
+
   const body = (await request.json()) as { email?: string }
   const email = normalizeEmail(body.email)
 

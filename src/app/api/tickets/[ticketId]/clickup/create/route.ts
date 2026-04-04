@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { RowDataPacket } from "mysql2"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import { createClickUpTask } from "@/lib/clickup"
 import { applyClickUpSnapshotToTicket, resolveActorLabel } from "@/lib/clickup-ticket-sync"
 import getPool from "@/lib/db"
@@ -55,12 +56,12 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ ticketId: string }> }
 ) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
-  const actorLabel = await resolveActorLabel(userId)
+  const actorLabel = await resolveActorLabel(user.id)
   const { ticketId } = await params
   const pool = getPool()
   const [rows] = await pool.query<TicketForTaskRow[]>(

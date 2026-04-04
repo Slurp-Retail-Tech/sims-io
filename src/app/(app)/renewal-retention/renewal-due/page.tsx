@@ -100,7 +100,6 @@ export default function RenewalDuePage() {
         const response = await fetch(
           `/api/renewals/expiring?${params.toString()}`,
           {
-            headers: { "x-user-id": user.id },
           }
         )
         if (!response.ok) {

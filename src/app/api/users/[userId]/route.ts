@@ -217,6 +217,12 @@ export async function PATCH(
   }
 
   if (body.password?.trim()) {
+    if (body.password.trim().length < 12) {
+      return NextResponse.json(
+        { error: "Password must be at least 12 characters." },
+        { status: 400 }
+      )
+    }
     updates.push("password_hash = ?")
     paramsList.push(hashPassword(body.password.trim()))
     updates.push("password_set_at = CURRENT_TIMESTAMP(3)")

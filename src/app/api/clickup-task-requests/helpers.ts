@@ -1,6 +1,7 @@
 import type { Pool, RowDataPacket } from "mysql2/promise"
 import { NextRequest, NextResponse } from "next/server"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import { resolveStoredObjectUrl } from "@/lib/storage"
 
 export type AuthUser = {
@@ -8,14 +9,6 @@ export type AuthUser = {
   name: string
   email: string
   role: string
-}
-
-type UserRow = RowDataPacket & {
-  id: string
-  name: string
-  email: string
-  role: string
-  status: "active" | "inactive"
 }
 
 export type ClickupTaskRequestRow = RowDataPacket & {
@@ -90,27 +83,12 @@ export const clickupRequestSelectSql = `
 
 export async function resolveAuthUser(
   request: NextRequest,
-  pool: Pool
+  // pool is retained in the signature for call-site compatibility but is no
+  // longer used — authentication is handled via the session cookie.
+  _pool: Pool
 ): Promise<{ user: AuthUser } | { response: NextResponse }> {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
-    return {
-      response: NextResponse.json({ error: "Unauthorized." }, { status: 401 }),
-    }
-  }
-
-  const [rows] = await pool.query<UserRow[]>(
-    `
-    SELECT id, name, email, role, status
-    FROM users
-    WHERE id = ?
-    LIMIT 1
-  `,
-    [userId]
-  )
-
-  const user = rows[0]
-  if (!user || user.status !== "active") {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return {
       response: NextResponse.json({ error: "Unauthorized." }, { status: 401 }),
     }
@@ -118,7 +96,7 @@ export async function resolveAuthUser(
 
   return {
     user: {
-      id: String(user.id),
+      id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,

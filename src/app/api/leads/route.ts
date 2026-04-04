@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { ResultSetHeader } from "mysql2/promise"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import getPool from "@/lib/db"
 import { sendLeadNotificationEmail } from "@/lib/lead-notification"
+import { checkRateLimit, getRateLimitIp } from "@/lib/rate-limit"
 
 type LeadDbRow = {
   id: number | string
@@ -53,6 +55,10 @@ function getWhatsappBaseUrl() {
 async function verifyRecaptchaToken(token: string, remoteIp?: string | null) {
   const secret = process.env.RECAPTCHA_SECRET_KEY?.trim()
   if (!secret) {
+    if (process.env.NODE_ENV === "production") {
+      return null // signal: misconfigured
+    }
+    console.warn("[reCAPTCHA] RECAPTCHA_SECRET_KEY is not set — bypassing verification in development.")
     return true
   }
 
@@ -205,8 +211,8 @@ async function syncLeadToHubspot(params: {
 }
 
 export async function GET(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
@@ -313,6 +319,15 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const ip = getRateLimitIp(request)
+  const rateLimit = await checkRateLimit(`leads:post:${ip}`, 3, 60)
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429 }
+    )
+  }
+
   const formData = await request.formData()
 
   if (normalizeText(formData.get("company_site"))) {
@@ -343,21 +358,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid email address." }, { status: 400 })
   }
 
-  if (process.env.RECAPTCHA_SECRET_KEY?.trim()) {
-    if (!recaptchaToken) {
-      return NextResponse.json({ error: "Missing reCAPTCHA token." }, { status: 400 })
-    }
+  if (!recaptchaToken) {
+    return NextResponse.json({ error: "Missing reCAPTCHA token." }, { status: 400 })
+  }
 
-    const verified = await verifyRecaptchaToken(
-      recaptchaToken,
-      request.headers.get("x-forwarded-for")
+  const verified = await verifyRecaptchaToken(
+    recaptchaToken,
+    getRateLimitIp(request)
+  )
+
+  if (verified === null) {
+    return NextResponse.json(
+      { error: "reCAPTCHA not configured." },
+      { status: 500 }
     )
-    if (!verified) {
-      return NextResponse.json(
-        { error: "Unable to verify reCAPTCHA. Please try again." },
-        { status: 400 }
-      )
-    }
+  }
+
+  if (!verified) {
+    return NextResponse.json(
+      { error: "Unable to verify reCAPTCHA. Please try again." },
+      { status: 400 }
+    )
   }
 
   const pool = getPool()

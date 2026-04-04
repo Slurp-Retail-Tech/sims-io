@@ -218,20 +218,15 @@ export default function OnboardingSchedulePage() {
     setReady(true)
   }, [])
 
-  const authHeaders = React.useMemo(
-    () => (sessionUser ? { "x-user-id": sessionUser.id } : null),
-    [sessionUser]
-  )
 
   const loadAppointments = React.useCallback(async () => {
-    if (!authHeaders) return
+    if (!sessionUser) return
     setLoading(true)
     try {
       const start = startOfMonth(month).toISOString()
       const end = endOfMonth(month).toISOString()
       const response = await fetch(
-        `/api/onboarding-appointments?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
-        { headers: authHeaders }
+        `/api/onboarding-appointments?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
       )
       const payload = (await response.json()) as { appointments?: Appointment[]; error?: string }
       if (!response.ok) throw new Error(payload.error ?? "Unable to load schedules.")
@@ -241,13 +236,13 @@ export default function OnboardingSchedulePage() {
     } finally {
       setLoading(false)
     }
-  }, [authHeaders, month, showToast])
+  }, [sessionUser, month, showToast])
 
   const loadMsUsers = React.useCallback(async () => {
-    if (!authHeaders) return
+    if (!sessionUser) return
     setMsUsersLoading(true)
     try {
-      const response = await fetch("/api/users/agents", { headers: authHeaders })
+      const response = await fetch("/api/users/agents")
       const payload = (await response.json()) as { users?: MsUser[]; error?: string }
       if (!response.ok) throw new Error(payload.error ?? "Unable to load Merchant Success users.")
       setMsUsers(payload.users ?? [])
@@ -256,18 +251,18 @@ export default function OnboardingSchedulePage() {
     } finally {
       setMsUsersLoading(false)
     }
-  }, [authHeaders, showToast])
+  }, [sessionUser, showToast])
 
   React.useEffect(() => {
-    if (authHeaders) void loadAppointments()
-  }, [authHeaders, loadAppointments])
+    if (sessionUser) void loadAppointments()
+  }, [sessionUser, loadAppointments])
 
   React.useEffect(() => {
-    if (authHeaders) void loadMsUsers()
-  }, [authHeaders, loadMsUsers])
+    if (sessionUser) void loadMsUsers()
+  }, [sessionUser, loadMsUsers])
 
   React.useEffect(() => {
-    if (!formOpen || !authHeaders) return
+    if (!formOpen || !sessionUser) return
     const query = deferredMerchantQuery.trim()
     if (query.length < 2) {
       setMerchantResults([])
@@ -278,8 +273,7 @@ export default function OnboardingSchedulePage() {
       setMerchantLoading(true)
       try {
         const response = await fetch(`/api/merchants/options?q=${encodeURIComponent(query)}&limit=25`, {
-          headers: authHeaders,
-          signal: controller.signal,
+                    signal: controller.signal,
         })
         const payload = (await response.json()) as { merchants?: MerchantOption[]; error?: string }
         if (!response.ok) throw new Error(payload.error ?? "Unable to search merchants.")
@@ -293,10 +287,10 @@ export default function OnboardingSchedulePage() {
       }
     })()
     return () => controller.abort()
-  }, [authHeaders, deferredMerchantQuery, formOpen, showToast])
+  }, [sessionUser, deferredMerchantQuery, formOpen, showToast])
 
   React.useEffect(() => {
-    if (!selectedMerchantId || !authHeaders || !formOpen) {
+    if (!selectedMerchantId || !sessionUser || !formOpen) {
       setSelectedOutletId("")
       setOutletOptions([])
       return
@@ -305,8 +299,7 @@ export default function OnboardingSchedulePage() {
       setOutletLoading(true)
       try {
         const response = await fetch(`/api/merchants/${selectedMerchantId}/outlets`, {
-          headers: authHeaders,
-        })
+                  })
         const payload = (await response.json()) as { outlets?: OutletOption[]; error?: string }
         if (!response.ok) throw new Error(payload.error ?? "Unable to load outlets.")
         setOutletOptions(payload.outlets ?? [])
@@ -316,7 +309,7 @@ export default function OnboardingSchedulePage() {
         setOutletLoading(false)
       }
     })()
-  }, [authHeaders, formOpen, selectedMerchantId, showToast])
+  }, [sessionUser, formOpen, selectedMerchantId, showToast])
 
   const appointmentDays = React.useMemo(
     () => appointments.map((a) => parseDate(a.scheduledAt)).filter((v): v is Date => Boolean(v)),
@@ -371,7 +364,7 @@ export default function OnboardingSchedulePage() {
   }, [])
 
   const handleSubmit = React.useCallback(async () => {
-    if (!authHeaders || !sessionUser) return
+    if (!sessionUser) return
     if (!formState.outletName.trim()) {
       showToast("Outlet name is required.", "error")
       return
@@ -392,7 +385,7 @@ export default function OnboardingSchedulePage() {
         editingAppointment ? `/api/onboarding-appointments/${editingAppointment.id}` : "/api/onboarding-appointments",
         {
           method: editingAppointment ? "PATCH" : "POST",
-          headers: { ...authHeaders, "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(
             editingAppointment
               ? {
@@ -429,15 +422,15 @@ export default function OnboardingSchedulePage() {
     } finally {
       setFormLoading(false)
     }
-  }, [authHeaders, editingAppointment, formState, resetFormState, sessionUser, showToast])
+  }, [editingAppointment, formState, resetFormState, sessionUser, showToast])
 
   const handleReviewSubmit = React.useCallback(async () => {
-    if (!authHeaders || !reviewTarget) return
+    if (!sessionUser || !reviewTarget) return
     setReviewLoading(true)
     try {
       const response = await fetch(`/api/onboarding-appointments/${reviewTarget.id}/review`, {
         method: "POST",
-        headers: { ...authHeaders, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: reviewAction, reason: reviewReason.trim() || undefined }),
       })
       const payload = (await response.json()) as { appointment?: Appointment; error?: string }
@@ -452,10 +445,10 @@ export default function OnboardingSchedulePage() {
     } finally {
       setReviewLoading(false)
     }
-  }, [authHeaders, reviewAction, reviewReason, reviewTarget, showToast])
+  }, [sessionUser, reviewAction, reviewReason, reviewTarget, showToast])
 
   const handleAssignmentSave = React.useCallback(async (appointment: Appointment) => {
-    if (!authHeaders) return
+    if (!sessionUser) return
     const assignedMsUserId =
       assignmentDrafts[appointment.id] === "__none__"
         ? null
@@ -464,7 +457,7 @@ export default function OnboardingSchedulePage() {
     try {
       const response = await fetch(`/api/onboarding-appointments/${appointment.id}`, {
         method: "PATCH",
-        headers: { ...authHeaders, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ assignedMsUserId }),
       })
       const payload = (await response.json()) as { appointment?: Appointment; error?: string }
@@ -481,7 +474,7 @@ export default function OnboardingSchedulePage() {
     } finally {
       setAssignmentSavingId(null)
     }
-  }, [assignmentDrafts, authHeaders, showToast])
+  }, [sessionUser, assignmentDrafts, showToast])
 
   if (!ready) {
     return <div className="text-muted-foreground flex min-h-[40vh] items-center justify-center text-sm">Loading onboarding schedule...</div>

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import * as XLSX from "xlsx"
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import getPool from "@/lib/db"
 import {
   authenticatePosApi,
@@ -328,8 +329,8 @@ async function generatePdf(rows: ExportRow[]): Promise<Uint8Array> {
 }
 
 export async function GET(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
@@ -350,7 +351,7 @@ export async function GET(request: NextRequest) {
   )
 
   // Load branch data: used both for filtering PLUS merchants and resolving branch names
-  let branchIdsForPlus = new Set<string>()
+  const branchIdsForPlus = new Set<string>()
   const branchNameById = new Map<string, string>()
   try {
     const branchRows = await loadBranchRows()

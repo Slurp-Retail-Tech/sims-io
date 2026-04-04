@@ -55,11 +55,7 @@ export default function ProfilePage() {
     }
     setLoading(true)
     try {
-      const response = await fetch("/api/profile", {
-        headers: {
-          "x-user-id": sessionState.user.id,
-        },
-      })
+      const response = await fetch("/api/profile")
       if (!response.ok) {
         showToast("Unable to load profile.", "error")
         return
@@ -143,7 +139,6 @@ export default function ProfilePage() {
         const data = await uploadFile({
           file: avatarFile,
           folder: "avatars",
-          userId: sessionState.user.id,
         })
         avatarUrl = data.url
       }
@@ -152,7 +147,6 @@ export default function ProfilePage() {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": sessionState.user.id,
         },
         body: JSON.stringify({
           name: name.trim(),

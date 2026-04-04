@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import getPool from "@/lib/db"
 import {
   LEAD_NOTIFICATION_SETTINGS_ID,
@@ -13,25 +14,9 @@ function isAdminRole(role: string | null | undefined) {
   return role === "Admin" || role === "Super Admin"
 }
 
-async function canManageLeadNotificationSettings(userId: string) {
-  const pool = getPool()
-  const [rows] = await pool.query(
-    `
-      SELECT role, status
-      FROM users
-      WHERE id = ?
-      LIMIT 1
-    `,
-    [userId]
-  )
-
-  const user = (rows as Array<{ role: string; status: string }>)[0]
-  return user?.status === "active" && isAdminRole(user.role)
-}
-
 export async function GET(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
@@ -45,11 +30,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
-  if (!(await canManageLeadNotificationSettings(userId))) {
+  if (!isAdminRole(user.role)) {
     return NextResponse.json({ error: "Forbidden." }, { status: 403 })
   }
 
@@ -87,7 +72,7 @@ export async function PATCH(request: NextRequest) {
       LEAD_NOTIFICATION_SETTINGS_ID,
       body.isEnabled,
       serializeLeadNotificationRecipients(recipients) || null,
-      userId,
+      user.id,
     ]
   )
 

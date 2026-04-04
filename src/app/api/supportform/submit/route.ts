@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import type { ResultSetHeader } from "mysql2/promise"
 
 import getPool from "@/lib/db"
+import { checkRateLimit, getRateLimitIp } from "@/lib/rate-limit"
 import { buildObjectKey, getProxyObjectUrl, uploadObject } from "@/lib/storage"
 
 export const runtime = "nodejs"
@@ -120,6 +121,15 @@ async function resolveMerchantNames(
 }
 
 export async function POST(request: NextRequest) {
+  const ip = getRateLimitIp(request)
+  const rateLimit = await checkRateLimit(`supportform:post:${ip}`, 5, 60)
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429 }
+    )
+  }
+
   const formData = await request.formData()
 
   const fid = normalizeText(formData.get("fid"))

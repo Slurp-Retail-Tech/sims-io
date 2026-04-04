@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import { getPlusUpdateJob, runPlusUpdateJob } from "@/lib/plus-import"
 
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ jobId: string }> }
 ) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 

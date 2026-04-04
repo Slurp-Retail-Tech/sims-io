@@ -36,6 +36,20 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
   INDEX auth_tokens_user_type_idx (user_id, type, expires_at)
 );
 
+CREATE TABLE IF NOT EXISTS sessions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT UNSIGNED NOT NULL,
+  token_hash CHAR(64) NOT NULL,
+  remember BOOLEAN NOT NULL DEFAULT FALSE,
+  expires_at DATETIME(3) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  last_seen_at DATETIME(3) DEFAULT NULL,
+  CONSTRAINT fk_sessions_user_id
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  UNIQUE KEY uniq_session_token_hash (token_hash),
+  INDEX sessions_user_idx (user_id, expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS merchants (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   external_id VARCHAR(120) NOT NULL UNIQUE,
@@ -271,15 +285,17 @@ VALUES (
 )
 ON DUPLICATE KEY UPDATE id = VALUES(id);
 
+-- token_hash: SHA-256 of the raw token sent in the CSAT survey URL
 CREATE TABLE IF NOT EXISTS csat_tokens (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   ticket_id BIGINT NOT NULL,
-  token VARCHAR(255) NOT NULL UNIQUE,
+  token_hash CHAR(64) NOT NULL,
   expires_at DATETIME(3) NOT NULL,
   used_at DATETIME(3) DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   CONSTRAINT fk_csat_tokens_ticket_id
     FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
+  UNIQUE KEY uniq_csat_token_hash (token_hash),
   INDEX csat_tokens_ticket_idx (ticket_id)
 );
 -- NOTE: live DB still has column named request_id — run migration below to rename to ticket_id
@@ -366,14 +382,13 @@ INSERT INTO lead_notification_settings (id, sender_email, recipients)
 VALUES (1, 'marketing@leads.getslurp.com', 'marketing@getslurp.com')
 ON DUPLICATE KEY UPDATE id = VALUES(id);
 
-INSERT INTO users (name, email, department, role, status, is_active, password_hash)
+INSERT INTO users (name, email, department, role, status, is_active)
 VALUES (
   'Super Admin',
   'admin@getslurp.com',
   'Merchant Success',
   'Super Admin',
-  'active',
-  TRUE,
-  'e910ed24ba65bf62f83ade706cd2d378:d7f8f1e86d39ac661c5bba0ef1c3337c685f556fe72ecdec912eb3ba799472dfe35dfa43586460bc60e9a0c4d0ed6401f0a5e05556b1c0f2d6b71f6b2e12d430'
+  'pending_activation',
+  TRUE
 )
 ON DUPLICATE KEY UPDATE id = id;

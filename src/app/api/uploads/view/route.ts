@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { Readable } from "stream"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import { getObjectStream } from "@/lib/storage"
 
 export async function GET(request: NextRequest) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  }
+
   const { searchParams } = new URL(request.url)
   const key = searchParams.get("key")?.trim()
   if (!key) {

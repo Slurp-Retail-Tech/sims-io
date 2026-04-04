@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { RowDataPacket } from "mysql2"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import getPool from "@/lib/db"
 
 type HistoryRow = RowDataPacket & {
@@ -16,8 +17,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ ticketId: string }> }
 ) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 

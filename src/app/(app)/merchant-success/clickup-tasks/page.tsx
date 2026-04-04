@@ -311,7 +311,6 @@ export default function ClickupTasksPage() {
         direction: pendingDirection,
       })
       const response = await fetch(`/api/clickup-task-requests?${params.toString()}`, {
-        headers: { "x-user-id": sessionUser.id },
       })
       const payload = (await response.json()) as { requests?: TaskRequest[]; error?: string }
       if (!response.ok) {
@@ -343,7 +342,6 @@ export default function ClickupTasksPage() {
         per_page: String(completedPerPage),
       })
       const response = await fetch(`/api/clickup-task-requests?${params.toString()}`, {
-        headers: { "x-user-id": sessionUser.id },
       })
       const payload = (await response.json()) as {
         requests?: TaskRequest[]
@@ -395,7 +393,6 @@ export default function ClickupTasksPage() {
       try {
         const response = await fetch("/api/clickup/custom-fields", {
           headers: {
-            "x-user-id": sessionUser.id,
           },
         })
         const payload = (await response.json()) as {
@@ -473,7 +470,6 @@ export default function ClickupTasksPage() {
     setDetailData(null)
     try {
       const response = await fetch(`/api/clickup-task-requests/${requestId}`, {
-        headers: { "x-user-id": sessionUser.id },
       })
       const payload = (await response.json()) as DetailResponse & { error?: string }
       if (!response.ok) {
@@ -505,7 +501,6 @@ export default function ClickupTasksPage() {
     setFormTicketLookupLoading(true)
     try {
       const response = await fetch(`/api/tickets/${encodeURIComponent(ticketId)}`, {
-        headers: { "x-user-id": sessionUser.id },
       })
       const payload = (await response.json()) as {
         error?: string
@@ -611,7 +606,6 @@ export default function ClickupTasksPage() {
         method,
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": sessionUser.id,
         },
         body: JSON.stringify(payload),
       })
@@ -662,7 +656,6 @@ export default function ClickupTasksPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-user-id": sessionUser.id,
           },
           body: JSON.stringify({
             action: reviewAction,

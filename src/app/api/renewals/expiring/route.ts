@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { parseDate } from "@/lib/dates"
+import { requireAuthenticatedUser } from "@/lib/auth"
 import getPool from "@/lib/db"
 
 type OutletRow = {
@@ -46,8 +47,8 @@ function parsePayload(payload: unknown) {
 }
 
 export async function GET(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 

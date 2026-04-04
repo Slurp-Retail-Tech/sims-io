@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { RowDataPacket } from "mysql2"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import getPool from "@/lib/db"
 
 type CsatTokenRow = RowDataPacket & {
   id: string
-  token: string
+  token_hash: string
   expires_at: string
   used_at: string | null
 }
@@ -24,8 +25,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ ticketId: string }> }
 ) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
@@ -34,7 +35,7 @@ export async function POST(
 
   const [tokenRows] = await pool.query<CsatTokenRow[]>(
     `
-    SELECT id, token, expires_at, used_at
+    SELECT id, token_hash, expires_at, used_at
     FROM csat_tokens
     WHERE ticket_id = ?
     ORDER BY id DESC
@@ -56,7 +57,7 @@ export async function POST(
     )
   }
 
-  const actorLabel = await getActorLabel(userId)
+  const actorLabel = await getActorLabel(user.id)
   await pool.query(
     `
     INSERT INTO ticket_history (

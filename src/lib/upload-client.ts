@@ -2,7 +2,6 @@ type UploadFolder = "avatars" | "uploads"
 
 type UploadParams = {
   file: File
-  userId: string
   folder?: UploadFolder
 }
 
@@ -11,7 +10,7 @@ type UploadResponse = {
   key: string
 }
 
-export async function uploadFile({ file, userId, folder }: UploadParams) {
+export async function uploadFile({ file, folder }: UploadParams) {
   const formData = new FormData()
   formData.append("file", file)
   if (folder) {
@@ -20,9 +19,6 @@ export async function uploadFile({ file, userId, folder }: UploadParams) {
 
   const response = await fetch("/api/uploads", {
     method: "POST",
-    headers: {
-      "x-user-id": userId,
-    },
     body: formData,
   })
 

@@ -3,11 +3,13 @@ import { NextRequest, NextResponse } from "next/server"
 import { isRetryableConnectionError, queryWithReconnect } from "@/lib/db"
 import {
   buildSessionUser,
+  createSession,
   normalizeEmail,
   setAuthCookie,
   verifyPassword,
   type UserStatus,
 } from "@/lib/auth"
+import { checkRateLimit, getRateLimitIp } from "@/lib/rate-limit"
 
 type UserRow = {
   id: string
@@ -26,6 +28,21 @@ function isDatabaseConnectionError(error: unknown) {
 }
 
 export async function POST(request: NextRequest) {
+  // SIMS-04: 10 requests per 15 minutes per IP.
+  const ip = getRateLimitIp(request)
+  const rateLimitResult = await checkRateLimit(`login:${ip}`, 10, 15 * 60)
+  if (!rateLimitResult.allowed) {
+    return NextResponse.json(
+      { error: "Too many login attempts. Please try again later." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rateLimitResult.retryAfterSeconds),
+        },
+      }
+    )
+  }
+
   const body = (await request.json()) as {
     email?: string
     password?: string
@@ -115,10 +132,12 @@ export async function POST(request: NextRequest) {
   }
 
   const remember = body.remember === true
+  const rawToken = await createSession(user.id, remember)
+
   const response = NextResponse.json({
     user: buildSessionUser(user),
   })
-  setAuthCookie(response, user.id, remember)
+  setAuthCookie(response, rawToken, remember)
 
   return response
 }

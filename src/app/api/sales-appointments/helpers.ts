@@ -1,6 +1,7 @@
 import type { Pool, RowDataPacket } from "mysql2/promise"
 import { NextRequest, NextResponse } from "next/server"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import { hasPageAccessForPath } from "@/lib/page-access"
 
 export const SALES_APPOINTMENT_TYPES = ["Online", "Physical"] as const
@@ -20,16 +21,6 @@ export type AuthUser = {
   role: string
   department: string
   pageAccess: string[]
-}
-
-type UserRow = RowDataPacket & {
-  id: string
-  name: string
-  email: string
-  role: string
-  department: string
-  status: "active" | "inactive"
-  page_access: unknown
 }
 
 export type AppointmentRow = RowDataPacket & {
@@ -90,60 +81,26 @@ export const appointmentSelectSql = `
     ON canceled_by.id = appointments.canceled_by_user_id
 `
 
-function parsePageAccess(value: unknown) {
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === "string")
-  }
-
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value)
-      return Array.isArray(parsed)
-        ? parsed.filter((item): item is string => typeof item === "string")
-        : []
-    } catch {
-      return []
-    }
-  }
-
-  return []
-}
-
 export async function resolveAuthUser(
   request: NextRequest,
-  pool: Pool
+  // pool is retained in the signature for call-site compatibility but is no
+  // longer used — authentication is handled via the session cookie.
+  _pool: Pool
 ): Promise<{ user: AuthUser } | { response: NextResponse }> {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
-    return {
-      response: NextResponse.json({ error: "Unauthorized." }, { status: 401 }),
-    }
-  }
-
-  const [rows] = await pool.query<UserRow[]>(
-    `
-    SELECT id, name, email, role, department, status, page_access
-    FROM users
-    WHERE id = ?
-    LIMIT 1
-  `,
-    [userId]
-  )
-
-  const user = rows[0]
-  if (!user || user.status !== "active") {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return {
       response: NextResponse.json({ error: "Unauthorized." }, { status: 401 }),
     }
   }
 
   const authUser: AuthUser = {
-    id: String(user.id),
+    id: user.id,
     name: user.name,
     email: user.email,
     role: user.role,
     department: user.department,
-    pageAccess: parsePageAccess(user.page_access),
+    pageAccess: user.pageAccess,
   }
 
   if (

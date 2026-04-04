@@ -218,7 +218,6 @@ export default function PlusPage() {
       setExportLoading(true)
       try {
         const response = await fetch(`/api/plus/export?format=${format}`, {
-          headers: { "x-user-id": user.id },
         })
         if (!response.ok) {
           throw new Error("Unable to export PLUS merchants.")
@@ -270,7 +269,6 @@ export default function PlusPage() {
 
     try {
       const response = await fetch("/api/plus/jobs/latest", {
-        headers: { "x-user-id": user.id },
       })
       if (!response.ok) {
         return
@@ -316,7 +314,6 @@ export default function PlusPage() {
       }
 
       const response = await fetch(`/api/merchants?${params.toString()}`, {
-        headers: { "x-user-id": user.id },
       })
       if (!response.ok) {
         throw new Error("Unable to load PLUS merchants.")
@@ -375,7 +372,6 @@ export default function PlusPage() {
       setBranchesLoading(true)
       try {
         const response = await fetch("/api/plus/branches", {
-          headers: { "x-user-id": user.id },
         })
         if (!response.ok) {
           throw new Error("Unable to load PLUS branches.")
@@ -414,7 +410,6 @@ export default function PlusPage() {
       setLoadingOutlets((prev) => ({ ...prev, [merchantId]: true }))
       try {
         const response = await fetch(`/api/merchants/${merchantId}/outlets`, {
-          headers: { "x-user-id": user.id },
         })
         if (!response.ok) {
           throw new Error("Unable to load outlets.")
@@ -468,7 +463,6 @@ export default function PlusPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": user.id,
         },
         body: JSON.stringify({ key: keyToCleanup }),
       }).catch(() => undefined)
@@ -512,7 +506,6 @@ export default function PlusPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": user.id,
         },
         body: JSON.stringify({ key: upload.key }),
       })
@@ -553,7 +546,6 @@ export default function PlusPage() {
       const response = await fetch(`/api/plus/update/${jobId}/start`, {
         method: "POST",
         headers: {
-          "x-user-id": user.id,
         },
       })
 
@@ -566,7 +558,6 @@ export default function PlusPage() {
       while (!finished) {
         await new Promise((resolve) => setTimeout(resolve, 1500))
         const statusResponse = await fetch(`/api/plus/update/${jobId}/status`, {
-          headers: { "x-user-id": user.id },
         })
         const statusPayload = (await statusResponse.json()) as JobStatusResponse & {
           error?: string
@@ -586,7 +577,6 @@ export default function PlusPage() {
 
         if (statusPayload.job.status === "failed") {
           const summaryResponse = await fetch(`/api/plus/update/${jobId}/summary`, {
-            headers: { "x-user-id": user.id },
           })
           const summaryPayload = (await summaryResponse.json()) as {
             summary?: PlusUpdateSummary | null
@@ -599,7 +589,6 @@ export default function PlusPage() {
 
         if (statusPayload.job.status === "completed") {
           const summaryResponse = await fetch(`/api/plus/update/${jobId}/summary`, {
-            headers: { "x-user-id": user.id },
           })
           const summaryPayload = (await summaryResponse.json()) as {
             summary?: PlusUpdateSummary | null

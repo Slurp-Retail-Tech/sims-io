@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { queryWithReconnect } from "@/lib/db"
 import {
+  createSession,
   getGoogleClientConfig,
   normalizeEmail,
   resolveAppBaseUrl,
@@ -165,9 +166,11 @@ export async function GET(request: NextRequest) {
     [userInfo.sub, hostedDomain, user.id]
   )
 
+  const rawToken = await createSession(user.id, true)
+
   const base = resolveAppBaseUrl(request.nextUrl.origin)
   const response = NextResponse.redirect(new URL("/overview", base))
   response.cookies.set(GOOGLE_STATE_COOKIE, "", { maxAge: 0, path: "/" })
-  setAuthCookie(response, user.id, true)
+  setAuthCookie(response, rawToken, true)
   return response
 }

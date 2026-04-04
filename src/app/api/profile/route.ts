@@ -52,6 +52,12 @@ export async function PATCH(request: NextRequest) {
   }
 
   if (body.newPassword) {
+    if (body.newPassword.length < 12) {
+      return NextResponse.json(
+        { error: "Password must be at least 12 characters." },
+        { status: 400 }
+      )
+    }
     if (!user.passwordHash) {
       return NextResponse.json(
         { error: "This account does not have a password set yet." },

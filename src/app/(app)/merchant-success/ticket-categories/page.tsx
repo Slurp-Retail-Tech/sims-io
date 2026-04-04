@@ -62,7 +62,6 @@ export default function TicketCategoriesPage() {
     setLoading(true)
     try {
       const response = await fetch("/api/ticket-categories", {
-        headers: { "x-user-id": user.id },
       })
       if (!response.ok) {
         throw new Error("Unable to load categories.")
@@ -91,7 +90,6 @@ export default function TicketCategoriesPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": user.id,
         },
         body: JSON.stringify({ name: categoryName }),
       })
@@ -121,7 +119,6 @@ export default function TicketCategoriesPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": user.id,
         },
         body: JSON.stringify({
           name: subcategoryName,
@@ -159,7 +156,6 @@ export default function TicketCategoriesPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": user.id,
         },
         body: JSON.stringify({
           name: subcategory2Name,
@@ -192,7 +188,6 @@ export default function TicketCategoriesPage() {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          "x-user-id": user.id,
         },
         body: JSON.stringify({ id: categoryId, name: editingName }),
       })
@@ -229,7 +224,6 @@ export default function TicketCategoriesPage() {
         `/api/ticket-categories?id=${encodeURIComponent(categoryId)}`,
         {
           method: "DELETE",
-          headers: { "x-user-id": user.id },
         }
       )
       if (!response.ok) {

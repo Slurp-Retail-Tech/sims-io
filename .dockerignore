@@ -1,8 +1,35 @@
+# Dependencies and build output — never needed in build context
 node_modules
-npm-debug.log
 .next
-.git
-.DS_Store
-.env*
-coverage
 build
+
+# Git and editor metadata
+.git
+.gitignore
+.DS_Store
+
+# Environment files — secrets must not enter the build context
+.env*
+
+# Logs
+npm-debug.log*
+*.log
+
+# Dev/CI artefacts
+coverage
+
+# Project-specific directories not needed for the image
+docs/
+scripts/
+audit/
+.claude/
+
+# Large data files
+*.sql
+
+# Docker files themselves
+Dockerfile
+.dockerignore
+
+# OS/editor noise
+*.md

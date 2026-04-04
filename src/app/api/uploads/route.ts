@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
+import { requireAuthenticatedUser } from "@/lib/auth"
 import {
   buildObjectKey,
   getProxyObjectUrl,
@@ -11,8 +12,8 @@ const MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 const ALLOWED_FOLDERS = new Set(["avatars", "uploads"])
 
 export async function POST(request: NextRequest) {
-  const userId = request.headers.get("x-user-id")?.trim()
-  if (!userId) {
+  const user = await requireAuthenticatedUser(request)
+  if (!user) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const key = buildObjectKey(folder, userId, file.name || "upload")
+  const key = buildObjectKey(folder, user.id, file.name || "upload")
   const buffer = Buffer.from(await file.arrayBuffer())
 
   try {

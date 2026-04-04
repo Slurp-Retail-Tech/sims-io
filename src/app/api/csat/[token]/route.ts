@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { RowDataPacket } from "mysql2"
 
+import { hashOpaqueToken } from "@/lib/auth"
 import getPool from "@/lib/db"
+import { checkRateLimit } from "@/lib/rate-limit"
 
 type TokenRow = RowDataPacket & {
   id: string
   ticket_id: string
-  token: string
+  token_hash: string
   expires_at: string
   used_at: string | null
   created_at: string
@@ -37,6 +39,7 @@ export async function GET(
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params
+  const tokenHash = hashOpaqueToken(token)
   const pool = getPool()
 
   const [tokenRows] = await pool.query<TokenRow[]>(
@@ -44,7 +47,7 @@ export async function GET(
     SELECT
       csat_tokens.id,
       csat_tokens.ticket_id,
-      csat_tokens.token,
+      csat_tokens.token_hash,
       csat_tokens.expires_at,
       csat_tokens.used_at,
       csat_tokens.created_at,
@@ -55,10 +58,10 @@ export async function GET(
     FROM csat_tokens
     INNER JOIN tickets
       ON tickets.id = csat_tokens.ticket_id
-    WHERE csat_tokens.token = ?
+    WHERE csat_tokens.token_hash = ?
     LIMIT 1
   `,
-    [token]
+    [tokenHash]
   )
   const tokenRow = tokenRows[0]
   if (!tokenRow) {
@@ -100,6 +103,15 @@ export async function POST(
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params
+  const rateLimit = await checkRateLimit(`csat:submit:${token}`, 10, 300)
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429 }
+    )
+  }
+
+  const tokenHash = hashOpaqueToken(token)
   const body = (await request.json()) as {
     supportScore?: string
     supportReason?: string | null
@@ -119,12 +131,12 @@ export async function POST(
   const pool = getPool()
   const [tokenRows] = await pool.query<TokenRow[]>(
     `
-    SELECT id, ticket_id, token, expires_at, used_at, created_at
+    SELECT id, ticket_id, token_hash, expires_at, used_at, created_at
     FROM csat_tokens
-    WHERE token = ?
+    WHERE token_hash = ?
     LIMIT 1
   `,
-    [token]
+    [tokenHash]
   )
   const tokenRow = tokenRows[0]
   if (!tokenRow) {

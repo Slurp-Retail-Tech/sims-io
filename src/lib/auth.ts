@@ -128,62 +128,164 @@ export function getSessionMaxAge(remember: boolean) {
   return remember ? REMEMBER_SESSION_TTL_SECONDS : DEFAULT_SESSION_TTL_SECONDS
 }
 
-export function setAuthCookie(
-  response: NextResponse,
+// ---------------------------------------------------------------------------
+// Opaque token helpers
+// ---------------------------------------------------------------------------
+
+export function createOpaqueToken(): string {
+  return randomBytes(32).toString("hex")
+}
+
+export function hashOpaqueToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex")
+}
+
+// ---------------------------------------------------------------------------
+// Server-side session management (SIMS-02)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a new server-side session for `userId`.
+ *
+ * Generates a cryptographically random 32-byte opaque token, stores only its
+ * SHA-256 hash in the `sessions` table, and returns the raw token for
+ * placement in the `sims-auth` cookie.
+ */
+export async function createSession(
   userId: string,
   remember: boolean
-) {
-  response.cookies.set(SESSION_COOKIE_NAME, userId, {
+): Promise<string> {
+  const rawToken = createOpaqueToken()
+  const tokenHash = hashOpaqueToken(rawToken)
+  const ttlSeconds = getSessionMaxAge(remember)
+
+  await queryWithReconnect(
+    `
+      INSERT INTO sessions (user_id, token_hash, remember, expires_at)
+      VALUES (?, ?, ?, DATE_ADD(NOW(3), INTERVAL ? SECOND))
+    `,
+    [userId, tokenHash, remember, ttlSeconds]
+  )
+
+  return rawToken
+}
+
+/**
+ * Delete the session row that matches `rawToken`.
+ * Safe to call with a token that no longer exists.
+ */
+export async function deleteSession(rawToken: string): Promise<void> {
+  const tokenHash = hashOpaqueToken(rawToken)
+  await queryWithReconnect("DELETE FROM sessions WHERE token_hash = ?", [
+    tokenHash,
+  ])
+}
+
+// ---------------------------------------------------------------------------
+// Cookie helpers
+// ---------------------------------------------------------------------------
+
+function isSecureContext(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    process.env.APP_BASE_URL?.trim().startsWith("https://") === true
+  )
+}
+
+/**
+ * Write the raw session token into the `sims-auth` httpOnly cookie.
+ * SameSite is "strict" (SIMS-12).
+ */
+export function setAuthCookie(
+  response: NextResponse,
+  rawToken: string,
+  remember: boolean
+): void {
+  response.cookies.set(SESSION_COOKIE_NAME, rawToken, {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    secure: isSecureContext(),
     maxAge: getSessionMaxAge(remember),
     path: "/",
   })
 }
 
-export function clearAuthCookie(response: NextResponse) {
+/**
+ * Clear the `sims-auth` cookie and, when the raw token is provided, delete
+ * the corresponding session row from the database.
+ */
+export async function clearAuthCookie(
+  response: NextResponse,
+  rawToken?: string
+): Promise<void> {
+  if (rawToken) {
+    await deleteSession(rawToken)
+  }
+
   response.cookies.set(SESSION_COOKIE_NAME, "", {
     httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    secure: isSecureContext(),
     maxAge: 0,
     path: "/",
   })
 }
 
-export async function getAuthenticatedUser(request: NextRequest) {
-  const userId = request.cookies.get(SESSION_COOKIE_NAME)?.value?.trim()
-  if (!userId) {
+// ---------------------------------------------------------------------------
+// Request authentication
+// ---------------------------------------------------------------------------
+
+/**
+ * Look up the authenticated user from the request cookie.
+ *
+ * Hashes the raw cookie value, JOINs `sessions` + `users`, and checks
+ * `expires_at` server-side. Returns `null` when the session is missing,
+ * expired, or the user is not found.
+ */
+export async function getAuthenticatedUser(
+  request: NextRequest
+): Promise<AuthenticatedUser | null> {
+  const rawToken = request.cookies.get(SESSION_COOKIE_NAME)?.value?.trim()
+  if (!rawToken) {
     return null
   }
+
+  const tokenHash = hashOpaqueToken(rawToken)
 
   const [rows] = await queryWithReconnect<UserRow[]>(
     `
       SELECT
-        id,
-        name,
-        email,
-        avatar_url,
-        department,
-        role,
-        status,
-        password_hash,
-        page_access,
-        google_subject,
-        google_workspace_domain
-      FROM users
-      WHERE id = ?
+        u.id,
+        u.name,
+        u.email,
+        u.avatar_url,
+        u.department,
+        u.role,
+        u.status,
+        u.password_hash,
+        u.page_access,
+        u.google_subject,
+        u.google_workspace_domain
+      FROM sessions s
+      INNER JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = ?
+        AND s.expires_at > NOW(3)
       LIMIT 1
     `,
-    [userId]
+    [tokenHash]
   )
 
   const user = rows[0]
   return user ? buildAuthenticatedUser(user) : null
 }
 
-export async function requireAuthenticatedUser(request: NextRequest) {
+/**
+ * Like `getAuthenticatedUser` but additionally requires `status = 'active'`.
+ * All protected API routes call this function; the signature is unchanged.
+ */
+export async function requireAuthenticatedUser(
+  request: NextRequest
+): Promise<AuthenticatedUser | null> {
   const user = await getAuthenticatedUser(request)
   if (!user || user.status !== "active") {
     return null
@@ -191,30 +293,30 @@ export async function requireAuthenticatedUser(request: NextRequest) {
   return user
 }
 
-export function createOpaqueToken() {
-  return randomBytes(32).toString("hex")
-}
+// ---------------------------------------------------------------------------
+// URL / config helpers
+// ---------------------------------------------------------------------------
 
-export function hashOpaqueToken(token: string) {
-  return createHash("sha256").update(token).digest("hex")
-}
-
-export function resolveAppBaseUrl(origin?: string) {
-  const configured =
-    process.env.APP_BASE_URL?.trim() ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
-    ""
+/**
+ * Resolve the application base URL.
+ *
+ * Only `APP_BASE_URL` (server-only) is consulted; `NEXT_PUBLIC_APP_URL` has
+ * been removed to eliminate the risk of a client-controlled redirect target
+ * influencing server-side redirect decisions (SIMS-14).
+ */
+export function resolveAppBaseUrl(origin?: string): string {
+  const configured = process.env.APP_BASE_URL?.trim() || ""
   return configured || origin || "http://localhost:3000"
 }
 
-export function getGoogleWorkspaceDomains() {
+export function getGoogleWorkspaceDomains(): string[] {
   return (process.env.GOOGLE_WORKSPACE_DOMAINS ?? "")
     .split(",")
     .map((value) => normalizeEmail(value))
     .filter(Boolean)
 }
 
-export function getGoogleRedirectUri(origin?: string) {
+export function getGoogleRedirectUri(origin?: string): string {
   const configured = process.env.GOOGLE_REDIRECT_URI?.trim()
   if (configured) {
     return configured
@@ -222,7 +324,12 @@ export function getGoogleRedirectUri(origin?: string) {
   return `${resolveAppBaseUrl(origin)}/api/auth/google/callback`
 }
 
-export function getGoogleClientConfig(origin?: string) {
+export function getGoogleClientConfig(origin?: string): {
+  clientId: string
+  clientSecret: string
+  redirectUri: string
+  allowedDomains: string[]
+} {
   const clientId = process.env.GOOGLE_CLIENT_ID?.trim() ?? ""
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim() ?? ""
   const redirectUri = getGoogleRedirectUri(origin)

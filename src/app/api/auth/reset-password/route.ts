@@ -14,6 +14,12 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     )
   }
+  if (password.length < 12) {
+    return NextResponse.json(
+      { error: "Password must be at least 12 characters." },
+      { status: 400 }
+    )
+  }
 
   const pool = getPool()
   const connection = await pool.getConnection()
@@ -62,6 +68,10 @@ export async function POST(request: NextRequest) {
         WHERE id = ?
       `,
       [record.id]
+    )
+    await connection.query(
+      `DELETE FROM sessions WHERE user_id = ?`,
+      [record.user_id]
     )
     await connection.commit()
   } catch (error) {
