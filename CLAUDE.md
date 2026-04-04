@@ -88,7 +88,9 @@ All API routes live at `src/app/api/**/route.ts` and must stay thin — move bus
 When changing behavior, architecture, or env variables, update the relevant doc in the same task:
 - Product intent → `docs/PRD.md`
 - Technical design / data models → `docs/TDD.md`
-- Env vars / setup → `README.md`
+- Env vars / setup → `README.md` **and** `.env.example`
+
+Every new or removed env var must be reflected in `.env.example`. Leave values blank or as a safe placeholder — never commit real secrets.
 
 The **Renewal & Retention overview** is preview-only (sample data). Do not describe it as live analytics.
 
