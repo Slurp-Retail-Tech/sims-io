@@ -95,3 +95,43 @@ The **Renewal & Retention overview** is preview-only (sample data). Do not descr
 ## Commit Style
 
 Imperative summaries with scope: `fix: handle null outlet in ticket lookup`, `api: add idempotency to ClickUp sync`. Include migrations, new env vars, and rollout notes in PR descriptions.
+
+## Rules
+
+### Versioning
+
+Bump `package.json` version **before** every commit that ships code. Follow semver strictly:
+
+| Change type | Version segment |
+|---|---|
+| Breaking change (schema, API contract, auth flow) | Major |
+| New user-facing feature | Minor |
+| Bug fix, refactor, chore, dependency update | Patch |
+| Documentation only (no code change) | No bump |
+
+### Release Notes
+
+Every version bump must have a corresponding markdown file at `src/app/(app)/release-notes/content/<version>.md`. Create it in the same commit as the bump. Use the frontmatter schema already established in that directory (version, date, title, summary, new, improved, fixed, breaking_changes). Do not include upgrade_notes in the page — the field is unused by the renderer.
+
+### New Pages — Access Control Sync
+
+Whenever a new route is added under `src/app/(app)/`:
+
+1. **`src/lib/page-access.ts`** — add a mapping to `accessRouteMappings` so `getAccessKeysForPath` resolves the route to the correct access key(s). If the page is informational and should be accessible to all authenticated users (no role restriction), add it to `UNIVERSAL_ACCESS_PREFIXES` instead.
+2. **`src/app/(app)/user-management/page.tsx`** — add the page to the correct department group in `pageAccessGroups` with a label and access key value. Skip this step for universal-access pages.
+
+Omitting either update makes the page invisible in the sidebar and inaccessible to non-Super Admin users.
+
+### UI State Persistence
+
+Use cookies for UI filter and selector state that should survive page refreshes:
+
+- Cookie names follow the pattern `<context>_<thing>` (e.g. `sidebar_workspace`, `tickets_date_filter`, `merchant_success_analytics_filter`).
+- Set `Max-Age` appropriate to the context: 12 hours for volatile filters, 30 days for UI preferences.
+- Always set `Path=/` so the cookie is available across all routes.
+- Read cookies client-side via `document.cookie` in a lazy `useState` initialiser (not `useEffect`) so the value is available on first render without a flash.
+- Do not use `localStorage` for UI state — reserve it for the session user cache (`sims-session`) only.
+
+### Security Audit Reports
+
+Save audit reports to `/audit/` at the project root. Each run gets its own file — never append to an existing report. Use a datestamped filename: `audit-YYYY-MM-DD.md`.
