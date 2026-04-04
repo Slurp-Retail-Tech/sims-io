@@ -107,7 +107,7 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem className="pointer-events-none cursor-default">
+              <DropdownMenuItem onSelect={() => router.push("/release-notes")}>
                 <Tag />
                 v{pkg.version}
               </DropdownMenuItem>
