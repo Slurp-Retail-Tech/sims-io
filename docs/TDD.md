@@ -40,8 +40,20 @@ The current app already supports internal ticket workflows, merchant import/brow
 
 * The app is currently deployed as one web application rather than separate `api/`, `worker/`, and `packages/shared/` services.
 * The schema in `schema.sql` is the current operational schema and should be treated as the source of truth for implemented tables.
-* Redis-, RabbitMQ-, and webhook-driven messaging components in this document are target-state design, not current runtime dependencies.
+* Redis-, RabbitMQ-, and webhook-driven messaging components in this document are target-state design, not current runtime dependencies (with the exception of Redis, which is now used in production for rate limiting — see Rate Limiting below).
 * Some pages are intentionally UI previews. In particular, the Renewal & Retention overview page currently shows sample KPI cards and placeholder chart panels instead of live reporting.
+
+#### Session / Authentication Architecture
+
+Sessions use **opaque tokens** rather than storing user IDs directly in cookies.
+
+* **Token generation:** `randomBytes(32).toString("hex")` produces a 64-character hex token stored only in the `sims-auth` httpOnly cookie.
+* **Server-side sessions table:** the raw token is SHA-256 hashed before DB storage; the `sessions` table only ever holds `token_hash CHAR(64)`. The plaintext token never touches the database.
+* **`requireAuthenticatedUser(request)`** (exported from `src/lib/auth.ts`): hashes the cookie value, JOINs `sessions` with `users`, validates `expires_at`. All 45 protected API routes use this exclusively — there is no path that accepts a raw user ID from a cookie.
+* **`createSession(userId, remember)`**: inserts the hashed token into the `sessions` table and returns the raw token for the cookie. TTL is 7 days (30 days when "remember me" is set).
+* **`deleteSession(rawToken)`**: deletes the session row by hash (used on logout).
+* Cookie flags: `httpOnly: true`, `sameSite: "strict"`, `secure: true` in production.
+* **Password reset** deletes all sessions for the affected user (`DELETE FROM sessions WHERE user_id = ?`) to invalidate concurrent sessions on credential change.
 
 ### Current Gaps to Track
 
@@ -49,6 +61,7 @@ The current app already supports internal ticket workflows, merchant import/brow
 * Messaging-provider webhook ingestion is not implemented.
 * Automated renewal messaging and full CSAT flow are not implemented.
 * Automated test coverage is not present yet.
+* RabbitMQ is not a current runtime dependency; Redis is required in production for rate limiting (in-memory fallback for local dev).
 
 ## Requirements
 
@@ -353,7 +366,23 @@ CREATE TABLE webhook_event (
   status ENUM('received','processed','failed','dlq') NOT NULL DEFAULT 'received',
   UNIQUE KEY uq_payload_hash (payload_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Sessions (current implementation — opaque token auth)
+CREATE TABLE sessions (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  token_hash CHAR(64) NOT NULL,   -- SHA-256 of the raw cookie token; plaintext never stored
+  remember BOOLEAN NOT NULL DEFAULT FALSE,
+  expires_at DATETIME(3) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  last_seen_at DATETIME(3) DEFAULT NULL,
+  UNIQUE KEY uniq_session_token_hash (token_hash),
+  INDEX sessions_user_idx (user_id, expires_at),
+  CONSTRAINT fk_sessions_user_id FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
+
+> **`csat_tokens` note:** the `token` column has been renamed to `token_hash CHAR(64)`. The SHA-256 of the raw UUID token is stored; the plaintext token is only ever present in the survey URL and is never persisted. Application code hashes the URL token before querying the table.
 
 **Message search strategy.** Use FULLTEXT on `message.content_text` for quick phrase search; add `ticket_id` filter and date ranges to keep result sets small.
 
@@ -462,6 +491,16 @@ outlet "1" -- "*" user_scope
 * API-only: `PORT=8080`.
 * Web-only: `PORT=3000`, `NEXT_PUBLIC_API_BASE`.
 * Worker-only: `WORKER=1` (if you reuse API image).
+
+**Security / rate-limiting env vars (current Next.js app)**
+
+| Variable | Required | Description |
+|---|---|---|
+| `REDIS_URL` | Production required | Redis connection string for rate limiting (e.g. `redis://redis:6379`). Falls back to in-memory store in development; throws at startup in production if absent. |
+| `TRUSTED_PROXY` | Optional | Set to `"true"` when behind a reverse proxy (Coolify/Traefik) to enable `X-Forwarded-For` reading for IP-based rate limits. Leave unset when running without a proxy to prevent header spoofing. |
+| `SESSION_SECRET` | Recommended | Reserved for future HMAC signing of session-related payloads. Currently sessions use SHA-256 hashed opaque tokens — no HMAC secret is required for the current implementation. |
+| `MINIO_PUBLIC_URL` | Optional | Public base URL for MinIO presigned URLs served to browsers (e.g. `https://files.example.my`). Needed when the internal `MINIO_ENDPOINT` is not reachable from clients. |
+| `RECAPTCHA_SECRET_KEY` | Production required (demo form) | Google reCAPTCHA v2/v3 secret. If absent in production, the demo form `POST` returns HTTP 500 (fail-closed). |
 
 **MessagingProvider Messaging env**
 
@@ -663,7 +702,7 @@ messaging_provider_WEBHOOK_URL=https://api.example.my/webhook
 
 # Database & caches (use service hostnames from Coolify)
 DATABASE_URL=mysql://user:pass@mysql:3306/engagement
-REDIS_URL=redis://redis:6379
+REDIS_URL=redis://redis:6379          # Required in production for rate limiting
 RABBITMQ_URL=amqp://user:pass@rabbitmq:5672
 
 # Object storage
@@ -671,10 +710,15 @@ MINIO_ENDPOINT=http://minio:9000
 MINIO_ACCESS_KEY=...
 MINIO_SECRET_KEY=...
 MINIO_BUCKET=wa-media
+MINIO_PUBLIC_URL=https://files.example.my   # Public URL for browser-facing presigned URLs
 
 # POS Adapter
 POS_BASE_URL=https://pos.internal/api
 POS_TOKEN=...
+
+# Security
+TRUSTED_PROXY=true                    # Set when behind Coolify/Traefik reverse proxy
+RECAPTCHA_SECRET_KEY=...              # Required in production; demo form fails closed without it
 ```
 
 ### 4) NestJS (API/Worker) — Module layout
@@ -1089,7 +1133,7 @@ messaging_provider_WEBHOOK_URL=https://api.example.my/webhook
 
 # Database & caches
 DATABASE_URL=mysql://user:pass@mysql:3306/engagement
-REDIS_URL=redis://redis:6379
+REDIS_URL=redis://redis:6379          # Required in production for rate limiting
 RABBITMQ_URL=amqp://user:pass@rabbitmq:5672
 
 # Object storage
@@ -1097,10 +1141,15 @@ MINIO_ENDPOINT=http://minio:9000
 MINIO_ACCESS_KEY=...
 MINIO_SECRET_KEY=...
 MINIO_BUCKET=wa-media
+MINIO_PUBLIC_URL=https://files.example.my   # Public URL for browser-facing presigned URLs
 
 # POS Adapter
 POS_BASE_URL=https://pos.internal/api
 POS_TOKEN=...
+
+# Security
+TRUSTED_PROXY=true                    # Set when behind Coolify/Traefik reverse proxy
+RECAPTCHA_SECRET_KEY=...              # Required in production; demo form fails closed without it
 ```
 
 ### 4) NestJS (API/Worker) — Module layout
@@ -1190,6 +1239,42 @@ async syncPOSAndSchedule() {
 * **Logs:** JSON logs to filebeat/ELK (or Loki).
 * **Metrics:** /metrics (Prometheus), alerts on webhook failures, 429 rate limit spikes, SLA breach.
 * **Hardening:** VPN‑only admin UIs, least‑priv DB users, `STRICT_TRANS_TABLES`, webhook signature verify, rate‑limit on public endpoints, WAF on NGINX, CSP/HTTPS only.
+
+#### Security Controls (Current Implementation)
+
+**Security Headers**
+Applied to all routes via `next.config.ts` `headers()` export:
+- `X-Frame-Options: DENY`
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Strict-Transport-Security: max-age=63072000; includeSubDomains`
+- `Permissions-Policy: camera=(), microphone=(), geolocation=()`
+
+**Rate Limiting**
+Implemented in `src/lib/rate-limit.ts` and `src/lib/rate-limit-store.ts`.
+- **Backend:** Redis client (`redis` npm package) when `REDIS_URL` is set; in-memory `Map` fallback for local development. Throws at startup in production if `REDIS_URL` is missing.
+- **IP derivation:** `getRateLimitIp(request)` reads `X-Forwarded-For` only when the `TRUSTED_PROXY` env var is set; otherwise falls back to `"direct"` — prevents IP spoofing via header injection.
+- **Limits applied:**
+
+| Endpoint | Limit |
+|---|---|
+| `POST /api/auth/login` | 10 req / 15 min per IP |
+| `POST /api/auth/forgot-password` | 5 req / 15 min per IP |
+| `POST /api/supportform/submit` | 5 req / 60 s per IP |
+| `POST /api/leads` | 3 req / 60 s per IP |
+| `POST /api/csat/[token]` | 10 req / 5 min per token |
+
+**Password Policy**
+Minimum 12 characters enforced at: account activation, password reset, profile password change, and admin user password-set routes.
+
+**reCAPTCHA**
+Fail-closed in production: if `RECAPTCHA_SECRET_KEY` is not set, the demo form `POST` returns HTTP 500 rather than bypassing verification. Local development retains a bypass with a console warning.
+
+**File Upload Viewer Auth**
+`GET /api/uploads/view` requires authentication via `requireAuthenticatedUser`. Previously this endpoint was unauthenticated.
+
+**CSS Injection Defence**
+`src/components/ui/chart.tsx` validates color values with a `CSS_COLOR_SAFE` regex allowlist before interpolating into `dangerouslySetInnerHTML` CSS blocks. Values that do not match fall back to `"transparent"`.
 
 ### 11) Data Migration & Seed
 

@@ -18,6 +18,7 @@ The long-term product vision in `docs/PRD.md` and `docs/TDD.md` is broader than 
 - TypeScript 5
 - Tailwind CSS 4
 - MySQL with `mysql2`
+- Redis (rate limiting)
 - MinIO via AWS S3 SDK
 - ClickUp API integration
 - POS API integration
@@ -62,75 +63,97 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to access 
 Create `.env.local` at the repo root.
 
 ```
+# ── Database ──────────────────────────────────────────────────────────────────
+# Use DATABASE_URL (preferred) OR the individual MYSQL_* vars — not both.
 DATABASE_URL=
 
 MYSQL_HOST=127.0.0.1
-MYSQL_PORT=3306
+MYSQL_PORT=3307
 MYSQL_USER=sims
 MYSQL_PASSWORD=sims-password
 MYSQL_DATABASE=sims-local
 
-POS_API_EMAIL=email@example.com
-POS_API_PASSWORD=password
-POS_AUTH_URL=https://api.getslurp.com/api/login
-POS_IMPORT_URL=http://api.getslurp.com/api/franchise-retrieve/
+# ── Session ───────────────────────────────────────────────────────────────────
+# Generate with: openssl rand -hex 32
+SESSION_SECRET=
 
+# ── Redis (rate limiting) ─────────────────────────────────────────────────────
+# Required in production. Falls back to in-memory store in development.
+REDIS_URL=redis://127.0.0.1:6379
+
+# ── MinIO / Object storage ────────────────────────────────────────────────────
+MINIO_ENDPOINT=http://127.0.0.1:9002
+# Public URL for browser-facing file links (may differ from internal endpoint)
+MINIO_PUBLIC_URL=http://127.0.0.1:9002
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY=minioadmin
+MINIO_BUCKET=sims-assets
+
+# ── App ───────────────────────────────────────────────────────────────────────
+APP_BASE_URL=http://localhost:3000
+# Set to "true" when running behind a trusted reverse proxy (Coolify/Traefik).
+# Enables reading X-Forwarded-For for rate-limit IP derivation.
+TRUSTED_PROXY=
+
+# ── Google OAuth ──────────────────────────────────────────────────────────────
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+# Comma-separated list of allowed Google Workspace domains for SSO
+GOOGLE_WORKSPACE_DOMAINS=
+
+# ── Email (Google Workspace SMTP) ─────────────────────────────────────────────
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM=SIMS <noreply@example.com>
+
+# ── POS API ───────────────────────────────────────────────────────────────────
+POS_API_EMAIL=
+POS_API_PASSWORD=
+POS_AUTH_URL=
+POS_IMPORT_URL=
 MERCHANT_IMPORT_USER_ID=
-CLICKUP_SYNC_CRON_SECRET=
 
+# ── ClickUp ───────────────────────────────────────────────────────────────────
 CLICKUP_API_TOKEN=
 CLICKUP_LIST_ID=
 CLICKUP_API_BASE_URL=https://api.clickup.com/api/v2
+CLICKUP_SYNC_CRON_SECRET=
 NEXT_PUBLIC_CLICKUP_ENABLED=true
+
+# ── HubSpot ───────────────────────────────────────────────────────────────────
 HUBSPOT_ACCESS_TOKEN=
 HUBSPOT_BUSINESS_TYPE_PROPERTY=
 HUBSPOT_BUSINESS_LOCATION_PROPERTY=
 HUBSPOT_SOURCE_PROPERTY=
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=465
-SMTP_SECURE=true
-SMTP_USER=
-SMTP_PASS=
-SMTP_FROM_EMAIL=noreply@getslurp.com
-SMTP_FROM_NAME=SIMS
-APP_BASE_URL=http://localhost:3000
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=
-GOOGLE_WORKSPACE_DOMAINS=getslurp.com
 
-MINIO_ENDPOINT=http://127.0.0.1:9000
-MINIO_PUBLIC_URL=http://127.0.0.1:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
-MINIO_BUCKET=sims-assets
-MINIO_REGION=us-east-1
-
+# ── Public forms ──────────────────────────────────────────────────────────────
 NEXT_PUBLIC_SUPPORT_PHONE=
 NEXT_PUBLIC_SUPPORT_EMAIL=
-NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=
-SUPPORTFORM_WHATSAPP_NUMBER=601156654761
-DEMOFORM_WHATSAPP_NUMBER=601156654761
-# Legacy fallback only
-NEXT_PUBLIC_SUPPORT_WHATSAPP=601156654761
+SUPPORTFORM_WHATSAPP_NUMBER=
+DEMOFORM_WHATSAPP_NUMBER=
 
-# Optional but recommended for /demoform bot protection
+# ── reCAPTCHA (demo form bot protection) ─────────────────────────────────────
+# Required in production — verification fails closed if secret is missing.
 NEXT_PUBLIC_RECAPTCHA_SITE_KEY=
 RECAPTCHA_SECRET_KEY=
+
+# ── Mapbox ────────────────────────────────────────────────────────────────────
+# Required for the /maps page. Baked into the client bundle at build time.
+NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=
 ```
 
 Notes:
-- `SUPPORTFORM_WHATSAPP_NUMBER` is used for `/supportform` redirect.
-- `DEMOFORM_WHATSAPP_NUMBER` is used for `/demoform` redirect.
-- `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` is required for the General `/maps` page.
-- `NEXT_PUBLIC_SUPPORT_WHATSAPP` and `NEXT_PUBLIC_SUPPORT_CONTACT` are legacy fallbacks.
-- reCAPTCHA enforcement is enabled when `RECAPTCHA_SECRET_KEY` is set on the server.
-- Demo form lead submissions sync to HubSpot when `HUBSPOT_ACCESS_TOKEN` is configured.
-- Demo form lead email notifications and auth emails send through Google Workspace SMTP when `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM_EMAIL` are configured.
-- All outbound emails use the configured SMTP sender identity; the lead notification page only manages recipients and enable/disable status.
-- `APP_BASE_URL` should point to the public app URL used in activation, reset-password, and Google OAuth callbacks.
-- `GOOGLE_WORKSPACE_DOMAINS` is a comma-separated allowlist of Google Workspace domains for SSO.
-- `HUBSPOT_BUSINESS_TYPE_PROPERTY`, `HUBSPOT_BUSINESS_LOCATION_PROPERTY`, and `HUBSPOT_SOURCE_PROPERTY` map form fields to your HubSpot custom contact property names.
+- `SESSION_SECRET` — required in production; generate with `openssl rand -hex 32`
+- `REDIS_URL` — required in production; in development, rate limiting falls back to an in-memory store
+- `TRUSTED_PROXY=true` — set when running behind Coolify/Traefik; enables `X-Forwarded-For` reading for rate-limit IP derivation
+- `MINIO_PUBLIC_URL` — set to the public-facing URL for MinIO when it differs from the internal `MINIO_ENDPOINT` (always the case in production behind a reverse proxy)
+- `DATABASE_URL` takes precedence over individual `MYSQL_*` vars if both are set
+- `APP_BASE_URL` — used in activation emails, password reset emails, and Google OAuth callbacks; must match the registered OAuth redirect URI exactly
+- `GOOGLE_WORKSPACE_DOMAINS` — comma-separated allowlist of Google Workspace domains permitted for SSO login
+- `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` and `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` are baked into the JS bundle at build time; changing them requires a full redeploy, not just a container restart
+- `RECAPTCHA_SECRET_KEY` — reCAPTCHA enforcement is fail-closed in production; the demo form POST returns 500 if this is missing
 
 ## Google Workspace SMTP Setup
 
@@ -154,15 +177,11 @@ docker compose up -d
 ```
 
 Defaults:
-- MySQL runs on `localhost:3306` with database `sims-local` and user `sims`/`sims-password`.
-- phpMyAdmin is at `http://localhost:8080` (server: `mysql`, user: `sims`, password: `sims-password`).
-- MinIO is at `http://localhost:9000` with console at `http://localhost:9001`.
+- MySQL runs on `localhost:3307` (host port mapped from container 3306) with database `sims-local` and user `sims`/`sims-password`.
+- phpMyAdmin is at `http://localhost:8081` (server: `mysql`, user: `sims`, password: `sims-password`).
+- MinIO API is at `http://localhost:9002`, console at `http://localhost:9003`.
 
 The schema file at `schema.sql` is loaded automatically the first time the container starts. If you need to re-run it, delete the `mysql_data` volume and restart.
-
-Default login (local):
-- Email: `admin@getslurp.com`
-- Password: `sims-admin`
 
 ### Import data from `sims-platform (1).sql`
 
@@ -224,10 +243,28 @@ This project relies on `schema.sql` for database updates. If you already have da
 
 The Renewal & Retention overview page is currently a preview-only UI surface. It intentionally shows sample KPI cards and placeholder chart content until a live renewal analytics data source is connected.
 
-## Deployment
+## Deployment (Coolify)
 
-Use the platform or container runtime that matches your infrastructure.
+The app deploys via Coolify from GitHub using the `Dockerfile` at the repo root.
 
-For Coolify (Dockerfile build):
-- Set the build context to repo root.
-- Use `Dockerfile` at the repo root.
+**Services to create in Coolify (in order):**
+1. MySQL 8.4 — internal hostname `sims-mysql`, port 3306
+2. Redis 7 — internal hostname `sims-redis`, port 6379
+3. MinIO — internal hostname `sims-minio`; expose the console on a subdomain; create the bucket manually after first start
+4. Application — GitHub repo, Dockerfile buildpack, port 3000
+
+**Key production env var differences from local dev:**
+- `DATABASE_URL=mysql://user:pass@sims-mysql:3306/dbname`
+- `REDIS_URL=redis://sims-redis:6379`
+- `MINIO_ENDPOINT=http://sims-minio:9000` (internal)
+- `MINIO_PUBLIC_URL=https://minio.yourdomain.com` (public, browser-facing)
+- `TRUSTED_PROXY=true`
+- `NODE_ENV=production`
+
+**NEXT_PUBLIC_* vars** must be marked as "Build Variables" in Coolify's env editor so they are passed as Docker build args and baked into the JS bundle.
+
+**Database migrations** must be run manually before deploying schema changes:
+```bash
+mysql -u user -p dbname < migrations/001_security_remediation.sql
+```
+Migration scripts are in `migrations/` and are idempotent — safe to run twice.
