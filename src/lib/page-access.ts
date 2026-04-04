@@ -31,8 +31,15 @@ const accessRouteMappings: { prefix: string; accessKeys: string[] }[] = [
   { prefix: "/merchant-success/sla-breaches", accessKeys: ["/sla-breaches"] },
   { prefix: "/merchant-success/overview", accessKeys: ["/merchant-success"] },
   { prefix: "/merchant-success", accessKeys: ["/merchant-success"] },
-  { prefix: "/sales", accessKeys: ["/sales"] },
-  { prefix: "/renewal-retention", accessKeys: ["/renewal-retention"] },
+  { prefix: "/sales/overview", accessKeys: ["/sales/overview"] },
+  { prefix: "/sales/leads", accessKeys: ["/sales/leads"] },
+  { prefix: "/sales/appointments", accessKeys: ["/sales/appointments"] },
+  { prefix: "/sales/analytics", accessKeys: ["/sales/analytics"] },
+  { prefix: "/sales", accessKeys: ["/sales"] }, // legacy: workspace-level grant
+  { prefix: "/renewal-retention/overview", accessKeys: ["/renewal-retention/overview"] },
+  { prefix: "/renewal-retention/renewal-due", accessKeys: ["/renewal-retention/renewal-due"] },
+  { prefix: "/renewal-retention/analytics", accessKeys: ["/renewal-retention/analytics"] },
+  { prefix: "/renewal-retention", accessKeys: ["/renewal-retention"] }, // legacy: workspace-level grant
   { prefix: "/tickets", accessKeys: ["/tickets"] },
   { prefix: "/analytics", accessKeys: ["/analytics"] },
   { prefix: "/merchants", accessKeys: ["/merchants"] },
