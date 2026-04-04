@@ -33,17 +33,13 @@ const accessRouteMappings: { prefix: string; accessKeys: string[] }[] = [
   { prefix: "/merchant-success", accessKeys: ["/merchant-success"] },
   { prefix: "/sales", accessKeys: ["/sales"] },
   { prefix: "/renewal-retention", accessKeys: ["/renewal-retention"] },
-  { prefix: "/renewals", accessKeys: ["/renewals"] },
   { prefix: "/tickets", accessKeys: ["/tickets"] },
   { prefix: "/analytics", accessKeys: ["/analytics"] },
   { prefix: "/merchants", accessKeys: ["/merchants"] },
   { prefix: "/maps", accessKeys: ["/merchants"] },
   { prefix: "/plus", accessKeys: ["/plus", "/merchants"] },
   { prefix: "/knowledge-base", accessKeys: ["/knowledge-base"] },
-  { prefix: "/dashboard", accessKeys: ["/dashboard"] },
-  { prefix: "/users", accessKeys: ["/users"] },
   { prefix: "/user-management", accessKeys: ["/user-management"] },
-  { prefix: "/settings", accessKeys: ["/settings"] },
   { prefix: "/preferences", accessKeys: ["/preferences"] },
   { prefix: "/profile", accessKeys: ["/profile"] },
 ]
@@ -54,8 +50,16 @@ const sortedMappings = [...accessRouteMappings].sort(
 
 export const GENERAL_OVERVIEW_PATH = "/overview"
 
-export const hasUniversalAccess = (path: string) =>
-  normalizePath(path) === GENERAL_OVERVIEW_PATH
+// Paths accessible to all authenticated users regardless of page_access
+const UNIVERSAL_ACCESS_PREFIXES = [GENERAL_OVERVIEW_PATH, "/release-notes"]
+
+export const hasUniversalAccess = (path: string) => {
+  const normalized = normalizePath(path)
+  return UNIVERSAL_ACCESS_PREFIXES.some(
+    (prefix) =>
+      normalized === prefix || normalized.startsWith(`${prefix}/`)
+  )
+}
 
 export function getAccessKeysForPath(path: string) {
   const normalized = normalizePath(path)

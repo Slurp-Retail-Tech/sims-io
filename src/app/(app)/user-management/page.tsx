@@ -64,32 +64,19 @@ const pageAccessGroups: PageAccessGroup[] = [
   },
   {
     label: "Sales & Marketing",
-    options: [{ label: "Sales Workspace", value: "/sales" }],
+    options: [{ label: "Sales", value: "/sales" }],
   },
   {
     label: "Renewal & Retention",
-    options: [
-      { label: "Renewal Workspace", value: "/renewal-retention" },
-      { label: "Renewals", value: "/renewals" },
-    ],
+    options: [{ label: "Renewal & Retention", value: "/renewal-retention" }],
   },
   {
-    label: "Product & Engineering",
+    label: "Operations",
     options: [
-      { label: "Merchants", value: "/merchants" },
+      { label: "Merchants & Maps", value: "/merchants" },
       { label: "PLUS", value: "/plus" },
       { label: "Knowledge Base", value: "/knowledge-base" },
-    ],
-  },
-  {
-    label: "General Operation",
-    options: [
-      { label: "Dashboard", value: "/dashboard" },
-      { label: "Users", value: "/users" },
       { label: "User Management", value: "/user-management" },
-      { label: "Settings", value: "/settings" },
-      { label: "Preferences", value: "/preferences" },
-      { label: "Profile", value: "/profile" },
     ],
   },
 ]
