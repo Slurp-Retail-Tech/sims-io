@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { BadgeCheck, Camera } from "lucide-react"
+import { BadgeCheck, Camera, ShieldCheck } from "lucide-react"
 
 import { getSessionState, setSessionUser } from "@/lib/session"
 import { uploadFile } from "@/lib/upload-client"
@@ -27,6 +27,7 @@ type ProfileUser = {
   avatarUrl?: string | null
   department: string
   role: string
+  googleWorkspaceDomain: string | null
 }
 
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024
@@ -229,6 +230,17 @@ export default function ProfilePage() {
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Workspace</span>
                 <span>{profile.department}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Google Workspace</span>
+                {profile.googleWorkspaceDomain ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-600 dark:text-emerald-400">
+                    <ShieldCheck className="size-3" />
+                    Linked · {profile.googleWorkspaceDomain}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground text-xs">Not linked</span>
+                )}
               </div>
               <Dialog open={open} onOpenChange={handleOpenChange}>
                 <DialogTrigger asChild>

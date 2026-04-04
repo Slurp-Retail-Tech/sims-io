@@ -194,7 +194,10 @@ function isSecureContext(): boolean {
 
 /**
  * Write the raw session token into the `sims-auth` httpOnly cookie.
- * SameSite is "strict" (SIMS-12).
+ * SameSite is "lax" so the cookie is forwarded after OAuth redirects
+ * (Google sends a cross-site top-level navigation back to the callback,
+ * and "strict" cookies are not attached to the redirect that follows).
+ * Lax still blocks cross-site POST requests, so CSRF protection is intact.
  */
 export function setAuthCookie(
   response: NextResponse,
@@ -203,7 +206,7 @@ export function setAuthCookie(
 ): void {
   response.cookies.set(SESSION_COOKIE_NAME, rawToken, {
     httpOnly: true,
-    sameSite: "strict",
+    sameSite: "lax",
     secure: isSecureContext(),
     maxAge: getSessionMaxAge(remember),
     path: "/",
@@ -224,7 +227,7 @@ export async function clearAuthCookie(
 
   response.cookies.set(SESSION_COOKIE_NAME, "", {
     httpOnly: true,
-    sameSite: "strict",
+    sameSite: "lax",
     secure: isSecureContext(),
     maxAge: 0,
     path: "/",

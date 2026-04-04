@@ -21,6 +21,7 @@ export async function GET(request: NextRequest) {
       avatarUrl: user.avatarUrl,
       department: user.department,
       role: user.role,
+      googleWorkspaceDomain: user.googleWorkspaceDomain,
     },
   })
 }
