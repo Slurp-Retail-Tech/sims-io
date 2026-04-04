@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { Readable } from "stream"
+import { NoSuchKey } from "@aws-sdk/client-s3"
 
 import { requireAuthenticatedUser } from "@/lib/auth"
 import { getObjectStream } from "@/lib/storage"
@@ -42,7 +43,10 @@ export async function GET(request: NextRequest) {
 
     return new NextResponse(stream, { headers })
   } catch (error) {
-    console.error(error)
-    return NextResponse.json({ error: "File not found." }, { status: 404 })
+    if (error instanceof NoSuchKey) {
+      return NextResponse.json({ error: "File not found." }, { status: 404 })
+    }
+    console.error("[uploads/view] Storage error:", error)
+    return NextResponse.json({ error: "Storage is unavailable." }, { status: 500 })
   }
 }

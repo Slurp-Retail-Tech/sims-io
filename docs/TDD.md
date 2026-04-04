@@ -523,6 +523,24 @@ outlet "1" -- "*" user_scope
 
 * **MySQL 8.4**, **Redis**, **RabbitMQ**, **MinIO** → provision as separate services (or use “Docker Image” service type with official images). Capture connection strings and inject into app env vars.
 
+**MinIO Lifecycle Policy (object expiry)**
+
+Uploaded attachments under the `uploads/` prefix are automatically deleted after 60 days by a MinIO-native lifecycle rule. Avatar images under `avatars/` are exempt. Apply this rule once after provisioning using the `mc` CLI:
+
+```bash
+mc alias set sims <MINIO_ENDPOINT> <MINIO_ACCESS_KEY> <MINIO_SECRET_KEY>
+mc ilm add sims/<MINIO_BUCKET> \
+  --prefix “uploads/” \
+  --expiry-days 60
+mc ilm ls sims/<MINIO_BUCKET>   # verify
+```
+
+Operational notes:
+- MinIO's scanner runs every 24 hours. Objects are deleted within the first scanner cycle after their 60-day window closes — not at the precise moment.
+- **Existing objects older than 60 days** will be deleted on the first scanner cycle after the rule is applied. Check before enabling if old attachments must be preserved.
+- The rule is stored in MinIO metadata, not in Git. If MinIO is reprovisioned from scratch, re-apply the rule.
+- After deletion, any `attachment_url` or `storage_key` column in MySQL that referenced the object becomes a dangling reference. The view proxy at `/api/uploads/view` returns `404 “File not found.”` for missing objects, so the user-facing impact is a broken attachment link rather than a 500 error.
+
 ---
 
 ### Dockerfiles

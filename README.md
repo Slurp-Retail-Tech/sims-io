@@ -144,6 +144,7 @@ Notes:
 - `REDIS_URL` — required in production; in development, rate limiting falls back to an in-memory store
 - `TRUSTED_PROXY=true` — set when running behind Coolify/Traefik; enables `X-Forwarded-For` reading for rate-limit IP derivation
 - `MINIO_PUBLIC_URL` — set to the public-facing URL for MinIO when it differs from the internal `MINIO_ENDPOINT` (always the case in production behind a reverse proxy)
+- MinIO object expiry — apply a 60-day lifecycle rule on the `uploads/` prefix after provisioning (avatars are exempt); see `docs/TDD.md` for the `mc ilm add` command
 - `DATABASE_URL` takes precedence over individual `MYSQL_*` vars if both are set
 - `APP_BASE_URL` — used in activation emails, password reset emails, and Google OAuth callbacks; must match the registered OAuth redirect URI exactly
 - `GOOGLE_WORKSPACE_DOMAINS` — comma-separated allowlist of Google Workspace domains permitted for SSO login
