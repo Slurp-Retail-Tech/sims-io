@@ -1,6 +1,5 @@
 import { ArrowUpCircle, Wrench, Tag, AlertTriangle, Info } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 const improved = [
@@ -114,7 +113,7 @@ export default function ReleaseNotesPage() {
                 <span className="text-lg font-semibold leading-tight">
                   v2.1.3
                 </span>
-                <Badge variant="secondary">Latest</Badge>
+                <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium text-muted-foreground">Latest</span>
               </div>
               <p className="text-muted-foreground mt-0.5 text-xs">
                 Released 2 April 2026
