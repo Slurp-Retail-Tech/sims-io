@@ -3,6 +3,8 @@ type UploadFolder = "avatars" | "uploads"
 type UploadParams = {
   file: File
   folder?: UploadFolder
+  /** Ignored server-side — the session cookie is the authoritative identity. Accepted to avoid breaking call sites that pass it. */
+  userId?: string
 }
 
 type UploadResponse = {
