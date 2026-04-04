@@ -1,8 +1,13 @@
+import type { Metadata } from "next"
 import Link from "next/link"
 import { Tag } from "lucide-react"
 
 import { getAllReleaseNotes } from "@/lib/release-notes"
 import { Card, CardContent } from "@/components/ui/card"
+
+export const metadata: Metadata = {
+  title: "Release Notes",
+}
 
 export default function ReleaseNotesPage() {
   const releases = getAllReleaseNotes()

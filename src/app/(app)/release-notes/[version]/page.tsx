@@ -1,9 +1,22 @@
+import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 import Link from "next/link"
 import { ArrowUpCircle, Wrench, AlertTriangle, Info, ArrowLeft, Tag } from "lucide-react"
 
 import { getReleaseNote, getAllReleaseNotes } from "@/lib/release-notes"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ version: string }>
+}): Promise<Metadata> {
+  const { version } = await params
+  const release = getReleaseNote(version)
+  return {
+    title: release ? `v${release.version} · ${release.title}` : `Release Notes`,
+  }
+}
 
 export async function generateStaticParams() {
   return getAllReleaseNotes().map((r) => ({ version: r.version }))

@@ -122,6 +122,15 @@ Whenever a new route is added under `src/app/(app)/`:
 
 Omitting either update makes the page invisible in the sidebar and inaccessible to non-Super Admin users.
 
+### Page Titles
+
+Every page must have a dedicated browser title — never rely on the root layout's default `"SIMS"`.
+
+- **Server component pages**: export `metadata` directly from the `page.tsx`.
+- **Client component pages** (`"use client"`): create a sibling `layout.tsx` that exports `metadata` and returns `children` unchanged (see `src/app/(app)/maps/layout.tsx` as the pattern).
+- **Dynamic routes**: export `generateMetadata` from the `page.tsx` and derive the title from the route params (e.g. `v${release.version} · ${release.title}`).
+- Use concise, descriptive names. Prefer `"Merchant Success – Tickets"` over `"Merchant Success Tickets Page"`.
+
 ### UI State Persistence
 
 Use cookies for UI filter and selector state that should survive page refreshes:
