@@ -29,7 +29,7 @@ type TicketDetailRow = RowDataPacket & {
   attachment_url: string | null
   attachment_url_2: string | null
   attachment_url_3: string | null
-  opened_at: string | null
+  attended_at: string | null
   merchant_sentiment: string | null
   created_at: string
   updated_at: string
@@ -191,7 +191,7 @@ export async function GET(
       tickets.attachment_url,
       tickets.attachment_url_2,
       tickets.attachment_url_3,
-      tickets.opened_at,
+      tickets.attended_at,
       tickets.merchant_sentiment,
       tickets.created_at,
       tickets.updated_at,
@@ -281,7 +281,7 @@ export async function GET(
       clickupTaskStatus: row.clickup_task_status,
       clickupTaskStatusSyncedAt: row.clickup_task_status_synced_at,
       attachments,
-      openedAt: row.opened_at,
+      attendedAt: row.attended_at,
       merchantSentiment: row.merchant_sentiment,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -339,7 +339,7 @@ export async function PATCH(
     clickupLink?: string | null
     clickupTaskStatus?: string | null
     clickupTaskStatusSyncedAt?: string | null
-    openedAt?: string | null
+    attend?: boolean
     merchantSentiment?: string | null
   }
 
@@ -366,7 +366,7 @@ export async function PATCH(
       clickup_link,
       clickup_task_status,
       clickup_task_status_synced_at,
-      opened_at,
+      attended_at,
       merchant_sentiment
     FROM tickets
     WHERE id = ?
@@ -532,15 +532,6 @@ export async function PATCH(
       normalizedSyncedAt
     )
   }
-  if (body.openedAt !== undefined) {
-    const normalizedOpenedAt = normalizeDateTimeForMysqlInput(body.openedAt)
-    compareAndPush(
-      "opened_at",
-      "opened_at",
-      current.opened_at,
-      normalizedOpenedAt
-    )
-  }
   if (body.merchantSentiment !== undefined) {
     compareAndPush(
       "merchant_sentiment",
@@ -548,6 +539,21 @@ export async function PATCH(
       current.merchant_sentiment,
       body.merchantSentiment ?? null
     )
+  }
+
+  if (body.attend === true && !current.attended_at) {
+    const [nowRows] = await pool.query<RowDataPacket[]>(
+      "SELECT CAST(UTC_TIMESTAMP(3) AS CHAR) AS now_value"
+    )
+    const attendedAtValue = String(nowRows[0]?.now_value ?? "").slice(0, 23)
+    if (attendedAtValue) {
+      compareAndPush(
+        "attended_at",
+        "attended_at",
+        current.attended_at,
+        attendedAtValue
+      )
+    }
   }
 
   if (!updates.length) {

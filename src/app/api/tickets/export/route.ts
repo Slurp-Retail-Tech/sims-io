@@ -29,7 +29,7 @@ type TicketExportRow = {
   Status: string
   "Closed By": string
   "Closed At": string
-  "Opened At": string
+  "Attended At": string
   "Assigned MS PIC": string
   "Created At": string
   "CSAT Link Shared": string
@@ -69,7 +69,7 @@ const exportColumnOrder: Array<keyof TicketExportRow> = [
   "Status",
   "Closed By",
   "Closed At",
-  "Opened At",
+  "Attended At",
   "Assigned MS PIC",
   "Created At",
   "CSAT Link Shared",
@@ -217,12 +217,12 @@ export async function GET(request: NextRequest) {
   }
 
   if (startDate) {
-    whereClauses.push("DATE(COALESCE(tickets.opened_at, tickets.created_at)) >= ?")
+    whereClauses.push("DATE(COALESCE(tickets.attended_at, tickets.created_at)) >= ?")
     values.push(startDate)
   }
 
   if (endDate) {
-    whereClauses.push("DATE(COALESCE(tickets.opened_at, tickets.created_at)) <= ?")
+    whereClauses.push("DATE(COALESCE(tickets.attended_at, tickets.created_at)) <= ?")
     values.push(endDate)
   }
 
@@ -253,7 +253,7 @@ export async function GET(request: NextRequest) {
       tickets.status,
       tickets.updated_by,
       tickets.closed_at,
-      tickets.opened_at,
+      tickets.attended_at,
       tickets.merchant_sentiment,
       tickets.created_at,
       users.name AS assigned_ms_pic,
@@ -329,7 +329,7 @@ export async function GET(request: NextRequest) {
       Status: sanitizeValue(row.status as string | null),
       "Closed By": sanitizeValue(row.updated_by as string | null),
       "Closed At": formatExportDate((row.closed_at as string | null) ?? null),
-      "Opened At": formatExportDate((row.opened_at as string | null) ?? null),
+      "Attended At": formatExportDate((row.attended_at as string | null) ?? null),
       "Assigned MS PIC": sanitizeValue(row.assigned_ms_pic as string | null),
       "Created At": formatExportDate((row.created_at as string | null) ?? null),
       "CSAT Link Shared": row.csat_link_shared ? "True" : "False",

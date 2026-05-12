@@ -194,8 +194,7 @@ export async function POST(request: NextRequest) {
       hidden,
       ms_pic_user_id,
       status,
-      clickup_link,
-      opened_at
+      clickup_link
     )
     VALUES (
       ?,
@@ -217,8 +216,7 @@ export async function POST(request: NextRequest) {
       FALSE,
       NULL,
       'Open',
-      NULL,
-      NOW(3)
+      NULL
     )
   `,
     [

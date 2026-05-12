@@ -73,12 +73,12 @@ export async function GET(request: NextRequest) {
   }
 
   if (startDate) {
-    whereClauses.push("DATE(COALESCE(tickets.opened_at, tickets.created_at)) >= ?")
+    whereClauses.push("DATE(COALESCE(tickets.attended_at, tickets.created_at)) >= ?")
     values.push(startDate)
   }
 
   if (endDate) {
-    whereClauses.push("DATE(COALESCE(tickets.opened_at, tickets.created_at)) <= ?")
+    whereClauses.push("DATE(COALESCE(tickets.attended_at, tickets.created_at)) <= ?")
     values.push(endDate)
   }
 
@@ -121,7 +121,7 @@ export async function GET(request: NextRequest) {
       tickets.clickup_task_id,
       tickets.clickup_task_status,
       COALESCE(tickets.closed_at, tickets.updated_at) AS resolved_at,
-      tickets.opened_at,
+      tickets.attended_at,
       tickets.created_at,
       tickets.updated_at AS last_message_at,
       users.name AS ms_agent_name
@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
     clickup_task_id: string | null
     clickup_task_status: string | null
     resolved_at: string | null
-    opened_at: string | null
+    attended_at: string | null
     created_at: string
     last_message_at: string | null
     ms_agent_name: string | null
@@ -173,7 +173,7 @@ export async function GET(request: NextRequest) {
     clickupTaskId: row.clickup_task_id,
     clickupTaskStatus: row.clickup_task_status,
     resolvedAt: row.resolved_at,
-    openedAt: row.opened_at,
+    attendedAt: row.attended_at,
     createdAt: row.created_at,
     lastMessageAt: row.last_message_at,
     msAgentName: row.ms_agent_name,
