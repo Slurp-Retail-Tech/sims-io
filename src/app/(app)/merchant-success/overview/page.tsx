@@ -91,7 +91,7 @@ async function getOverviewMetrics() {
       SELECT COUNT(*) AS total
       FROM tickets
       WHERE ${activeSupportRequestWhere()}
-        AND DATE(COALESCE(opened_at, created_at)) = UTC_DATE()
+        AND DATE(COALESCE(attended_at, created_at)) = UTC_DATE()
     `
     )
 
@@ -110,7 +110,7 @@ async function getOverviewMetrics() {
       SELECT COUNT(*) AS total
       FROM tickets
       WHERE ${activeSupportRequestWhere()}
-        AND DATE(COALESCE(opened_at, created_at)) = UTC_DATE() - INTERVAL 1 DAY
+        AND DATE(COALESCE(attended_at, created_at)) = UTC_DATE() - INTERVAL 1 DAY
     `
     )
 

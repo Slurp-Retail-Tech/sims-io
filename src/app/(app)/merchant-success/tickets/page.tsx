@@ -112,7 +112,7 @@ type TicketDetail = {
   clickupTaskId: string | null
   clickupTaskStatus: string | null
   clickupTaskStatusSyncedAt: string | null
-  openedAt: string | null
+  attendedAt: string | null
   merchantSentiment: string | null
   attachments: string[]
   createdAt: string
@@ -263,7 +263,7 @@ const historyFieldLabels: Record<string, string> = {
   closed_at: "Closed At",
   csat_token_generated: "CSAT Link Generated",
   csat_link_shared: "CSAT Link Shared",
-  opened_at: "Opened At",
+  attended_at: "Attended At",
   merchant_sentiment: "Merchant Sentiment",
 }
 
@@ -296,7 +296,7 @@ function formatHistoryField(field: string) {
 const historyDateFields = new Set([
   "clickup_task_status_synced_at",
   "closed_at",
-  "opened_at",
+  "attended_at",
   "csat_link_shared_at",
 ])
 
@@ -812,7 +812,6 @@ export default function MerchantSuccessTicketsPage() {
           clickupTaskStatus: ticketDraft.clickupTaskStatus ?? null,
           clickupTaskStatusSyncedAt:
             ticketDraft.clickupTaskStatusSyncedAt ?? null,
-          openedAt: ticketDraft.openedAt ?? null,
           merchantSentiment: ticketDraft.merchantSentiment ?? null,
         }),
       })
@@ -874,6 +873,7 @@ export default function MerchantSuccessTicketsPage() {
           body: JSON.stringify({
             msPicUserId: sessionUser.id,
             status: "In Progress",
+            attend: true,
           }),
         })
         if (!response.ok) {
@@ -1965,23 +1965,12 @@ export default function MerchantSuccessTicketsPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <div className="text-muted-foreground mb-1 text-xs">Opened At</div>
-                      <Input
-                        type="datetime-local"
-                        value={
-                          ticketDraft.openedAt
-                            ? ticketDraft.openedAt.replace(" ", "T").slice(0, 16)
-                            : ""
-                        }
-                        onChange={(event) =>
-                          setTicketDraft({
-                            ...ticketDraft,
-                            openedAt: event.target.value
-                              ? event.target.value.replace("T", " ") + ":00.000"
-                              : null,
-                          })
-                        }
-                      />
+                      <div className="text-muted-foreground mb-1 text-xs">Attended At</div>
+                      <div className="flex h-9 items-center rounded-md border px-3 text-sm">
+                        {ticketDraft.attendedAt
+                          ? formatDateTime(ticketDraft.attendedAt)
+                          : "--"}
+                      </div>
                     </div>
                     <div>
                       <div className="text-muted-foreground mb-1 text-xs">Merchant Sentiment</div>

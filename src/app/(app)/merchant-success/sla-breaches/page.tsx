@@ -171,15 +171,15 @@ async function getSlaBreaches() {
         tickets.clickup_link,
         tickets.clickup_task_id,
         tickets.clickup_task_status,
-        COALESCE(tickets.opened_at, tickets.created_at) AS created_at,
+        COALESCE(tickets.attended_at, tickets.created_at) AS created_at,
         users.name AS ms_agent_name
       FROM tickets
       LEFT JOIN users
         ON users.id = tickets.ms_pic_user_id
       WHERE tickets.hidden = FALSE
         AND tickets.status <> 'Resolved'
-        AND COALESCE(tickets.opened_at, tickets.created_at) <= UTC_TIMESTAMP() - INTERVAL 3 DAY
-      ORDER BY COALESCE(tickets.opened_at, tickets.created_at) ASC, tickets.id ASC
+        AND COALESCE(tickets.attended_at, tickets.created_at) <= UTC_TIMESTAMP() - INTERVAL 3 DAY
+      ORDER BY COALESCE(tickets.attended_at, tickets.created_at) ASC, tickets.id ASC
     `
   )
 
