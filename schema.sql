@@ -133,7 +133,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   attachment_url_3 VARCHAR(512) DEFAULT NULL,
   status ENUM('Open', 'In Progress', 'Pending Customer', 'Resolved') NOT NULL DEFAULT 'Open',
   closed_at DATETIME(3) DEFAULT NULL,
-  opened_at DATETIME(3) DEFAULT NULL,
+  attended_at DATETIME(3) DEFAULT NULL,
   merchant_sentiment VARCHAR(50) DEFAULT NULL,
   updated_by VARCHAR(255) DEFAULT NULL,
   ms_pic_user_id BIGINT DEFAULT NULL,
@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   outlet_name_resolved VARCHAR(255) DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-  INDEX tickets_status_opened_idx (status, opened_at)
+  INDEX tickets_status_attended_idx (status, attended_at)
 );
 
 CREATE TABLE IF NOT EXISTS ticket_history (
