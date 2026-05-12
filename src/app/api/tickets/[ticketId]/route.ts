@@ -3,6 +3,11 @@ import { NextRequest, NextResponse } from "next/server"
 import type { RowDataPacket } from "mysql2"
 
 import { hashOpaqueToken, requireAuthenticatedUser } from "@/lib/auth"
+import {
+  getCsatReferenceColumn,
+  getCsatTokenColumn,
+  getCsatTokenHashSelectExpression,
+} from "@/lib/csat-schema"
 import getPool from "@/lib/db"
 import { normalizeDateTimeForMysqlInput } from "@/lib/mysql-datetime"
 import { resolveStoredObjectUrl } from "@/lib/storage"
@@ -216,11 +221,20 @@ export async function GET(
     return NextResponse.json({ error: "Ticket not found." }, { status: 404 })
   }
 
+  const [csatTokenTicketColumn, csatResponseTicketColumn, csatTokenColumn] =
+    await Promise.all([
+      getCsatReferenceColumn(pool, "csat_tokens"),
+      getCsatReferenceColumn(pool, "csat_responses"),
+      getCsatTokenColumn(pool),
+    ])
+  const csatTokenHashSelectExpression =
+    getCsatTokenHashSelectExpression(csatTokenColumn)
+
   const [tokenRows] = await pool.query<CsatTokenRow[]>(
     `
-    SELECT token_hash, created_at, expires_at, used_at
+    SELECT ${csatTokenHashSelectExpression}, created_at, expires_at, used_at
     FROM csat_tokens
-    WHERE ticket_id = ?
+    WHERE ${csatTokenTicketColumn} = ?
     ORDER BY id DESC
     LIMIT 1
   `,
@@ -232,7 +246,7 @@ export async function GET(
     `
     SELECT support_score, support_reason, product_score, product_feedback, submitted_at
     FROM csat_responses
-    WHERE ticket_id = ?
+    WHERE ${csatResponseTicketColumn} = ?
     ORDER BY id DESC
     LIMIT 1
   `,
