@@ -1,18 +1,12 @@
-ARG NPM_VERSION=11.14.1
-
 # Stage 1: Install dependencies
 FROM node:22-alpine AS deps
 WORKDIR /app
-ARG NPM_VERSION
-RUN npm install -g "npm@${NPM_VERSION}"
 COPY package*.json ./
 RUN npm ci
 
 # Stage 2: Build the application
 FROM node:22-alpine AS build
 WORKDIR /app
-ARG NPM_VERSION
-RUN npm install -g "npm@${NPM_VERSION}"
 
 # Declare build-time args for NEXT_PUBLIC_* vars so Coolify can pass them
 # via --build-arg. These get baked into the JS bundle by next build.
