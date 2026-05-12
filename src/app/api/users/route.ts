@@ -183,12 +183,18 @@ export async function POST(request: NextRequest) {
     await connection.commit()
     committed = true
 
-    await sendActivationEmail({
-      email,
-      name,
-      token,
-      origin: request.nextUrl.origin,
-    })
+    let activationEmailSent = true
+    try {
+      await sendActivationEmail({
+        email,
+        name,
+        token,
+        origin: request.nextUrl.origin,
+      })
+    } catch (emailError) {
+      activationEmailSent = false
+      console.error(emailError)
+    }
 
     return NextResponse.json({
       user: {
@@ -200,6 +206,7 @@ export async function POST(request: NextRequest) {
         status: "pending_activation" as UserStatus,
         pageAccess,
       },
+      activationEmailSent,
     })
   } catch (error) {
     if (!committed) {

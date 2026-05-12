@@ -398,7 +398,14 @@ export default function UserManagementPage() {
         showToast(data?.error ?? "Unable to create user.", "error")
         return
       }
-      showToast("User created.")
+      const data = (await response.json()) as {
+        activationEmailSent?: boolean
+      }
+      showToast(
+        data.activationEmailSent === false
+          ? "User created. Activation email failed; use resend activation."
+          : "User created."
+      )
       closeCreateDialog()
       await loadUsers()
     } catch (error) {
