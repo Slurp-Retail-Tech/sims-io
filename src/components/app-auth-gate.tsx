@@ -3,7 +3,12 @@
 import * as React from "react"
 import { usePathname, useRouter } from "next/navigation"
 
-import { getSessionUser, setSessionUser } from "@/lib/session"
+import {
+  clearSession,
+  getSessionState,
+  setSessionUser,
+  type SessionUser,
+} from "@/lib/session"
 import { hasPageAccessForPath } from "@/lib/page-access"
 
 export function AppAuthGate({ children }: { children: React.ReactNode }) {
@@ -11,17 +16,25 @@ export function AppAuthGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [checking, setChecking] = React.useState(true)
   const [hasSession, setHasSession] = React.useState(false)
+  const [verifiedPath, setVerifiedPath] = React.useState<string | null>(null)
 
   React.useEffect(() => {
-    const validateUser = (user: ReturnType<typeof getSessionUser>) => {
+    let cancelled = false
+
+    const validateUser = (user: SessionUser | null) => {
+      if (cancelled) {
+        return
+      }
       if (!user) {
         setHasSession(false)
+        setVerifiedPath(null)
         setChecking(false)
         router.replace("/login")
         return
       }
       if (user.role === "Super Admin") {
         setHasSession(true)
+        setVerifiedPath(pathname)
         setChecking(false)
         return
       }
@@ -34,49 +47,53 @@ export function AppAuthGate({ children }: { children: React.ReactNode }) {
       }
 
       setHasSession(true)
+      setVerifiedPath(pathname)
       setChecking(false)
     }
 
-    const existing = getSessionUser()
-    if (existing) {
-      if (existing.role !== "Super Admin" && !existing.pageAccess) {
-        const hydrate = async () => {
-          try {
-            const response = await fetch("/api/auth/session")
-            const data = (await response.json()) as { user?: Parameters<typeof setSessionUser>[0] }
-            if (response.ok && data.user) {
-              setSessionUser(data.user, false)
-              validateUser(data.user)
-              return
-            }
-            validateUser(existing)
-          } catch {
-            validateUser(existing)
-          }
-        }
-        void hydrate()
-        return
-      }
-      validateUser(existing)
-      return
-    }
+    const validateServerSession = async () => {
+      setChecking(true)
+      setHasSession(false)
+      setVerifiedPath(null)
 
-    const hydrateFromCookie = async () => {
       try {
-        const response = await fetch("/api/auth/session")
-        const data = (await response.json()) as { user?: Parameters<typeof setSessionUser>[0] }
-        if (!response.ok || !data.user) {
+        const response = await fetch("/api/auth/session", {
+          credentials: "same-origin",
+        })
+
+        if (response.status === 401) {
+          clearSession()
           validateUser(null)
           return
         }
-        setSessionUser(data.user, false)
+
+        if (!response.ok) {
+          clearSession()
+          validateUser(null)
+          return
+        }
+
+        const data = (await response.json()) as { user?: SessionUser }
+        if (!data.user) {
+          clearSession()
+          validateUser(null)
+          return
+        }
+
+        const remember = getSessionState()?.remember ?? false
+        setSessionUser(data.user, remember)
         validateUser(data.user)
       } catch {
+        clearSession()
         validateUser(null)
       }
     }
 
-    void hydrateFromCookie()
+    void validateServerSession()
+
+    return () => {
+      cancelled = true
+    }
   }, [pathname, router])
 
   if (checking) {
@@ -87,7 +104,7 @@ export function AppAuthGate({ children }: { children: React.ReactNode }) {
     )
   }
 
-  if (!hasSession) {
+  if (!hasSession || verifiedPath !== pathname) {
     return null
   }
 

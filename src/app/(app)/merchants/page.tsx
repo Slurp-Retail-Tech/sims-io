@@ -2,11 +2,12 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 import { formatDateTime } from "@/lib/dates"
 import { getOutletStatusClasses, getOutletStatusLabel } from "@/lib/outlet-map"
 import { ChevronDown, ChevronRight, Download, LoaderCircle } from "lucide-react"
-import { getSessionUser } from "@/lib/session"
+import { clearSession, getSessionUser } from "@/lib/session"
 import {
   Collapsible,
   CollapsibleContent,
@@ -146,6 +147,7 @@ function getPaginationItems(current: number, total: number) {
 }
 
 export default function MerchantsPage() {
+  const router = useRouter()
   const [merchants, setMerchants] = React.useState<Merchant[]>([])
   const [loading, setLoading] = React.useState(true)
   const [search, setSearch] = React.useState("")
@@ -435,6 +437,12 @@ export default function MerchantsPage() {
       })
       if (!response.ok) {
         const data = (await response.json()) as { error?: string }
+        if (response.status === 401) {
+          clearSession()
+          showToast("Please log in again to import.", "error")
+          router.replace("/login")
+          return
+        }
         showToast(data.error ?? "Import failed.", "error")
         return
       }
