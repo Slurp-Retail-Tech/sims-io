@@ -112,7 +112,7 @@ POS_IMPORT_URL=
 POS_BRANCH_URL=
 POS_MERCHANT_ID_BASE_URL=
 POS_CATEGORY_BUSINESS_BASE_URL=
-MERCHANT_IMPORT_USER_ID=
+MERCHANT_IMPORT_CRON_SECRET=
 
 # ── ClickUp ───────────────────────────────────────────────────────────────────
 CLICKUP_API_TOKEN=
@@ -200,7 +200,7 @@ Manual import runs from the Merchants page and pulls data from the POS API.
 Scheduled import is handled by your platform scheduler (for example, Coolify).
 See `docs/scheduler.md` for a ready-to-use setup, including cron timing in
 Asia/Kuala_Lumpur, one-line Coolify command examples, and the
-`MERCHANT_IMPORT_USER_ID` value from `users.id`.
+`MERCHANT_IMPORT_CRON_SECRET` header secret.
 
 ## ClickUp Integration
 
