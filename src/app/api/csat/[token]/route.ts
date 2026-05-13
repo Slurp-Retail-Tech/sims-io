@@ -2,12 +2,19 @@ import { NextRequest, NextResponse } from "next/server"
 import type { RowDataPacket } from "mysql2"
 
 import { hashOpaqueToken } from "@/lib/auth"
+import {
+  getCsatTokenColumn,
+  getCsatTokenLookupExpression,
+  getCsatTokenSelectExpressions,
+  getCsatTokenStorageValue,
+} from "@/lib/csat-schema"
 import getPool from "@/lib/db"
 import { checkRateLimit } from "@/lib/rate-limit"
 
 type TokenRow = RowDataPacket & {
   id: string
   ticket_id: string
+  token: string | null
   token_hash: string
   expires_at: string
   used_at: string | null
@@ -41,13 +48,23 @@ export async function GET(
   const { token } = await params
   const tokenHash = hashOpaqueToken(token)
   const pool = getPool()
+  const csatTokenColumn = await getCsatTokenColumn(pool)
+  const csatTokenSelectExpressions = getCsatTokenSelectExpressions(
+    csatTokenColumn,
+    "csat_tokens"
+  )
+  const csatTokenLookupExpression = getCsatTokenLookupExpression(
+    csatTokenColumn,
+    "csat_tokens"
+  )
+  const tokenLookupValue = getCsatTokenStorageValue(csatTokenColumn, token, tokenHash)
 
   const [tokenRows] = await pool.query<TokenRow[]>(
     `
     SELECT
       csat_tokens.id,
       csat_tokens.ticket_id,
-      csat_tokens.token_hash,
+      ${csatTokenSelectExpressions},
       csat_tokens.expires_at,
       csat_tokens.used_at,
       csat_tokens.created_at,
@@ -58,10 +75,10 @@ export async function GET(
     FROM csat_tokens
     INNER JOIN tickets
       ON tickets.id = csat_tokens.ticket_id
-    WHERE csat_tokens.token_hash = ?
+    WHERE ${csatTokenLookupExpression}
     LIMIT 1
   `,
-    [tokenHash]
+    [tokenLookupValue]
   )
   const tokenRow = tokenRows[0]
   if (!tokenRow) {
@@ -129,14 +146,18 @@ export async function POST(
   }
 
   const pool = getPool()
+  const csatTokenColumn = await getCsatTokenColumn(pool)
+  const csatTokenSelectExpressions = getCsatTokenSelectExpressions(csatTokenColumn)
+  const csatTokenLookupExpression = getCsatTokenLookupExpression(csatTokenColumn)
+  const tokenLookupValue = getCsatTokenStorageValue(csatTokenColumn, token, tokenHash)
   const [tokenRows] = await pool.query<TokenRow[]>(
     `
-    SELECT id, ticket_id, token_hash, expires_at, used_at, created_at
+    SELECT id, ticket_id, ${csatTokenSelectExpressions}, expires_at, used_at, created_at
     FROM csat_tokens
-    WHERE token_hash = ?
+    WHERE ${csatTokenLookupExpression}
     LIMIT 1
   `,
-    [tokenHash]
+    [tokenLookupValue]
   )
   const tokenRow = tokenRows[0]
   if (!tokenRow) {

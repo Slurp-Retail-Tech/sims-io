@@ -1,12 +1,11 @@
-import { randomUUID } from "node:crypto"
 import { NextRequest, NextResponse } from "next/server"
 import type { RowDataPacket } from "mysql2"
 
-import { hashOpaqueToken, requireAuthenticatedUser } from "@/lib/auth"
+import { requireAuthenticatedUser } from "@/lib/auth"
 import {
   getCsatReferenceColumn,
   getCsatTokenColumn,
-  getCsatTokenHashSelectExpression,
+  getCsatTokenSelectExpressions,
 } from "@/lib/csat-schema"
 import getPool from "@/lib/db"
 import { normalizeDateTimeForMysqlInput } from "@/lib/mysql-datetime"
@@ -46,6 +45,7 @@ type TicketDetailRow = RowDataPacket & {
 }
 
 type CsatTokenRow = RowDataPacket & {
+  token: string | null
   token_hash: string
   created_at: string
   expires_at: string
@@ -227,12 +227,11 @@ export async function GET(
       getCsatReferenceColumn(pool, "csat_responses"),
       getCsatTokenColumn(pool),
     ])
-  const csatTokenHashSelectExpression =
-    getCsatTokenHashSelectExpression(csatTokenColumn)
+  const csatTokenSelectExpressions = getCsatTokenSelectExpressions(csatTokenColumn)
 
   const [tokenRows] = await pool.query<CsatTokenRow[]>(
     `
-    SELECT ${csatTokenHashSelectExpression}, created_at, expires_at, used_at
+    SELECT ${csatTokenSelectExpressions}, created_at, expires_at, used_at
     FROM csat_tokens
     WHERE ${csatTokenTicketColumn} = ?
     ORDER BY id DESC
@@ -305,6 +304,7 @@ export async function GET(
       msPicName: row.ms_pic_name,
       csat: {
         surveyStatus: toSurveyStatus(token, response, wasWhatsappSent),
+        token: token?.token ?? null,
         tokenHash: token?.token_hash ?? null,
         tokenPreview: token?.token_hash
           ? `${token.token_hash.slice(0, 8)}...${token.token_hash.slice(-4)}`
@@ -620,46 +620,8 @@ export async function PATCH(
     )
   }
 
-  let generatedCsatToken: string | null = null
-  if (transitionedToClosed) {
-    await pool.query(
-      `
-      UPDATE csat_tokens
-      SET used_at = COALESCE(used_at, NOW(3))
-      WHERE ticket_id = ?
-        AND used_at IS NULL
-    `,
-      [ticketId]
-    )
-
-    generatedCsatToken = randomUUID()
-    const tokenHash = hashOpaqueToken(generatedCsatToken)
-    await pool.query(
-      `
-      INSERT INTO csat_tokens (ticket_id, token_hash, expires_at)
-      VALUES (?, ?, DATE_ADD(NOW(3), INTERVAL 3 DAY))
-    `,
-      [ticketId, tokenHash]
-    )
-
-    await pool.query(
-      `
-      INSERT INTO ticket_history (
-        ticket_id,
-        field_name,
-        old_value,
-        new_value,
-        changed_by
-      )
-      VALUES (?, 'csat_token_generated', NULL, ?, ?)
-    `,
-      [ticketId, "[generated]", actorLabel]
-    )
-  }
-
   return NextResponse.json({
     ok: true,
     updated: true,
-    csatTokenGenerated: Boolean(generatedCsatToken),
   })
 }

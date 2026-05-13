@@ -88,3 +88,32 @@ export function getCsatTokenHashSelectExpression(tokenColumn: CsatTokenColumn) {
 
   return "token_hash"
 }
+
+export function getCsatTokenSelectExpressions(
+  tokenColumn: CsatTokenColumn,
+  tableQualifier = ""
+) {
+  const prefix = tableQualifier ? `${tableQualifier}.` : ""
+
+  if (tokenColumn === "token") {
+    return `${prefix}token, SHA2(${prefix}token, 256) AS token_hash`
+  }
+
+  return `NULL AS token, ${prefix}token_hash`
+}
+
+export function getCsatTokenLookupExpression(
+  tokenColumn: CsatTokenColumn,
+  tableQualifier = ""
+) {
+  const prefix = tableQualifier ? `${tableQualifier}.` : ""
+  return `${prefix}${tokenColumn} = ?`
+}
+
+export function getCsatTokenStorageValue(
+  tokenColumn: CsatTokenColumn,
+  rawToken: string,
+  tokenHash: string
+) {
+  return tokenColumn === "token" ? rawToken : tokenHash
+}
