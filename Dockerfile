@@ -1,6 +1,7 @@
 FROM node:22-alpine AS base
 
-RUN npm install -g npm@11.14.1
+RUN npm install -g --force npm@11.14.1 && \
+    npm --version
 
 # Stage 1: Install dependencies
 FROM base AS deps
