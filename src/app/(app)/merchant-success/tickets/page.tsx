@@ -349,6 +349,13 @@ function getCsatUrl(token: string | null) {
   return `${window.location.origin}/csat/${encodeURIComponent(token)}`
 }
 
+function getTokenPreview(token: string | null) {
+  if (!token) {
+    return null
+  }
+  return token.length > 12 ? `${token.slice(0, 8)}...${token.slice(-4)}` : token
+}
+
 function getCloseDuration(createdAt: string, resolvedAt: string | null) {
   if (!resolvedAt) {
     return null
@@ -906,6 +913,10 @@ export default function MerchantSuccessTicketsPage() {
   const csatActionsEnabled = Boolean(csatUrl) && ["Generated", "Send"].includes(
     ticketDraft?.csat.surveyStatus ?? ""
   )
+  const csatShareEnabled =
+    ticketDraft?.status === "Resolved" &&
+    Boolean(ticketDraft.customerPhone) &&
+    !["Responded", "Used"].includes(ticketDraft.csat.surveyStatus)
 
   const selectedCategoryNode = React.useMemo(() => {
     if (!ticketDraft?.category) {
@@ -948,7 +959,7 @@ export default function MerchantSuccessTicketsPage() {
   }
 
   const handleShareCsatLink = async () => {
-    if (!ticketDraft?.customerPhone || !csatUrl || !csatActionsEnabled || !selectedTicketId) {
+    if (!ticketDraft?.customerPhone || !csatShareEnabled || !selectedTicketId) {
       return
     }
     const waUrl = getChatUrl(ticketDraft.customerPhone)
@@ -969,28 +980,39 @@ export default function MerchantSuccessTicketsPage() {
       if (!response.ok) {
         throw new Error("Unable to track CSAT link share.")
       }
+      const data = (await response.json()) as {
+        token: string
+        expiresAt: string
+        generated: boolean
+      }
+      const sharedCsatUrl = getCsatUrl(data.token)
+      if (!sharedCsatUrl) {
+        throw new Error("Unable to create CSAT link.")
+      }
+      const text = encodeURIComponent(
+        `Hi! Thanks for contacting Merchant Success. We would love to hear your feedback. Please take a moment to share your experience with us. ${sharedCsatUrl}`
+      )
+      setTicketDraft((current) =>
+        current
+          ? {
+              ...current,
+              csat: {
+                ...current.csat,
+                surveyStatus: "Send",
+                token: data.token,
+                tokenPreview: getTokenPreview(data.token),
+                expiresAt: data.expiresAt,
+              },
+            }
+          : current
+      )
+      window.open(`${waUrl}?text=${text}`, "_blank", "noopener,noreferrer")
+      showToast(data.generated ? "CSAT link generated and shared." : "CSAT link shared.")
     } catch (error) {
       console.error(error)
       showToast("Unable to track CSAT link send.", "error")
       return
     }
-
-    const text = encodeURIComponent(
-      `Hi! Thanks for contacting Merchant Success. We would love to hear your feedback. Please take a moment to share your experience with us. ${csatUrl}`
-    )
-    setTicketDraft((current) =>
-      current
-        ? {
-            ...current,
-            csat: {
-              ...current.csat,
-              surveyStatus: "Send",
-            },
-          }
-        : current
-    )
-    window.open(`${waUrl}?text=${text}`, "_blank", "noopener,noreferrer")
-    showToast("CSAT link shared.")
   }
 
   const handleClickUpLink = () => {
@@ -1861,7 +1883,7 @@ export default function MerchantSuccessTicketsPage() {
                       size="sm"
                       variant="outline"
                       onClick={() => void handleShareCsatLink()}
-                      disabled={!csatActionsEnabled || !ticketDraft.customerPhone}
+                      disabled={!csatShareEnabled}
                     >
                       Share Link
                     </Button>
