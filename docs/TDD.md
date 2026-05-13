@@ -60,7 +60,7 @@ Sessions use **opaque tokens** rather than storing user IDs directly in cookies.
 * Renewal analytics are not fully wired to live data.
 * Messaging-provider webhook ingestion is not implemented.
 * Automated renewal messaging and full CSAT flow are not implemented.
-* Automated test coverage is not present yet.
+* Automated test coverage is minimal and currently focused on shared timezone helpers.
 * RabbitMQ is not a current runtime dependency; Redis is required in production for rate limiting (in-memory fallback for local dev).
 
 ## Requirements
@@ -196,7 +196,8 @@ Merchant --> WA : chats
 
 * Engine: **InnoDB**; Charset/Collation: **utf8mb4 / utf8mb4_0900_ai_ci** (emoji-safe).
 * Strict mode ON; SQL_SAFE_UPDATES OFF; `sql_require_primary_key=ON`.
-* Timezone stored as UTC; application handles Asia/Kuala_Lumpur display.
+* Timezone stored as UTC. The application uses `Asia/Kuala_Lumpur` for all user-facing display, date filters, exports, dashboard "today/yesterday" metrics, and analytics date/hour/month buckets.
+* SQL calendar grouping uses a fixed `+08:00` conversion from UTC instead of named timezone tables, so environments do not need MySQL timezone data loaded.
 
 **Core tables** (abridged DDL; implement all FKs + indices):
 

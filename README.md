@@ -41,7 +41,7 @@ The long-term product vision in `docs/PRD.md` and `docs/TDD.md` is broader than 
 - Some dashboards are still UI previews or placeholder analytics.
 - Renewal & Retention overview currently shows sample data only and is not live reporting.
 - External messaging-channel integration from the PRD/TDD is not implemented in this app.
-- Automated tests have not been added yet.
+- Automated test coverage is minimal and currently focused on shared timezone helpers.
 
 ## Getting Started
 

@@ -6,6 +6,7 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/app-timezone.test.ts",
     "lint": "eslint"
   },
   "dependencies": {

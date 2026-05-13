@@ -1,4 +1,4 @@
-const APP_TIME_ZONE = "Asia/Kuala_Lumpur"
+import { APP_TIME_ZONE } from "@/lib/app-timezone"
 
 export function parseDate(value: string | Date) {
   if (value instanceof Date) {

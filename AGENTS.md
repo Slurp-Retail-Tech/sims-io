@@ -17,6 +17,7 @@ This repository contains planning documents for the Unified Engagement Platform 
   - `npm run dev`
   - `npm run build`
   - `npm run start`
+  - `npm test`
   - `npm run lint`
 - Local data and storage services:
   - `docker compose up -d`
@@ -31,7 +32,7 @@ This repository contains planning documents for the Unified Engagement Platform 
 - Add formatter and linter configs with the first code drop and keep them in the repo root (for example, ESLint and Prettier).
 
 ## Testing Guidelines
-- Testing framework is not selected; the current repo has no automated tests yet.
+- Current automated coverage uses Node's built-in test runner for focused TypeScript helper tests via `npm test`.
 - Name unit tests `*.spec.ts` and end-to-end tests `*.e2e-spec.ts` if using NestJS defaults.
 - Cover critical flows: webhook signature verification, POS sync, renewal scheduling, and CSAT capture.
 
