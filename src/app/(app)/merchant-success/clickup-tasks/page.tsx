@@ -43,6 +43,7 @@ import { useToast } from "@/components/toast-provider"
 import { formatDateTime } from "@/lib/dates"
 import { getSessionUser } from "@/lib/session"
 import { uploadFile } from "@/lib/upload-client"
+import { cn } from "@/lib/utils"
 
 type TaskRequest = {
   id: string
@@ -110,6 +111,13 @@ type RequestFormState = {
   newFiles: File[]
 }
 
+type RequiredRequestField =
+  | "product"
+  | "priorityLevel"
+  | "severityLevel"
+  | "incidentTitle"
+  | "taskDescription"
+
 type SessionUser = NonNullable<ReturnType<typeof getSessionUser>>
 type ClickUpDropdownOption = {
   id: string
@@ -168,6 +176,28 @@ function getDefaultForm(user: SessionUser | null): RequestFormState {
   }
 }
 
+function getMissingRequiredFields(formState: RequestFormState) {
+  const missing: RequiredRequestField[] = []
+
+  if (!formState.product.trim()) {
+    missing.push("product")
+  }
+  if (!formState.priorityLevel.trim()) {
+    missing.push("priorityLevel")
+  }
+  if (!formState.severityLevel.trim()) {
+    missing.push("severityLevel")
+  }
+  if (!formState.incidentTitle.trim()) {
+    missing.push("incidentTitle")
+  }
+  if (!formState.taskDescription.trim()) {
+    missing.push("taskDescription")
+  }
+
+  return missing
+}
+
 function formatDecisionDate(value: string | null) {
   if (!value) {
     return "--"
@@ -203,6 +233,9 @@ export default function ClickupTasksPage() {
   const [formTicketLookupLoading, setFormTicketLookupLoading] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
   const [formState, setFormState] = React.useState<RequestFormState>(getDefaultForm(null))
+  const [missingRequiredFields, setMissingRequiredFields] = React.useState<
+    RequiredRequestField[]
+  >([])
   const [editingRequestId, setEditingRequestId] = React.useState<string | null>(null)
   const [editingDecision, setEditingDecision] = React.useState<{
     reason: string | null
@@ -267,6 +300,7 @@ export default function ClickupTasksPage() {
 
     setEditingRequestId(null)
     setFormError(null)
+    setMissingRequiredFields([])
     setFormState(nextForm)
     setFormOpen(true)
     setQueryPrefillHandled(true)
@@ -430,6 +464,7 @@ export default function ClickupTasksPage() {
     setEditingDecision(null)
     setFormState(getDefaultForm(sessionUser))
     setFormError(null)
+    setMissingRequiredFields([])
     setFormOpen(true)
   }
 
@@ -458,6 +493,7 @@ export default function ClickupTasksPage() {
       newFiles: [],
     })
     setFormError(null)
+    setMissingRequiredFields([])
     setFormOpen(true)
   }
 
@@ -566,6 +602,13 @@ export default function ClickupTasksPage() {
       return
     }
 
+    const missingFields = getMissingRequiredFields(formState)
+    setMissingRequiredFields(missingFields)
+    if (missingFields.length > 0) {
+      setFormError("Please fill in the highlighted required fields.")
+      return
+    }
+
     setFormLoading(true)
     setFormError(null)
 
@@ -625,6 +668,7 @@ export default function ClickupTasksPage() {
       setEditingRequestId(null)
       setEditingDecision(null)
       setFormState(getDefaultForm(sessionUser))
+      setMissingRequiredFields([])
       setCompletedPage(1)
       await Promise.all([fetchPending(), fetchCompleted()])
     } catch (error) {
@@ -692,6 +736,9 @@ export default function ClickupTasksPage() {
     setCompletedPerPage(value)
     setCompletedPage(1)
   }
+
+  const hasMissingRequiredField = (field: RequiredRequestField) =>
+    missingRequiredFields.includes(field) && !formState[field].trim()
 
   if (!ready) {
     return (
@@ -1060,6 +1107,7 @@ export default function ClickupTasksPage() {
           setFormOpen(open)
           if (!open) {
             setFormError(null)
+            setMissingRequiredFields([])
           }
         }}
       >
@@ -1122,7 +1170,13 @@ export default function ClickupTasksPage() {
                   setFormState((current) => ({ ...current, product: value }))
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger
+                  aria-invalid={hasMissingRequiredField("product") || undefined}
+                  className={cn(
+                    hasMissingRequiredField("product") &&
+                      "border-destructive ring-destructive/20"
+                  )}
+                >
                   <SelectValue placeholder="Select product" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1148,7 +1202,13 @@ export default function ClickupTasksPage() {
                   setFormState((current) => ({ ...current, priorityLevel: value }))
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger
+                  aria-invalid={hasMissingRequiredField("priorityLevel") || undefined}
+                  className={cn(
+                    hasMissingRequiredField("priorityLevel") &&
+                      "border-destructive ring-destructive/20"
+                  )}
+                >
                   <SelectValue placeholder="Select priority" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1175,7 +1235,13 @@ export default function ClickupTasksPage() {
                   setFormState((current) => ({ ...current, severityLevel: value }))
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger
+                  aria-invalid={hasMissingRequiredField("severityLevel") || undefined}
+                  className={cn(
+                    hasMissingRequiredField("severityLevel") &&
+                      "border-destructive ring-destructive/20"
+                  )}
+                >
                   <SelectValue placeholder="Select severity" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1281,6 +1347,7 @@ export default function ClickupTasksPage() {
             <span className="text-sm font-medium">Incident Title</span>
             <Input
               value={formState.incidentTitle}
+              aria-invalid={hasMissingRequiredField("incidentTitle") || undefined}
               onChange={(event) =>
                 setFormState((current) => ({ ...current, incidentTitle: event.target.value }))
               }
@@ -1291,7 +1358,13 @@ export default function ClickupTasksPage() {
           <label className="mt-2 block space-y-1">
             <span className="text-sm font-medium">Task Description</span>
             <textarea
-              className="border-input bg-background min-h-28 w-full rounded-md border px-3 py-2 text-sm"
+              aria-invalid={hasMissingRequiredField("taskDescription") || undefined}
+              className={cn(
+                "border-input bg-background min-h-28 w-full rounded-md border px-3 py-2 text-sm outline-none transition-[color,box-shadow]",
+                "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+                hasMissingRequiredField("taskDescription") &&
+                  "border-destructive ring-destructive/20"
+              )}
               value={formState.taskDescription}
               onChange={(event) =>
                 setFormState((current) => ({ ...current, taskDescription: event.target.value }))
