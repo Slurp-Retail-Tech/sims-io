@@ -1,21 +1,24 @@
 FROM node:22-alpine AS base
 
-RUN npm pack npm@11.14.1 --pack-destination /tmp && \
-    rm -rf /usr/local/lib/node_modules/npm && \
-    mkdir -p /usr/local/lib/node_modules/npm && \
-    tar -xzf /tmp/npm-11.14.1.tgz -C /usr/local/lib/node_modules/npm --strip-components=1 && \
-    ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
-    ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
-    npm --version
-
 # Stage 1: Install dependencies
 FROM base AS deps
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
+FROM base AS npm-updated
+
+RUN npm pack --silent npm@11.14.1 --pack-destination /tmp && \
+    rm -rf /usr/local/lib/node_modules/npm && \
+    mkdir -p /usr/local/lib/node_modules/npm && \
+    tar -xzf /tmp/npm-11.14.1.tgz -C /usr/local/lib/node_modules/npm --strip-components=1 && \
+    rm -f /tmp/npm-11.14.1.tgz && \
+    ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
+    npm --version
+
 # Stage 2: Build the application
-FROM base AS build
+FROM npm-updated AS build
 WORKDIR /app
 
 # Declare build-time args for NEXT_PUBLIC_* vars so Coolify can pass them
@@ -30,7 +33,7 @@ COPY . .
 RUN npm run build
 
 # Stage 3: Production runner
-FROM base AS runner
+FROM npm-updated AS runner
 WORKDIR /app
 
 RUN apk add --no-cache curl
