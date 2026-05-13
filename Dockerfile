@@ -1,11 +1,15 @@
+FROM node:22-alpine AS base
+
+RUN npm install -g npm@11.14.1
+
 # Stage 1: Install dependencies
-FROM node:22-alpine AS deps
+FROM base AS deps
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
 # Stage 2: Build the application
-FROM node:22-alpine AS build
+FROM base AS build
 WORKDIR /app
 
 # Declare build-time args for NEXT_PUBLIC_* vars so Coolify can pass them
@@ -20,7 +24,7 @@ COPY . .
 RUN npm run build
 
 # Stage 3: Production runner
-FROM node:22-alpine AS runner
+FROM base AS runner
 WORKDIR /app
 
 RUN apk add --no-cache curl
@@ -34,12 +38,9 @@ ENV HOSTNAME=0.0.0.0
 # Default port — Coolify overrides this at runtime via its env injection
 ENV PORT=3000
 
-COPY --from=build /app/.next/standalone ./
-COPY --from=build /app/public ./public
-COPY --from=build /app/.next/static ./.next/static
-
-# Give the non-root user ownership of the app files
-RUN chown -R nextjs:nodejs /app
+COPY --from=build --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /app/public ./public
+COPY --from=build --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
 
