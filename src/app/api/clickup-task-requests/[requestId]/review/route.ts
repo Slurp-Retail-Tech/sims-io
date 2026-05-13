@@ -8,6 +8,7 @@ import {
   type ClickUpListField,
   uploadClickUpTaskAttachment,
 } from "@/lib/clickup"
+import { applyClickUpSnapshotToTicket } from "@/lib/clickup-ticket-sync"
 import getPool from "@/lib/db"
 import {
   clickupRequestSelectSql,
@@ -362,6 +363,7 @@ export async function POST(
     action === "approve" ? "Approved" : "Rejected"
   let clickupTaskId: string | null = null
   let clickupLink: string | null = null
+  let clickupTaskStatus: string | null = null
 
   if ((action as Action) === "approve") {
     try {
@@ -379,6 +381,7 @@ export async function POST(
       })
       clickupTaskId = snapshot.taskId
       clickupLink = snapshot.taskUrl
+      clickupTaskStatus = snapshot.taskStatus
     } catch (error) {
       console.error(error)
       return NextResponse.json(
@@ -423,6 +426,17 @@ export async function POST(
       { error: "Request was already reviewed by another admin." },
       { status: 409 }
     )
+  }
+
+  if (nextStatus === "Approved" && row.ticket_id && clickupTaskId) {
+    await applyClickUpSnapshotToTicket({
+      ticketId: String(row.ticket_id),
+      actorLabel: auth.user.name || auth.user.email || auth.user.id,
+      taskId: clickupTaskId,
+      taskUrl: clickupLink,
+      taskStatus: clickupTaskStatus,
+      syncedAt: new Date(),
+    })
   }
 
   const [updatedRows] = await pool.query(
