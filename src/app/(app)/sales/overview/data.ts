@@ -1,5 +1,6 @@
 import "server-only"
 
+import { localSqlDate, localSqlMonth, localSqlNow, localSqlToday } from "@/lib/app-timezone"
 import { queryWithReconnect } from "@/lib/db"
 
 type LeadMonthRow = {
@@ -49,6 +50,12 @@ function toNumber(value: number | string | null | undefined): number {
 }
 
 export async function getSalesOverviewData(): Promise<SalesOverviewData> {
+  const createdDate = localSqlDate("created_at")
+  const createdMonth = localSqlMonth("created_at")
+  const currentMonth = `DATE_FORMAT(${localSqlNow()}, '%Y-%m')`
+  const lastMonth = `DATE_FORMAT(DATE_SUB(${localSqlNow()}, INTERVAL 1 MONTH), '%Y-%m')`
+  const thirtyDayStart = `${localSqlToday()} - INTERVAL 29 DAY`
+
   const [
     [leadMonthRows],
     [apptMonthRows],
@@ -59,8 +66,8 @@ export async function getSalesOverviewData(): Promise<SalesOverviewData> {
     queryWithReconnect<LeadMonthRow[]>(
       `
         SELECT
-          SUM(CASE WHEN DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(NOW(), '%Y-%m') THEN 1 ELSE 0 END) AS this_month,
-          SUM(CASE WHEN DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 1 MONTH), '%Y-%m') THEN 1 ELSE 0 END) AS last_month
+          SUM(CASE WHEN ${createdMonth} = ${currentMonth} THEN 1 ELSE 0 END) AS this_month,
+          SUM(CASE WHEN ${createdMonth} = ${lastMonth} THEN 1 ELSE 0 END) AS last_month
         FROM leads
         WHERE archived = 0
       `
@@ -68,8 +75,8 @@ export async function getSalesOverviewData(): Promise<SalesOverviewData> {
     queryWithReconnect<ApptMonthRow[]>(
       `
         SELECT
-          SUM(CASE WHEN DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(NOW(), '%Y-%m') THEN 1 ELSE 0 END) AS this_month,
-          SUM(CASE WHEN DATE_FORMAT(created_at, '%Y-%m') = DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 1 MONTH), '%Y-%m') THEN 1 ELSE 0 END) AS last_month
+          SUM(CASE WHEN ${createdMonth} = ${currentMonth} THEN 1 ELSE 0 END) AS this_month,
+          SUM(CASE WHEN ${createdMonth} = ${lastMonth} THEN 1 ELSE 0 END) AS last_month
         FROM sales_appointments
       `
     ),
@@ -83,11 +90,11 @@ export async function getSalesOverviewData(): Promise<SalesOverviewData> {
     ),
     queryWithReconnect<DailyRow[]>(
       `
-        SELECT DATE(created_at) AS day, COUNT(*) AS total
+        SELECT ${createdDate} AS day, COUNT(*) AS total
         FROM leads
         WHERE archived = 0
-          AND created_at >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)
-        GROUP BY DATE(created_at)
+          AND ${createdDate} >= ${thirtyDayStart}
+        GROUP BY ${createdDate}
         ORDER BY day ASC
       `
     ),

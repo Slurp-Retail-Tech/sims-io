@@ -2,6 +2,7 @@
 
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
+import { formatAppDateInput } from "@/lib/app-timezone"
 import type { SalesOverviewData } from "./data"
 import {
   Card,
@@ -36,10 +37,11 @@ function buildTrailing30Days(
 ): Array<{ day: string; label: string; total: number }> {
   const map = new Map(rows.map((r) => [r.day, r.total]))
   const result: Array<{ day: string; label: string; total: number }> = []
+  const today = new Date(`${formatAppDateInput()}T00:00:00Z`)
 
   for (let i = 29; i >= 0; i--) {
-    const d = new Date()
-    d.setDate(d.getDate() - i)
+    const d = new Date(today)
+    d.setUTCDate(today.getUTCDate() - i)
     const iso = d.toISOString().slice(0, 10)
     const label = d.toLocaleDateString("en-US", {
       month: "short",

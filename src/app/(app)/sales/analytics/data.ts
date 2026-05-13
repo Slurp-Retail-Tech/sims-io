@@ -1,5 +1,6 @@
 import "server-only"
 
+import { getAppYear, localSqlDate, localSqlMonth } from "@/lib/app-timezone"
 import { queryWithReconnect } from "@/lib/db"
 import type { SalesPeriodMode, SalesFilterQuery } from "../filter-state"
 
@@ -117,11 +118,11 @@ function buildDateClause(
   const clauses: string[] = []
   const values: string[] = []
   if (fromDate) {
-    clauses.push(`DATE(${column}) >= ?`)
+    clauses.push(`${localSqlDate(column)} >= ?`)
     values.push(fromDate)
   }
   if (toDate) {
-    clauses.push(`DATE(${column}) <= ?`)
+    clauses.push(`${localSqlDate(column)} <= ?`)
     values.push(toDate)
   }
   return clauses.length
@@ -133,13 +134,14 @@ export async function getSalesAvailablePeriods(): Promise<{
   months: string[]
   years: string[]
 }> {
+  const leadCreatedMonth = localSqlMonth("created_at")
   const [rows] = await queryWithReconnect<MonthRow[]>(
     `
-      SELECT DATE_FORMAT(created_at, '%Y-%m') AS month_value FROM leads
-      GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+      SELECT ${leadCreatedMonth} AS month_value FROM leads
+      GROUP BY ${leadCreatedMonth}
       UNION
-      SELECT DATE_FORMAT(created_at, '%Y-%m') AS month_value FROM sales_appointments
-      GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+      SELECT ${leadCreatedMonth} AS month_value FROM sales_appointments
+      GROUP BY ${leadCreatedMonth}
       ORDER BY month_value DESC
     `
   )
@@ -148,7 +150,7 @@ export async function getSalesAvailablePeriods(): Promise<{
     .map((row) => toValidMonthInput(row.month_value))
     .filter((v): v is string => Boolean(v))
 
-  const currentYear = String(new Date().getFullYear())
+  const currentYear = getAppYear()
   const years = Array.from(
     new Set([...months.map((m) => m.slice(0, 4)), currentYear])
   ).sort((a, b) => Number(b) - Number(a))
@@ -179,7 +181,7 @@ export function resolveSalesFilter({
   toDate: string | null
 } {
   const mode = normalizePeriodMode(query?.period)
-  const currentYear = String(new Date().getFullYear())
+  const currentYear = getAppYear()
   const parsedMonth = toValidMonthInput(query?.month)
   const parsedYear =
     toValidYearInput(query?.year) ?? (parsedMonth ? parsedMonth.slice(0, 4) : currentYear)
@@ -225,7 +227,7 @@ export async function getSalesAnalyticsData({
 }): Promise<SalesAnalyticsData> {
   const bucketMode: "monthly" | "daily" = mode === "monthly" ? "daily" : "monthly"
   const bucketExpr =
-    bucketMode === "daily" ? "DATE(created_at)" : "DATE_FORMAT(created_at, '%Y-%m')"
+    bucketMode === "daily" ? localSqlDate("created_at") : localSqlMonth("created_at")
 
   const leadDateClause = buildDateClause("created_at", fromDate, toDate)
   const apptDateClause = buildDateClause("created_at", fromDate, toDate)

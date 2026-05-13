@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { cookies } from "next/headers"
 
 import { activeSupportRequestWhere } from "@/lib/analytics-ticket-filters"
+import { localSqlDate } from "@/lib/app-timezone"
 import { queryWithReconnect } from "@/lib/db"
 import { formatDateTime } from "@/lib/dates"
 import {
@@ -140,12 +141,12 @@ function buildDateWhereClause(
   const values: string[] = []
 
   if (fromDate) {
-    clauses.push(`DATE(${column}) >= ?`)
+    clauses.push(`${localSqlDate(column)} >= ?`)
     values.push(fromDate)
   }
 
   if (toDate) {
-    clauses.push(`DATE(${column}) <= ?`)
+    clauses.push(`${localSqlDate(column)} <= ?`)
     values.push(toDate)
   }
 

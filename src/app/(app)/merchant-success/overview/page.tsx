@@ -1,6 +1,7 @@
 import type { Metadata } from "next"
 
 import { activeSupportRequestWhere } from "@/lib/analytics-ticket-filters"
+import { localSqlDate, localSqlToday } from "@/lib/app-timezone"
 import { queryWithReconnect } from "@/lib/db"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 
@@ -66,6 +67,11 @@ function toTypeBreakdown(rows: TypeRow[]) {
 
 async function getOverviewMetrics() {
   try {
+    const ticketEventDate = localSqlDate("COALESCE(attended_at, created_at)")
+    const ticketResolvedDate = localSqlDate("COALESCE(closed_at, updated_at)")
+    const today = localSqlToday()
+    const yesterday = `${today} - INTERVAL 1 DAY`
+
     const [activeStatusRows] = await queryWithReconnect<ActiveStatusRow[]>(
       `
       SELECT
@@ -91,7 +97,7 @@ async function getOverviewMetrics() {
       SELECT COUNT(*) AS total
       FROM tickets
       WHERE ${activeSupportRequestWhere()}
-        AND DATE(COALESCE(attended_at, created_at)) = UTC_DATE()
+        AND ${ticketEventDate} = ${today}
     `
     )
 
@@ -101,7 +107,7 @@ async function getOverviewMetrics() {
       FROM tickets
       WHERE ${activeSupportRequestWhere()}
         AND status = 'Resolved'
-        AND DATE(COALESCE(closed_at, updated_at)) = UTC_DATE()
+        AND ${ticketResolvedDate} = ${today}
     `
     )
 
@@ -110,7 +116,7 @@ async function getOverviewMetrics() {
       SELECT COUNT(*) AS total
       FROM tickets
       WHERE ${activeSupportRequestWhere()}
-        AND DATE(COALESCE(attended_at, created_at)) = UTC_DATE() - INTERVAL 1 DAY
+        AND ${ticketEventDate} = ${yesterday}
     `
     )
 
@@ -120,7 +126,7 @@ async function getOverviewMetrics() {
       FROM tickets
       WHERE ${activeSupportRequestWhere()}
         AND status = 'Resolved'
-        AND DATE(COALESCE(closed_at, updated_at)) = UTC_DATE() - INTERVAL 1 DAY
+        AND ${ticketResolvedDate} = ${yesterday}
     `
     )
 
@@ -158,7 +164,7 @@ async function getOverviewMetrics() {
         ON users.id = tickets.ms_pic_user_id
       WHERE ${activeSupportRequestWhere()}
         AND tickets.status = 'Resolved'
-        AND DATE(COALESCE(tickets.closed_at, tickets.updated_at)) = UTC_DATE()
+        AND ${localSqlDate("COALESCE(tickets.closed_at, tickets.updated_at)")} = ${today}
       GROUP BY COALESCE(users.name, 'Unassigned')
       ORDER BY total DESC, name ASC
     `
