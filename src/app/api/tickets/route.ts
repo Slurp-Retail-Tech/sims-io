@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { requireAuthenticatedUser } from "@/lib/auth"
+import { localSqlDate } from "@/lib/app-timezone"
 import getPool from "@/lib/db"
 
 export async function GET(request: NextRequest) {
@@ -73,12 +74,12 @@ export async function GET(request: NextRequest) {
   }
 
   if (startDate) {
-    whereClauses.push("DATE(COALESCE(tickets.attended_at, tickets.created_at)) >= ?")
+    whereClauses.push(`${localSqlDate("COALESCE(tickets.attended_at, tickets.created_at)")} >= ?`)
     values.push(startDate)
   }
 
   if (endDate) {
-    whereClauses.push("DATE(COALESCE(tickets.attended_at, tickets.created_at)) <= ?")
+    whereClauses.push(`${localSqlDate("COALESCE(tickets.attended_at, tickets.created_at)")} <= ?`)
     values.push(endDate)
   }
 

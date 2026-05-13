@@ -3,6 +3,7 @@ import * as XLSX from "xlsx"
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib"
 
 import { requireAuthenticatedUser } from "@/lib/auth"
+import { APP_TIME_ZONE, formatAppDateTimeToken } from "@/lib/app-timezone"
 import getPool from "@/lib/db"
 import {
   authenticatePosApi,
@@ -161,7 +162,7 @@ function formatExportDate(value: string | null | undefined): string {
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
-    timeZone: "Asia/Kuala_Lumpur",
+    timeZone: APP_TIME_ZONE,
   }).format(date)
 }
 
@@ -198,9 +199,7 @@ function truncatePdf(text: string, maxChars: number): string {
 }
 
 function getNowToken() {
-  const now = new Date()
-  const pad = (v: number) => String(v).padStart(2, "0")
-  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+  return formatAppDateTimeToken()
 }
 
 const exportColumnOrder = [

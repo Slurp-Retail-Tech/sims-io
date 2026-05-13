@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import type { RowDataPacket } from "mysql2"
 
 import { requireAuthenticatedUser } from "@/lib/auth"
+import { localSqlDate } from "@/lib/app-timezone"
 import getPool from "@/lib/db"
 
 type AuditHistoryRow = RowDataPacket & {
@@ -41,12 +42,12 @@ export async function GET(request: NextRequest) {
   }
 
   if (startDate) {
-    whereClauses.push("DATE(history.changed_at) >= ?")
+    whereClauses.push(`${localSqlDate("history.changed_at")} >= ?`)
     values.push(startDate)
   }
 
   if (endDate) {
-    whereClauses.push("DATE(history.changed_at) <= ?")
+    whereClauses.push(`${localSqlDate("history.changed_at")} <= ?`)
     values.push(endDate)
   }
 

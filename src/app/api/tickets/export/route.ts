@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import * as XLSX from "xlsx"
 
 import { requireAuthenticatedUser } from "@/lib/auth"
+import { APP_TIME_ZONE, formatAppDateTimeToken, localSqlDate } from "@/lib/app-timezone"
 import getPool from "@/lib/db"
 
 export const dynamic = "force-dynamic"
@@ -80,11 +81,7 @@ const exportColumnOrder: Array<keyof TicketExportRow> = [
 ]
 
 function getNowToken() {
-  const now = new Date()
-  const pad = (value: number) => String(value).padStart(2, "0")
-  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(
-    now.getHours()
-  )}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+  return formatAppDateTimeToken()
 }
 
 function formatExportDate(value: string | null) {
@@ -102,7 +99,7 @@ function formatExportDate(value: string | null) {
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
-    timeZone: "Asia/Kuala_Lumpur",
+    timeZone: APP_TIME_ZONE,
   }).format(parsed)
 }
 
@@ -217,12 +214,12 @@ export async function GET(request: NextRequest) {
   }
 
   if (startDate) {
-    whereClauses.push("DATE(COALESCE(tickets.attended_at, tickets.created_at)) >= ?")
+    whereClauses.push(`${localSqlDate("COALESCE(tickets.attended_at, tickets.created_at)")} >= ?`)
     values.push(startDate)
   }
 
   if (endDate) {
-    whereClauses.push("DATE(COALESCE(tickets.attended_at, tickets.created_at)) <= ?")
+    whereClauses.push(`${localSqlDate("COALESCE(tickets.attended_at, tickets.created_at)")} <= ?`)
     values.push(endDate)
   }
 
