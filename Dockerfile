@@ -1,6 +1,11 @@
 FROM node:22-alpine AS base
 
-RUN npm install -g --force npm@11.14.1 && \
+RUN npm pack npm@11.14.1 --pack-destination /tmp && \
+    rm -rf /usr/local/lib/node_modules/npm && \
+    mkdir -p /usr/local/lib/node_modules/npm && \
+    tar -xzf /tmp/npm-11.14.1.tgz -C /usr/local/lib/node_modules/npm --strip-components=1 && \
+    ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
+    ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx && \
     npm --version
 
 # Stage 1: Install dependencies
