@@ -349,11 +349,11 @@ export default function SupportFormPage() {
             </div>
             <div className="mt-4 overflow-hidden rounded-xl border border-border bg-muted">
               <Image
-                src="/assets/fid-oid-help.svg"
+                src="/assets/fid-oid-help.png"
                 alt="Screenshot showing where to find the FID and OID."
                 className="h-auto w-full"
-                width={1200}
-                height={700}
+                width={2732}
+                height={2048}
               />
             </div>
           </div>
