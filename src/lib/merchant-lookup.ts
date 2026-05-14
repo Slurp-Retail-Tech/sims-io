@@ -48,11 +48,9 @@ export function buildMerchantOptionsSearch(query: string, limit: number) {
   const values: Array<string | number> = []
 
   if (normalizedQuery) {
-    const likeValue = `%${normalizedQuery}%`
-    whereClauses.push(
-      `(LOWER(name) LIKE ? OR LOWER(fid) LIKE ? OR LOWER(CAST(JSON_UNQUOTE(JSON_EXTRACT(raw_payload, '$.company')) AS CHAR)) LIKE ? OR LOWER(CAST(JSON_UNQUOTE(JSON_EXTRACT(raw_payload, '$.company_name')) AS CHAR)) LIKE ?)`
-    )
-    values.push(likeValue, likeValue, likeValue, likeValue)
+    const search = buildMerchantSearchClause(normalizedQuery)
+    whereClauses.push(search.sql)
+    values.push(...search.values)
   }
 
   values.push(limit)
@@ -60,6 +58,30 @@ export function buildMerchantOptionsSearch(query: string, limit: number) {
   return {
     whereSql: `WHERE ${whereClauses.join(" AND ")}`,
     values,
+  }
+}
+
+export function buildMerchantSearchClause(query: string) {
+  const likeValue = `%${query.trim().toLowerCase()}%`
+
+  return {
+    sql: `(LOWER(name) LIKE ? OR LOWER(fid) LIKE ? OR LOWER(external_id) LIKE ? OR LOWER(CAST(raw_payload AS CHAR)) LIKE ? OR EXISTS (
+        SELECT 1
+        FROM merchant_outlets
+        WHERE merchant_outlets.merchant_external_id = merchants.external_id
+          AND (
+            LOWER(merchant_outlets.name) LIKE ? OR
+            LOWER(CAST(merchant_outlets.raw_payload AS CHAR)) LIKE ?
+          )
+      ))`,
+    values: [
+      likeValue,
+      likeValue,
+      likeValue,
+      likeValue,
+      likeValue,
+      likeValue,
+    ],
   }
 }
 

@@ -26,14 +26,22 @@ test("maps merchant option company from company_name when company is absent", ()
   )
 })
 
-test("builds merchant option search for fid, franchise name, and company name", () => {
+test("builds merchant option search with the same fields as the merchants page", () => {
   const search = buildMerchantOptionsSearch(" Central Food ", 25)
 
   assert.match(search.whereSql, /LOWER\(name\) LIKE \?/)
   assert.match(search.whereSql, /LOWER\(fid\) LIKE \?/)
-  assert.match(search.whereSql, /JSON_EXTRACT\(raw_payload, '\$\.company'\)/)
-  assert.match(search.whereSql, /JSON_EXTRACT\(raw_payload, '\$\.company_name'\)/)
+  assert.match(search.whereSql, /LOWER\(external_id\) LIKE \?/)
+  assert.match(search.whereSql, /LOWER\(CAST\(raw_payload AS CHAR\)\) LIKE \?/)
+  assert.match(search.whereSql, /FROM merchant_outlets/)
+  assert.match(search.whereSql, /LOWER\(merchant_outlets\.name\) LIKE \?/)
+  assert.match(
+    search.whereSql,
+    /LOWER\(CAST\(merchant_outlets\.raw_payload AS CHAR\)\) LIKE \?/
+  )
   assert.deepEqual(search.values, [
+    "%central food%",
+    "%central food%",
     "%central food%",
     "%central food%",
     "%central food%",

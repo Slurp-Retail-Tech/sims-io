@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { requireAuthenticatedUser } from "@/lib/auth"
 import getPool from "@/lib/db"
+import { buildMerchantSearchClause } from "@/lib/merchant-lookup"
 import {
   authenticatePosApi,
   fetchPosApiWithToken,
@@ -245,26 +246,9 @@ export async function GET(request: NextRequest) {
   const whereValues: Array<string | number> = []
 
   if (query) {
-    const likeValue = `%${query.toLowerCase()}%`
-    whereClauses.push(
-      `(LOWER(name) LIKE ? OR LOWER(fid) LIKE ? OR LOWER(external_id) LIKE ? OR LOWER(CAST(raw_payload AS CHAR)) LIKE ? OR EXISTS (
-        SELECT 1
-        FROM merchant_outlets
-        WHERE merchant_outlets.merchant_external_id = merchants.external_id
-          AND (
-            LOWER(merchant_outlets.name) LIKE ? OR
-            LOWER(CAST(merchant_outlets.raw_payload AS CHAR)) LIKE ?
-          )
-      ))`
-    )
-    whereValues.push(
-      likeValue,
-      likeValue,
-      likeValue,
-      likeValue,
-      likeValue,
-      likeValue
-    )
+    const search = buildMerchantSearchClause(query)
+    whereClauses.push(search.sql)
+    whereValues.push(...search.values)
   }
 
   if (statusFilter === "closed") {
