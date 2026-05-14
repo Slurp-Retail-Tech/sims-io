@@ -83,7 +83,7 @@ Sessions use **opaque tokens** rather than storing user IDs directly in cookies.
 **Should Have**
 
 * **Lead capture & qualification:** Auto‑classify inbound as Support vs Sales using entry points/keywords; capture lead fields; handoff to Sales with SLA.
-* **Onboarding scheduling:** Share booking links, two‑way calendar sync, reminders (Messaging + email), ICS files.
+* **Onboarding scheduling:** Share booking links, two‑way calendar sync, reminders (Messaging + email), ICS files, MS PIC assignment before approval, and SMTP email notifications to Merchant Success admins, assigned MS PICs, and submitters as appointments move through submission, approval, and completion.
 * **Knowledge base integration:** Internal KB search and suggested replies.
 * **Multilingual support:** EN + BM (Bahasa Malaysia) for templates and UI labels.
 * **Email + Web form channels:** Secondary intake mapping to tickets with same FID/OID model.

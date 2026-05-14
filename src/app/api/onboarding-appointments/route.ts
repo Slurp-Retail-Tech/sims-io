@@ -5,6 +5,11 @@ import getPool from "@/lib/db"
 import { parseDate } from "@/lib/dates"
 import { syncOnboardingAppointmentToGoogleCalendar } from "@/lib/google-calendar"
 import { getGooglePlacesConfig } from "@/lib/google-places"
+import {
+  fetchOnboardingSubmissionRecipients,
+  mapOnboardingNotificationAppointment,
+  sendOnboardingAppointmentNotification,
+} from "@/lib/onboarding-appointment-notification"
 
 import {
   appointmentSelectSql,
@@ -267,6 +272,16 @@ export async function POST(request: NextRequest) {
   )
 
   await syncOnboardingAppointmentToGoogleCalendar(pool, mappedAppointment)
+  try {
+    const recipients = await fetchOnboardingSubmissionRecipients(pool)
+    await sendOnboardingAppointmentNotification({
+      type: "submitted",
+      appointment: mapOnboardingNotificationAppointment(appointment),
+      recipients,
+    })
+  } catch (error) {
+    console.error("Failed to prepare onboarding submission notification", error)
+  }
 
   return NextResponse.json({ appointment: mappedAppointment }, { status: 201 })
 }

@@ -67,7 +67,7 @@ Implemented in the current app:
 * Merchant import and POS-backed merchant browsing
 * ClickUp task creation/linking/status sync for tickets
 * Sales lead capture and appointment scheduling
-* Onboarding appointment workflows
+* Onboarding appointment workflows with MS PIC assignment before approval and email notifications for submission, approval, and completion
 * User management, activation, password reset, and Google auth
 * Public support and demo intake forms
 * In-app knowledge base scaffolding

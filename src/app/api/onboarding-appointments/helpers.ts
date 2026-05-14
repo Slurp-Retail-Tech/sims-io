@@ -48,8 +48,11 @@ export type AppointmentRow = RowDataPacket & {
   created_at: string
   updated_at: string
   created_by_name: string | null
+  created_by_email: string | null
   decision_by_name: string | null
+  decision_by_email: string | null
   assigned_ms_user_name: string | null
+  assigned_ms_user_email: string | null
 }
 
 export type AttachmentRow = RowDataPacket & {
@@ -86,8 +89,11 @@ export const appointmentSelectSql = `
     appointments.created_at,
     appointments.updated_at,
     created_by.name AS created_by_name,
+    created_by.email AS created_by_email,
     decision_by.name AS decision_by_name,
-    assigned_ms_user.name AS assigned_ms_user_name
+    decision_by.email AS decision_by_email,
+    assigned_ms_user.name AS assigned_ms_user_name,
+    assigned_ms_user.email AS assigned_ms_user_email
   FROM onboarding_appointments AS appointments
   LEFT JOIN users AS created_by
     ON created_by.id = appointments.created_by_user_id

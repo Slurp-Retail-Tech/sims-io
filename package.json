@@ -6,7 +6,7 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/app-timezone.test.ts src/lib/csat-insights-metrics.test.ts src/lib/ticket-history-actor.test.ts src/lib/google-calendar.spec.ts src/lib/google-places.spec.ts src/lib/merchant-lookup.test.ts src/app/supportform/page.spec.ts",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/app-timezone.test.ts src/lib/csat-insights-metrics.test.ts src/lib/ticket-history-actor.test.ts src/lib/google-calendar.spec.ts src/lib/google-places.spec.ts src/lib/merchant-lookup.test.ts src/lib/onboarding-appointment-notification.spec.ts src/app/api/onboarding-appointments/helpers.spec.ts src/app/supportform/page.spec.ts",
     "lint": "eslint"
   },
   "dependencies": {

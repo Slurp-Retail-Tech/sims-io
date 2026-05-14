@@ -188,11 +188,12 @@ Notes:
 2. Enable 2-Step Verification on that mailbox.
 3. Generate an App Password for mail delivery and set it as `SMTP_PASS`.
 4. Set `SMTP_USER` to the mailbox address and `SMTP_FROM_EMAIL` to the same mailbox or an allowed alias.
-5. Optionally set `SMTP_FROM_NAME` for the display name shown in auth and lead notification emails.
+5. Optionally set `SMTP_FROM_NAME` for the display name shown in auth, lead notification, and onboarding schedule emails.
 
 After deployment, verify:
 - resend activation email from the user management page
 - forgot-password flow
+- onboarding schedule submission, approval, and completion notifications
 - demo form lead notification delivery
 
 ## Database (Docker)

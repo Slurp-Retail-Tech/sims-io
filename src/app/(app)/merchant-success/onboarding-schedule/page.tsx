@@ -244,6 +244,7 @@ export default function OnboardingSchedulePage() {
   const [reviewTarget, setReviewTarget] = React.useState<Appointment | null>(null)
   const [reviewAction, setReviewAction] = React.useState<"approve" | "complete">("approve")
   const [reviewReason, setReviewReason] = React.useState("")
+  const [reviewAssignedMsUserId, setReviewAssignedMsUserId] = React.useState("")
   const [reviewLoading, setReviewLoading] = React.useState(false)
 
   const [msUsers, setMsUsers] = React.useState<MsUser[]>([])
@@ -627,7 +628,11 @@ export default function OnboardingSchedulePage() {
       const response = await fetch(`/api/onboarding-appointments/${reviewTarget.id}/review`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: reviewAction, reason: reviewReason.trim() || undefined }),
+        body: JSON.stringify({
+          action: reviewAction,
+          reason: reviewReason.trim() || undefined,
+          ...(reviewAction === "approve" ? { assignedMsUserId: reviewAssignedMsUserId } : {}),
+        }),
       })
       const payload = (await response.json()) as { appointment?: Appointment; error?: string }
       if (!response.ok || !payload.appointment) throw new Error(payload.error ?? "Unable to update status.")
@@ -635,13 +640,14 @@ export default function OnboardingSchedulePage() {
       setReviewOpen(false)
       setReviewTarget(null)
       setReviewReason("")
+      setReviewAssignedMsUserId("")
       showToast(reviewAction === "approve" ? "Schedule approved." : "Schedule completed.")
     } catch (error) {
       showToast(error instanceof Error ? error.message : "Unable to update status.", "error")
     } finally {
       setReviewLoading(false)
     }
-  }, [sessionUser, reviewAction, reviewReason, reviewTarget, showToast])
+  }, [sessionUser, reviewAction, reviewAssignedMsUserId, reviewReason, reviewTarget, showToast])
 
   const handleAssignmentSave = React.useCallback(async (appointment: Appointment) => {
     if (!sessionUser) return
@@ -763,8 +769,8 @@ export default function OnboardingSchedulePage() {
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         {appointment.canEdit ? <Button size="sm" variant="outline" onClick={() => openEditDialog(appointment)}>Edit</Button> : null}
-                        {appointment.canReview && appointment.status === "Pending" ? <Button size="sm" variant="outline" onClick={() => { setReviewTarget(appointment); setReviewAction("approve"); setReviewReason(""); setReviewOpen(true) }}>Approve</Button> : null}
-                        {appointment.canReview && appointment.status === "Approved" ? <Button size="sm" onClick={() => { setReviewTarget(appointment); setReviewAction("complete"); setReviewReason(""); setReviewOpen(true) }}>Complete</Button> : null}
+                        {appointment.canReview && appointment.status === "Pending" ? <Button size="sm" variant="outline" onClick={() => { setReviewTarget(appointment); setReviewAction("approve"); setReviewReason(""); setReviewAssignedMsUserId(appointment.assignedMsUserId ?? ""); setReviewOpen(true) }}>Approve</Button> : null}
+                        {appointment.canReview && appointment.status === "Approved" ? <Button size="sm" onClick={() => { setReviewTarget(appointment); setReviewAction("complete"); setReviewReason(""); setReviewAssignedMsUserId(""); setReviewOpen(true) }}>Complete</Button> : null}
                       </div>
                     </div>
 
@@ -1040,7 +1046,7 @@ export default function OnboardingSchedulePage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={reviewOpen} onOpenChange={(open) => { setReviewOpen(open); if (!open) { setReviewTarget(null); setReviewReason("") } }}>
+      <Dialog open={reviewOpen} onOpenChange={(open) => { setReviewOpen(open); if (!open) { setReviewTarget(null); setReviewReason(""); setReviewAssignedMsUserId("") } }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{reviewAction === "approve" ? "Approve schedule" : "Complete schedule"}</DialogTitle>
@@ -1051,14 +1057,27 @@ export default function OnboardingSchedulePage() {
               <div className="font-medium">{reviewTarget?.outletName ?? "Selected schedule"}</div>
               <div className="text-muted-foreground mt-1">{reviewTarget ? formatDateTime(reviewTarget.scheduledAt) : "--"}</div>
             </div>
+            {reviewAction === "approve" ? (
+              <div className="space-y-2">
+                <Label htmlFor="review-assigned-ms">MS PIC</Label>
+                <Select value={reviewAssignedMsUserId} onValueChange={setReviewAssignedMsUserId}>
+                  <SelectTrigger id="review-assigned-ms">
+                    <SelectValue placeholder={msUsersLoading ? "Loading users..." : "Select Merchant Success user"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {msUsers.map((user) => <SelectItem key={user.id} value={user.id}>{user.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
             <div className="space-y-2">
               <Label htmlFor="review-reason">Reason</Label>
               <textarea id="review-reason" className="border-input focus-visible:border-ring focus-visible:ring-ring/50 min-h-28 w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-[3px]" placeholder="Add context for approval or completion" value={reviewReason} onChange={(event) => setReviewReason(event.target.value)} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setReviewOpen(false); setReviewTarget(null); setReviewReason("") }} disabled={reviewLoading}>Cancel</Button>
-            <Button onClick={() => void handleReviewSubmit()} disabled={reviewLoading}>{reviewLoading ? <Loader2 className="size-4 animate-spin" /> : null}{reviewAction === "approve" ? "Approve schedule" : "Complete schedule"}</Button>
+            <Button variant="outline" onClick={() => { setReviewOpen(false); setReviewTarget(null); setReviewReason(""); setReviewAssignedMsUserId("") }} disabled={reviewLoading}>Cancel</Button>
+            <Button onClick={() => void handleReviewSubmit()} disabled={reviewLoading || (reviewAction === "approve" && !reviewAssignedMsUserId)}>{reviewLoading ? <Loader2 className="size-4 animate-spin" /> : null}{reviewAction === "approve" ? "Approve schedule" : "Complete schedule"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
