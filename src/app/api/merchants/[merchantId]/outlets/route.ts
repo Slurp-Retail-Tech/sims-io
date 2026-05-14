@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { requireAuthenticatedUser } from "@/lib/auth"
 import getPool from "@/lib/db"
+import { buildMerchantOutletResolver } from "@/lib/merchant-lookup"
 
 type OutletRow = {
   id: string
@@ -22,16 +23,12 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
   }
 
-  const { merchantId: merchantFid } = await context.params
+  const { merchantId } = await context.params
   const pool = getPool()
+  const resolver = buildMerchantOutletResolver(merchantId)
   const [merchantRows] = await pool.query(
-    `
-    SELECT external_id
-    FROM merchants
-    WHERE fid = ?
-    LIMIT 1
-  `,
-    [merchantFid]
+    resolver.sql,
+    resolver.values
   )
 
   const merchant = (merchantRows as Array<{ external_id: string }>)[0]
