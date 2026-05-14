@@ -209,17 +209,31 @@ CREATE TABLE IF NOT EXISTS onboarding_appointments (
   scheduled_at DATETIME(3) NOT NULL,
   payment_status ENUM('Pending', 'Paid', 'Unpaid') NOT NULL DEFAULT 'Pending',
   status ENUM('Pending', 'Approved', 'Completed') NOT NULL DEFAULT 'Pending',
+  location_name VARCHAR(255) DEFAULT NULL,
+  location_address VARCHAR(512) DEFAULT NULL,
+  google_place_id VARCHAR(255) DEFAULT NULL,
+  google_maps_uri VARCHAR(512) DEFAULT NULL,
+  location_lat DECIMAL(10, 7) DEFAULT NULL,
+  location_lng DECIMAL(10, 7) DEFAULT NULL,
   created_by_user_id BIGINT UNSIGNED NOT NULL,
   decision_by_user_id BIGINT UNSIGNED DEFAULT NULL,
   decision_at DATETIME(3) DEFAULT NULL,
   decision_reason TEXT DEFAULT NULL,
   assigned_ms_user_id BIGINT UNSIGNED DEFAULT NULL,
+  google_calendar_id VARCHAR(255) DEFAULT NULL,
+  google_event_id VARCHAR(255) DEFAULT NULL,
+  google_event_etag VARCHAR(255) DEFAULT NULL,
+  google_synced_at DATETIME(3) DEFAULT NULL,
+  google_sync_status ENUM('pending', 'synced', 'failed') DEFAULT NULL,
+  google_sync_error VARCHAR(500) DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   INDEX onboarding_appointments_scheduled_idx (scheduled_at),
+  INDEX onboarding_appointments_google_place_idx (google_place_id),
   INDEX onboarding_appointments_status_created_idx (status, created_at),
   INDEX onboarding_appointments_created_by_idx (created_by_user_id, created_at),
-  INDEX onboarding_appointments_assigned_ms_idx (assigned_ms_user_id, scheduled_at)
+  INDEX onboarding_appointments_assigned_ms_idx (assigned_ms_user_id, scheduled_at),
+  INDEX onboarding_appointments_google_event_idx (google_calendar_id, google_event_id)
 );
 
 CREATE TABLE IF NOT EXISTS onboarding_appointment_attachments (

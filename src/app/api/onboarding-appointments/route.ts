@@ -3,6 +3,8 @@ import type { ResultSetHeader } from "mysql2/promise"
 
 import getPool from "@/lib/db"
 import { parseDate } from "@/lib/dates"
+import { syncOnboardingAppointmentToGoogleCalendar } from "@/lib/google-calendar"
+import { getGooglePlacesConfig } from "@/lib/google-places"
 
 import {
   appointmentSelectSql,
@@ -13,6 +15,7 @@ import {
   mapAppointment,
   MAX_ATTACHMENT_COUNT,
   parseOptionalString,
+  parseOptionalNumber,
   parseStringArray,
   resolveAuthUser,
   toSqlDateTime,
@@ -20,7 +23,7 @@ import {
 
 export async function GET(request: NextRequest) {
   const pool = getPool()
-  const auth = await resolveAuthUser(request, pool)
+  const auth = await resolveAuthUser(request)
   if ("response" in auth) {
     return auth.response
   }
@@ -98,7 +101,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const pool = getPool()
-  const auth = await resolveAuthUser(request, pool)
+  const auth = await resolveAuthUser(request)
   if ("response" in auth) {
     return auth.response
   }
@@ -108,6 +111,12 @@ export async function POST(request: NextRequest) {
     installationType?: unknown
     scheduledAt?: unknown
     paymentStatus?: unknown
+    locationName?: unknown
+    locationAddress?: unknown
+    googlePlaceId?: unknown
+    googleMapsUri?: unknown
+    locationLat?: unknown
+    locationLng?: unknown
     attachmentKeys?: unknown
     attachmentNames?: unknown
   }
@@ -116,6 +125,12 @@ export async function POST(request: NextRequest) {
   const installationType = cleanString(body.installationType)
   const scheduledAtRaw = cleanString(body.scheduledAt)
   const paymentStatus = cleanString(body.paymentStatus)
+  const locationName = cleanString(body.locationName)
+  const locationAddress = cleanString(body.locationAddress)
+  const googlePlaceId = cleanString(body.googlePlaceId)
+  const googleMapsUri = cleanString(body.googleMapsUri)
+  const locationLat = parseOptionalNumber(body.locationLat)
+  const locationLng = parseOptionalNumber(body.locationLng)
   const attachmentKeys = parseStringArray(body.attachmentKeys, MAX_ATTACHMENT_COUNT)
   const attachmentNamesInput = Array.isArray(body.attachmentNames)
     ? body.attachmentNames
@@ -142,6 +157,17 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  if (
+    getGooglePlacesConfig().enabled &&
+    installationType === "On-site" &&
+    (!locationName || !locationAddress || !googlePlaceId)
+  ) {
+    return NextResponse.json(
+      { error: "Location is required for on-site onboarding." },
+      { status: 400 }
+    )
+  }
+
   const scheduledAt = parseDate(scheduledAtRaw)
   if (!scheduledAt) {
     return NextResponse.json({ error: "Invalid schedule date." }, { status: 400 })
@@ -159,15 +185,27 @@ export async function POST(request: NextRequest) {
         installation_type,
         scheduled_at,
         payment_status,
+        location_name,
+        location_address,
+        google_place_id,
+        google_maps_uri,
+        location_lat,
+        location_lng,
         created_by_user_id
       )
-      VALUES (?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
       [
         outletName,
         installationType,
         toSqlDateTime(scheduledAt),
         paymentStatus,
+        locationName,
+        locationAddress,
+        googlePlaceId,
+        googleMapsUri,
+        locationLat,
+        locationLng,
         auth.user.id,
       ]
     )
@@ -222,14 +260,13 @@ export async function POST(request: NextRequest) {
     appointmentId,
   ])
 
-  return NextResponse.json(
-    {
-      appointment: mapAppointment(
-        appointment,
-        auth.user,
-        attachmentsByAppointment.get(String(appointmentId)) ?? []
-      ),
-    },
-    { status: 201 }
+  const mappedAppointment = mapAppointment(
+    appointment,
+    auth.user,
+    attachmentsByAppointment.get(String(appointmentId)) ?? []
   )
+
+  await syncOnboardingAppointmentToGoogleCalendar(pool, mappedAppointment)
+
+  return NextResponse.json({ appointment: mappedAppointment }, { status: 201 })
 }

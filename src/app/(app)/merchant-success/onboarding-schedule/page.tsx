@@ -12,8 +12,10 @@ import {
   CalendarDays,
   CalendarIcon,
   Loader2,
+  MapPin,
   Search,
   UserCheck2,
+  X,
 } from "lucide-react"
 
 import Calendar04 from "@/components/calendar-04"
@@ -67,6 +69,12 @@ type Appointment = {
   scheduledAt: string
   paymentStatus: "Pending" | "Paid" | "Unpaid"
   status: "Pending" | "Approved" | "Completed"
+  locationName: string | null
+  locationAddress: string | null
+  googlePlaceId: string | null
+  googleMapsUri: string | null
+  locationLat: number | null
+  locationLng: number | null
   createdByUserId: string
   createdByName: string | null
   decisionByUserId: string | null
@@ -104,12 +112,25 @@ type MsUser = {
   email: string
 }
 
+type PlacePrediction = {
+  placeId: string
+  text: string
+  mainText: string
+  secondaryText: string | null
+}
+
 type FormState = {
   outletName: string
   installationType: "Online" | "On-site" | "Support"
   scheduledDate: string
   scheduledTime: string
   paymentStatus: "Pending" | "Paid" | "Unpaid"
+  locationName: string
+  locationAddress: string
+  googlePlaceId: string
+  googleMapsUri: string
+  locationLat: number | null
+  locationLng: number | null
   existingAttachments: AppointmentAttachment[]
   newFiles: File[]
 }
@@ -144,6 +165,12 @@ function getDefaultFormState(): FormState {
     scheduledDate: format(new Date(), "yyyy-MM-dd"),
     scheduledTime: timeOptions[0].value,
     paymentStatus: "Pending",
+    locationName: "",
+    locationAddress: "",
+    googlePlaceId: "",
+    googleMapsUri: "",
+    locationLat: null,
+    locationLng: null,
     existingAttachments: [],
     newFiles: [],
   }
@@ -166,6 +193,10 @@ function getLocalTimePart(value: string) {
 
 function normalizeTimeOption(value: string) {
   return timeOptions.find((option) => option.value === value)?.value ?? timeOptions[0].value
+}
+
+function createPlacesSessionToken() {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
 }
 
 function replaceAppointment(current: Appointment[], nextAppointment: Appointment) {
@@ -200,6 +231,14 @@ export default function OnboardingSchedulePage() {
   const [selectedOutletId, setSelectedOutletId] = React.useState("")
   const [outletOptions, setOutletOptions] = React.useState<OutletOption[]>([])
   const [outletLoading, setOutletLoading] = React.useState(false)
+
+  const [locationQuery, setLocationQuery] = React.useState("")
+  const deferredLocationQuery = React.useDeferredValue(locationQuery)
+  const [locationSessionToken, setLocationSessionToken] = React.useState(createPlacesSessionToken)
+  const [locationPredictions, setLocationPredictions] = React.useState<PlacePrediction[]>([])
+  const [locationLoading, setLocationLoading] = React.useState(false)
+  const [locationDetailsLoading, setLocationDetailsLoading] = React.useState(false)
+  const [placesEnabled, setPlacesEnabled] = React.useState(true)
 
   const [reviewOpen, setReviewOpen] = React.useState(false)
   const [reviewTarget, setReviewTarget] = React.useState<Appointment | null>(null)
@@ -263,6 +302,28 @@ export default function OnboardingSchedulePage() {
 
   React.useEffect(() => {
     if (!formOpen || !sessionUser) return
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const response = await fetch("/api/google-places/autocomplete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ input: "", sessionToken: locationSessionToken }),
+          signal: controller.signal,
+        })
+        const payload = (await response.json()) as { enabled?: boolean }
+        if (response.ok && !controller.signal.aborted) {
+          setPlacesEnabled(payload.enabled !== false)
+        }
+      } catch {
+        if (!controller.signal.aborted) setPlacesEnabled(false)
+      }
+    })()
+    return () => controller.abort()
+  }, [sessionUser, formOpen, locationSessionToken])
+
+  React.useEffect(() => {
+    if (!formOpen || !sessionUser) return
     const query = deferredMerchantQuery.trim()
     if (query.length < 2) {
       setMerchantResults([])
@@ -311,6 +372,44 @@ export default function OnboardingSchedulePage() {
     })()
   }, [sessionUser, formOpen, selectedMerchantId, showToast])
 
+  React.useEffect(() => {
+    if (!formOpen || !sessionUser) return
+    const query = deferredLocationQuery.trim()
+    if (query.length < 2 || formState.googlePlaceId) {
+      setLocationPredictions([])
+      return
+    }
+
+    const controller = new AbortController()
+    void (async () => {
+      setLocationLoading(true)
+      try {
+        const response = await fetch("/api/google-places/autocomplete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ input: query, sessionToken: locationSessionToken }),
+          signal: controller.signal,
+        })
+        const payload = (await response.json()) as {
+          enabled?: boolean
+          predictions?: PlacePrediction[]
+          error?: string
+        }
+        if (!response.ok) throw new Error(payload.error ?? "Unable to search Google Maps.")
+        setPlacesEnabled(payload.enabled !== false)
+        setLocationPredictions(payload.predictions ?? [])
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          showToast(error instanceof Error ? error.message : "Unable to search Google Maps.", "error")
+        }
+      } finally {
+        if (!controller.signal.aborted) setLocationLoading(false)
+      }
+    })()
+
+    return () => controller.abort()
+  }, [sessionUser, deferredLocationQuery, formOpen, formState.googlePlaceId, locationSessionToken, showToast])
+
   const appointmentDays = React.useMemo(
     () => appointments.map((a) => parseDate(a.scheduledAt)).filter((v): v is Date => Boolean(v)),
     [appointments]
@@ -342,6 +441,10 @@ export default function OnboardingSchedulePage() {
     setSelectedMerchantId("")
     setSelectedOutletId("")
     setOutletOptions([])
+    setLocationQuery("")
+    setLocationPredictions([])
+    setLocationSessionToken(createPlacesSessionToken())
+    setPlacesEnabled(true)
   }, [])
 
   const openEditDialog = React.useCallback((appointment: Appointment) => {
@@ -352,6 +455,12 @@ export default function OnboardingSchedulePage() {
       scheduledDate: getLocalDatePart(appointment.scheduledAt),
       scheduledTime: normalizeTimeOption(getLocalTimePart(appointment.scheduledAt)),
       paymentStatus: appointment.paymentStatus,
+      locationName: appointment.locationName ?? "",
+      locationAddress: appointment.locationAddress ?? "",
+      googlePlaceId: appointment.googlePlaceId ?? "",
+      googleMapsUri: appointment.googleMapsUri ?? "",
+      locationLat: appointment.locationLat,
+      locationLng: appointment.locationLng,
       existingAttachments: appointment.attachmentFiles,
       newFiles: [],
     })
@@ -360,13 +469,88 @@ export default function OnboardingSchedulePage() {
     setSelectedMerchantId("")
     setSelectedOutletId("")
     setOutletOptions([])
+    setLocationQuery(
+      appointment.locationName && appointment.locationAddress
+        ? `${appointment.locationName}, ${appointment.locationAddress}`
+        : appointment.locationAddress ?? appointment.locationName ?? ""
+    )
+    setLocationPredictions([])
+    setLocationSessionToken(createPlacesSessionToken())
+    setPlacesEnabled(true)
     setFormOpen(true)
+  }, [])
+
+  const handleLocationPredictionSelect = React.useCallback(async (prediction: PlacePrediction) => {
+    setLocationDetailsLoading(true)
+    try {
+      const response = await fetch("/api/google-places/details", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          placeId: prediction.placeId,
+          sessionToken: locationSessionToken,
+        }),
+      })
+      const payload = (await response.json()) as {
+        enabled?: boolean
+        location?: {
+          googlePlaceId: string
+          locationName: string
+          locationAddress: string
+          googleMapsUri: string | null
+          locationLat: number | null
+          locationLng: number | null
+        } | null
+        error?: string
+      }
+      if (!response.ok) throw new Error(payload.error ?? "Unable to load Google Maps location.")
+      if (!payload.location) {
+        setPlacesEnabled(payload.enabled !== false)
+        throw new Error("Google Maps location details are unavailable.")
+      }
+
+      setFormState((current) => ({
+        ...current,
+        locationName: payload.location!.locationName,
+        locationAddress: payload.location!.locationAddress,
+        googlePlaceId: payload.location!.googlePlaceId,
+        googleMapsUri: payload.location!.googleMapsUri ?? "",
+        locationLat: payload.location!.locationLat,
+        locationLng: payload.location!.locationLng,
+      }))
+      setLocationQuery(`${payload.location.locationName}, ${payload.location.locationAddress}`)
+      setLocationPredictions([])
+      setLocationSessionToken(createPlacesSessionToken())
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to load Google Maps location.", "error")
+    } finally {
+      setLocationDetailsLoading(false)
+    }
+  }, [locationSessionToken, showToast])
+
+  const clearLocation = React.useCallback(() => {
+    setLocationQuery("")
+    setLocationPredictions([])
+    setLocationSessionToken(createPlacesSessionToken())
+    setFormState((current) => ({
+      ...current,
+      locationName: "",
+      locationAddress: "",
+      googlePlaceId: "",
+      googleMapsUri: "",
+      locationLat: null,
+      locationLng: null,
+    }))
   }, [])
 
   const handleSubmit = React.useCallback(async () => {
     if (!sessionUser) return
     if (!formState.outletName.trim()) {
       showToast("Outlet name is required.", "error")
+      return
+    }
+    if (placesEnabled && formState.installationType === "On-site" && !formState.googlePlaceId) {
+      showToast("Location is required for on-site onboarding.", "error")
       return
     }
     const scheduledAt = buildIsoDateTime(formState.scheduledDate, formState.scheduledTime)
@@ -393,6 +577,12 @@ export default function OnboardingSchedulePage() {
                   installationType: formState.installationType,
                   scheduledAt,
                   paymentStatus: formState.paymentStatus,
+                  locationName: formState.locationName,
+                  locationAddress: formState.locationAddress,
+                  googlePlaceId: formState.googlePlaceId,
+                  googleMapsUri: formState.googleMapsUri,
+                  locationLat: formState.locationLat,
+                  locationLng: formState.locationLng,
                   existingAttachmentKeys: formState.existingAttachments.map((a) => a.key),
                   newAttachmentKeys: uploadedAttachments.map((a) => a.key),
                   newAttachmentNames: uploadedAttachments.map((a) => a.name),
@@ -402,6 +592,12 @@ export default function OnboardingSchedulePage() {
                   installationType: formState.installationType,
                   scheduledAt,
                   paymentStatus: formState.paymentStatus,
+                  locationName: formState.locationName,
+                  locationAddress: formState.locationAddress,
+                  googlePlaceId: formState.googlePlaceId,
+                  googleMapsUri: formState.googleMapsUri,
+                  locationLat: formState.locationLat,
+                  locationLng: formState.locationLng,
                   attachmentKeys: uploadedAttachments.map((a) => a.key),
                   attachmentNames: uploadedAttachments.map((a) => a.name),
                 }
@@ -422,7 +618,7 @@ export default function OnboardingSchedulePage() {
     } finally {
       setFormLoading(false)
     }
-  }, [editingAppointment, formState, resetFormState, sessionUser, showToast])
+  }, [editingAppointment, formState, placesEnabled, resetFormState, sessionUser, showToast])
 
   const handleReviewSubmit = React.useCallback(async () => {
     if (!sessionUser || !reviewTarget) return
@@ -558,6 +754,12 @@ export default function OnboardingSchedulePage() {
                           <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium", paymentBadgeStyles[appointment.paymentStatus])}>Payment {appointment.paymentStatus}</span>
                         </div>
                         <div className="text-muted-foreground text-sm">{formatDateTime(appointment.scheduledAt)} • {appointment.installationType}</div>
+                        {appointment.locationAddress ? (
+                          <div className="text-muted-foreground flex items-start gap-2 text-sm">
+                            <MapPin className="mt-0.5 size-4 shrink-0" />
+                            <span>{appointment.locationName ? `${appointment.locationName}, ${appointment.locationAddress}` : appointment.locationAddress}</span>
+                          </div>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         {appointment.canEdit ? <Button size="sm" variant="outline" onClick={() => openEditDialog(appointment)}>Edit</Button> : null}
@@ -632,7 +834,7 @@ export default function OnboardingSchedulePage() {
                 <Label htmlFor="merchant-search">Merchant lookup</Label>
                 <div className="relative">
                   <Search className="text-muted-foreground absolute left-3 top-1/2 size-4 -translate-y-1/2" />
-                  <Input id="merchant-search" value={merchantQuery} onChange={(event) => setMerchantQuery(event.target.value)} className="pl-9" placeholder="Search merchant name or FID" />
+                  <Input id="merchant-search" value={merchantQuery} onChange={(event) => setMerchantQuery(event.target.value)} className="pl-9" placeholder="Search FID, franchise name, or company name" />
                 </div>
                 <div className="text-muted-foreground text-xs">Optional helper to populate outlet names from the merchant directory.</div>
               </div>
@@ -647,7 +849,13 @@ export default function OnboardingSchedulePage() {
                     <SelectContent>
                       <SelectGroup>
                         <SelectLabel>Available merchants</SelectLabel>
-                        {merchantResults.map((merchant) => <SelectItem key={merchant.id} value={merchant.id}>{merchant.name}{merchant.fid ? ` • FID ${merchant.fid}` : ""}</SelectItem>)}
+                        {merchantResults.map((merchant) => (
+                          <SelectItem key={merchant.id} value={merchant.id}>
+                            {merchant.name}
+                            {merchant.fid ? ` • FID ${merchant.fid}` : ""}
+                            {merchant.company ? ` • ${merchant.company}` : ""}
+                          </SelectItem>
+                        ))}
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -675,6 +883,74 @@ export default function OnboardingSchedulePage() {
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="outlet-name">Outlet name</Label>
                 <Input id="outlet-name" value={formState.outletName} onChange={(event) => setFormState((current) => ({ ...current, outletName: event.target.value }))} placeholder="Enter outlet name" />
+              </div>
+
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="appointment-location">Google Maps location</Label>
+                <div className="relative">
+                  <MapPin className="text-muted-foreground absolute left-3 top-1/2 size-4 -translate-y-1/2" />
+                  <Input
+                    id="appointment-location"
+                    value={locationQuery}
+                    onChange={(event) => {
+                      setLocationQuery(event.target.value)
+                      setFormState((current) => ({
+                        ...current,
+                        locationName: "",
+                        locationAddress: "",
+                        googlePlaceId: "",
+                        googleMapsUri: "",
+                        locationLat: null,
+                        locationLng: null,
+                      }))
+                    }}
+                    className="pl-9 pr-9"
+                    placeholder="Search Google Maps location"
+                    disabled={!placesEnabled}
+                  />
+                  {locationQuery || formState.googlePlaceId ? (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="absolute right-1 top-1/2 size-7 -translate-y-1/2"
+                      onClick={clearLocation}
+                      aria-label="Clear location"
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  ) : null}
+                </div>
+                {!placesEnabled ? (
+                  <div className="text-muted-foreground text-xs">Google Places lookup is disabled.</div>
+                ) : formState.installationType === "On-site" ? (
+                  <div className="text-muted-foreground text-xs">Required for on-site onboarding.</div>
+                ) : (
+                  <div className="text-muted-foreground text-xs">Optional for online and support appointments.</div>
+                )}
+                {locationLoading || locationDetailsLoading ? (
+                  <div className="text-muted-foreground flex items-center gap-2 text-sm"><Loader2 className="size-4 animate-spin" />Loading locations...</div>
+                ) : locationPredictions.length > 0 ? (
+                  <div className="overflow-hidden rounded-md border">
+                    {locationPredictions.map((prediction) => (
+                      <button
+                        key={prediction.placeId}
+                        type="button"
+                        className="hover:bg-muted flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm"
+                        onClick={() => void handleLocationPredictionSelect(prediction)}
+                      >
+                        <span className="font-medium">{prediction.mainText}</span>
+                        <span className="text-muted-foreground text-xs">{prediction.secondaryText ?? prediction.text}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {formState.googlePlaceId ? (
+                  <div className="rounded-md border p-3 text-sm">
+                    <div className="font-medium">{formState.locationName}</div>
+                    <div className="text-muted-foreground mt-1">{formState.locationAddress}</div>
+                  </div>
+                ) : null}
               </div>
 
               <div className="space-y-2">

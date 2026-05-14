@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import getPool from "@/lib/db"
+import { syncOnboardingAppointmentToGoogleCalendar } from "@/lib/google-calendar"
 
 import {
   appointmentSelectSql,
@@ -16,7 +17,7 @@ export async function POST(
   context: { params: Promise<{ appointmentId: string }> }
 ) {
   const pool = getPool()
-  const auth = await resolveAuthUser(request, pool)
+  const auth = await resolveAuthUser(request)
   if ("response" in auth) {
     return auth.response
   }
@@ -116,11 +117,13 @@ export async function POST(
     appointmentId,
   ])
 
-  return NextResponse.json({
-    appointment: mapAppointment(
-      appointment,
-      auth.user,
-      attachmentsByAppointment.get(String(appointmentId)) ?? []
-    ),
-  })
+  const mappedAppointment = mapAppointment(
+    appointment,
+    auth.user,
+    attachmentsByAppointment.get(String(appointmentId)) ?? []
+  )
+
+  await syncOnboardingAppointmentToGoogleCalendar(pool, mappedAppointment)
+
+  return NextResponse.json({ appointment: mappedAppointment })
 }

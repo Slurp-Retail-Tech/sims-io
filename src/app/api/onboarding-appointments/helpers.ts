@@ -28,11 +28,23 @@ export type AppointmentRow = RowDataPacket & {
   scheduled_at: string
   payment_status: PaymentStatus
   status: AppointmentStatus
+  location_name: string | null
+  location_address: string | null
+  google_place_id: string | null
+  google_maps_uri: string | null
+  location_lat: string | number | null
+  location_lng: string | number | null
   created_by_user_id: string
   decision_by_user_id: string | null
   decision_at: string | null
   decision_reason: string | null
   assigned_ms_user_id: string | null
+  google_calendar_id: string | null
+  google_event_id: string | null
+  google_event_etag: string | null
+  google_synced_at: string | null
+  google_sync_status: "pending" | "synced" | "failed" | null
+  google_sync_error: string | null
   created_at: string
   updated_at: string
   created_by_name: string | null
@@ -54,11 +66,23 @@ export const appointmentSelectSql = `
     appointments.scheduled_at,
     appointments.payment_status,
     appointments.status,
+    appointments.location_name,
+    appointments.location_address,
+    appointments.google_place_id,
+    appointments.google_maps_uri,
+    appointments.location_lat,
+    appointments.location_lng,
     appointments.created_by_user_id,
     appointments.decision_by_user_id,
     appointments.decision_at,
     appointments.decision_reason,
     appointments.assigned_ms_user_id,
+    appointments.google_calendar_id,
+    appointments.google_event_id,
+    appointments.google_event_etag,
+    appointments.google_synced_at,
+    appointments.google_sync_status,
+    appointments.google_sync_error,
     appointments.created_at,
     appointments.updated_at,
     created_by.name AS created_by_name,
@@ -74,10 +98,7 @@ export const appointmentSelectSql = `
 `
 
 export async function resolveAuthUser(
-  request: NextRequest,
-  // pool is retained in the signature for call-site compatibility but is no
-  // longer used — authentication is handled via the session cookie.
-  _pool: Pool
+  request: NextRequest
 ): Promise<{ user: AuthUser } | { response: NextResponse }> {
   const user = await requireAuthenticatedUser(request)
   if (!user) {
@@ -127,6 +148,14 @@ export function parseStringArray(input: unknown, maxItems: number) {
     .filter((item): item is string => Boolean(item))
 
   return values.slice(0, maxItems)
+}
+
+export function parseOptionalNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return null
+  }
+  const parsed = typeof value === "number" ? value : Number(value)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 export function isInstallationType(value: string): value is InstallationType {
@@ -218,6 +247,12 @@ export function mapAppointment(
     scheduledAt: row.scheduled_at,
     paymentStatus: row.payment_status,
     status: row.status,
+    locationName: row.location_name,
+    locationAddress: row.location_address,
+    googlePlaceId: row.google_place_id,
+    googleMapsUri: row.google_maps_uri,
+    locationLat: row.location_lat === null ? null : Number(row.location_lat),
+    locationLng: row.location_lng === null ? null : Number(row.location_lng),
     createdByUserId: String(row.created_by_user_id),
     createdByName: row.created_by_name,
     decisionByUserId: row.decision_by_user_id
@@ -230,6 +265,12 @@ export function mapAppointment(
       ? String(row.assigned_ms_user_id)
       : null,
     assignedMsUserName: row.assigned_ms_user_name,
+    googleCalendarId: row.google_calendar_id,
+    googleEventId: row.google_event_id,
+    googleEventEtag: row.google_event_etag,
+    googleSyncedAt: row.google_synced_at,
+    googleSyncStatus: row.google_sync_status,
+    googleSyncError: row.google_sync_error,
     attachments: attachmentFiles.map((attachment) => attachment.url),
     attachmentFiles,
     createdAt: row.created_at,

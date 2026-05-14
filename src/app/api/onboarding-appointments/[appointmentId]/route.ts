@@ -3,6 +3,8 @@ import type { RowDataPacket } from "mysql2/promise"
 
 import getPool from "@/lib/db"
 import { parseDate } from "@/lib/dates"
+import { syncOnboardingAppointmentToGoogleCalendar } from "@/lib/google-calendar"
+import { getGooglePlacesConfig } from "@/lib/google-places"
 
 import {
   appointmentSelectSql,
@@ -15,6 +17,7 @@ import {
   mapAppointment,
   MAX_ATTACHMENT_COUNT,
   parseAppointmentId,
+  parseOptionalNumber,
   parseStringArray,
   resolveAuthUser,
   toSqlDateTime,
@@ -50,7 +53,7 @@ export async function GET(
   context: { params: Promise<{ appointmentId: string }> }
 ) {
   const pool = getPool()
-  const auth = await resolveAuthUser(request, pool)
+  const auth = await resolveAuthUser(request)
   if ("response" in auth) {
     return auth.response
   }
@@ -76,7 +79,7 @@ export async function PATCH(
   context: { params: Promise<{ appointmentId: string }> }
 ) {
   const pool = getPool()
-  const auth = await resolveAuthUser(request, pool)
+  const auth = await resolveAuthUser(request)
   if ("response" in auth) {
     return auth.response
   }
@@ -97,6 +100,12 @@ export async function PATCH(
     installationType?: unknown
     scheduledAt?: unknown
     paymentStatus?: unknown
+    locationName?: unknown
+    locationAddress?: unknown
+    googlePlaceId?: unknown
+    googleMapsUri?: unknown
+    locationLat?: unknown
+    locationLng?: unknown
     existingAttachmentKeys?: unknown
     newAttachmentKeys?: unknown
     newAttachmentNames?: unknown
@@ -104,11 +113,19 @@ export async function PATCH(
   }
 
   const wantsAssignment = Object.hasOwn(body, "assignedMsUserId")
+  const hasLocationEdits =
+    Object.hasOwn(body, "locationName") ||
+    Object.hasOwn(body, "locationAddress") ||
+    Object.hasOwn(body, "googlePlaceId") ||
+    Object.hasOwn(body, "googleMapsUri") ||
+    Object.hasOwn(body, "locationLat") ||
+    Object.hasOwn(body, "locationLng")
   const hasFieldEdits =
     Object.hasOwn(body, "outletName") ||
     Object.hasOwn(body, "installationType") ||
     Object.hasOwn(body, "scheduledAt") ||
     Object.hasOwn(body, "paymentStatus") ||
+    hasLocationEdits ||
     Object.hasOwn(body, "existingAttachmentKeys") ||
     Object.hasOwn(body, "newAttachmentKeys")
 
@@ -121,7 +138,11 @@ export async function PATCH(
   }
 
   const updates: string[] = []
-  const params: Array<string | null> = []
+  const params: Array<string | number | null> = []
+  let nextInstallationType = loaded.appointment.installation_type
+  let nextLocationName = loaded.appointment.location_name
+  let nextLocationAddress = loaded.appointment.location_address
+  let nextGooglePlaceId = loaded.appointment.google_place_id
 
   if (Object.hasOwn(body, "outletName")) {
     const outletName = cleanString(body.outletName)
@@ -142,6 +163,7 @@ export async function PATCH(
     }
     updates.push("installation_type = ?")
     params.push(installationType)
+    nextInstallationType = installationType
   }
 
   if (Object.hasOwn(body, "scheduledAt")) {
@@ -164,6 +186,51 @@ export async function PATCH(
     }
     updates.push("payment_status = ?")
     params.push(paymentStatus)
+  }
+
+  if (Object.hasOwn(body, "locationName")) {
+    nextLocationName = cleanString(body.locationName)
+    updates.push("location_name = ?")
+    params.push(nextLocationName)
+  }
+
+  if (Object.hasOwn(body, "locationAddress")) {
+    nextLocationAddress = cleanString(body.locationAddress)
+    updates.push("location_address = ?")
+    params.push(nextLocationAddress)
+  }
+
+  if (Object.hasOwn(body, "googlePlaceId")) {
+    nextGooglePlaceId = cleanString(body.googlePlaceId)
+    updates.push("google_place_id = ?")
+    params.push(nextGooglePlaceId)
+  }
+
+  if (Object.hasOwn(body, "googleMapsUri")) {
+    updates.push("google_maps_uri = ?")
+    params.push(cleanString(body.googleMapsUri))
+  }
+
+  if (Object.hasOwn(body, "locationLat")) {
+    updates.push("location_lat = ?")
+    params.push(parseOptionalNumber(body.locationLat))
+  }
+
+  if (Object.hasOwn(body, "locationLng")) {
+    updates.push("location_lng = ?")
+    params.push(parseOptionalNumber(body.locationLng))
+  }
+
+  if (
+    (Object.hasOwn(body, "installationType") || hasLocationEdits) &&
+    getGooglePlacesConfig().enabled &&
+    nextInstallationType === "On-site" &&
+    (!nextLocationName || !nextLocationAddress || !nextGooglePlaceId)
+  ) {
+    return NextResponse.json(
+      { error: "Location is required for on-site onboarding." },
+      { status: 400 }
+    )
   }
 
   if (wantsAssignment) {
@@ -317,7 +384,13 @@ export async function PATCH(
     return NextResponse.json({ error: "Appointment not found." }, { status: 404 })
   }
 
-  return NextResponse.json({
-    appointment: mapAppointment(refreshed.appointment, auth.user, refreshed.attachments),
-  })
+  const mappedAppointment = mapAppointment(
+    refreshed.appointment,
+    auth.user,
+    refreshed.attachments
+  )
+
+  await syncOnboardingAppointmentToGoogleCalendar(pool, mappedAppointment)
+
+  return NextResponse.json({ appointment: mappedAppointment })
 }
