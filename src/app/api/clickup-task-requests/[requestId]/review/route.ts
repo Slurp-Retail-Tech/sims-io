@@ -10,6 +10,7 @@ import {
 } from "@/lib/clickup"
 import { applyClickUpSnapshotToTicket } from "@/lib/clickup-ticket-sync"
 import getPool from "@/lib/db"
+import { resolveTicketHistoryActor } from "@/lib/ticket-history-actor"
 import {
   clickupRequestSelectSql,
   isAdminRole,
@@ -431,7 +432,7 @@ export async function POST(
   if (nextStatus === "Approved" && row.ticket_id && clickupTaskId) {
     await applyClickUpSnapshotToTicket({
       ticketId: String(row.ticket_id),
-      actorLabel: auth.user.name || auth.user.email || auth.user.id,
+      actorLabel: resolveTicketHistoryActor(auth.user),
       taskId: clickupTaskId,
       taskUrl: clickupLink,
       taskStatus: clickupTaskStatus,

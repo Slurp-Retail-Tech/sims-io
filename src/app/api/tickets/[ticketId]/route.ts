@@ -10,6 +10,7 @@ import {
 import getPool from "@/lib/db"
 import { normalizeDateTimeForMysqlInput } from "@/lib/mysql-datetime"
 import { resolveStoredObjectUrl } from "@/lib/storage"
+import { resolveTicketHistoryActor } from "@/lib/ticket-history-actor"
 
 type TicketDetailRow = RowDataPacket & {
   id: string
@@ -62,16 +63,6 @@ type CsatResponseRow = RowDataPacket & {
 
 type CsatSendHistoryRow = RowDataPacket & {
   ticket_id: string
-}
-
-async function getActorLabel(userId: string) {
-  const pool = getPool()
-  const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT name, email FROM users WHERE id = ? LIMIT 1",
-    [userId]
-  )
-  const actor = rows[0] as { name?: string; email?: string } | undefined
-  return actor?.name || actor?.email || userId
 }
 
 async function resolveMerchantNames(
@@ -574,7 +565,7 @@ export async function PATCH(
     return NextResponse.json({ ok: true, updated: false })
   }
 
-  const actorLabel = await getActorLabel(user.id)
+  const actorId = resolveTicketHistoryActor(user)
   const setClauses: string[] = []
   const paramsList: Array<string | null | number> = []
 
@@ -585,7 +576,7 @@ export async function PATCH(
 
   const nextStatus = body.status ?? current.status
   setClauses.push("updated_by = ?")
-  paramsList.push(actorLabel)
+  paramsList.push(actorId)
 
   const transitionedToClosed = isClosedStatus(nextStatus) && !isClosedStatus(current.status)
 
@@ -616,7 +607,7 @@ export async function PATCH(
       )
       VALUES (?, ?, ?, ?, ?)
     `,
-      [ticketId, item.field, item.oldValue, item.newValue, actorLabel]
+      [ticketId, item.field, item.oldValue, item.newValue, actorId]
     )
   }
 

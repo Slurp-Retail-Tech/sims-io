@@ -3,6 +3,7 @@ import type { RowDataPacket } from "mysql2"
 import getPool from "@/lib/db"
 import { extractClickUpTaskIdFromLink, fetchClickUpTask } from "@/lib/clickup"
 import { formatDateTimeForMysql } from "@/lib/mysql-datetime"
+import { resolveTicketHistoryActor } from "@/lib/ticket-history-actor"
 
 type TicketClickUpRow = RowDataPacket & {
   id: string
@@ -11,14 +12,8 @@ type TicketClickUpRow = RowDataPacket & {
   clickup_task_status: string | null
 }
 
-export async function resolveActorLabel(userId: string) {
-  const pool = getPool()
-  const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT name, email FROM users WHERE id = ? LIMIT 1",
-    [userId]
-  )
-  const actor = rows[0] as { name?: string; email?: string } | undefined
-  return actor?.name || actor?.email || userId
+export function resolveActorLabel(userId: string) {
+  return resolveTicketHistoryActor({ id: userId })
 }
 
 function normalizeValue(value: string | null | undefined) {

@@ -10,6 +10,7 @@ import {
   getCsatTokenStorageValue,
 } from "@/lib/csat-schema"
 import getPool from "@/lib/db"
+import { resolveTicketHistoryActor } from "@/lib/ticket-history-actor"
 
 type CsatTokenRow = RowDataPacket & {
   id: string
@@ -26,16 +27,6 @@ type TicketRow = RowDataPacket & {
 
 type InsertedTokenRow = RowDataPacket & {
   expires_at: string
-}
-
-async function getActorLabel(userId: string) {
-  const pool = getPool()
-  const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT name, email FROM users WHERE id = ? LIMIT 1",
-    [userId]
-  )
-  const actor = rows[0] as { name?: string; email?: string } | undefined
-  return actor?.name || actor?.email || userId
 }
 
 export async function POST(
@@ -132,7 +123,7 @@ export async function POST(
     return NextResponse.json({ error: "Unable to create CSAT link." }, { status: 500 })
   }
 
-  const actorLabel = await getActorLabel(user.id)
+  const actorId = resolveTicketHistoryActor(user)
   if (generated) {
     await pool.query(
       `
@@ -145,7 +136,7 @@ export async function POST(
       )
       VALUES (?, 'csat_token_generated', NULL, ?, ?)
     `,
-      [ticketId, "[generated]", actorLabel]
+      [ticketId, "[generated]", actorId]
     )
   }
 
@@ -160,7 +151,7 @@ export async function POST(
     )
     VALUES (?, 'csat_link_shared', NULL, NOW(3), ?)
   `,
-    [ticketId, actorLabel]
+    [ticketId, actorId]
   )
 
   return NextResponse.json({ ok: true, token: rawToken, expiresAt, generated })
