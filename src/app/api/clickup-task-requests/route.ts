@@ -16,7 +16,7 @@ const PER_PAGE_OPTIONS = new Set([10, 25, 50, 100])
 
 export async function GET(request: NextRequest) {
   const pool = getPool()
-  const auth = await resolveAuthUser(request, pool)
+  const auth = await resolveAuthUser(request)
   if ("response" in auth) {
     return auth.response
   }
@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const pool = getPool()
-  const auth = await resolveAuthUser(request, pool)
+  const auth = await resolveAuthUser(request)
   if ("response" in auth) {
     return auth.response
   }

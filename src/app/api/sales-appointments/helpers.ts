@@ -1,4 +1,4 @@
-import type { Pool, RowDataPacket } from "mysql2/promise"
+import type { RowDataPacket } from "mysql2/promise"
 import { NextRequest, NextResponse } from "next/server"
 
 import { requireAuthenticatedUser } from "@/lib/auth"
@@ -82,10 +82,7 @@ export const appointmentSelectSql = `
 `
 
 export async function resolveAuthUser(
-  request: NextRequest,
-  // pool is retained in the signature for call-site compatibility but is no
-  // longer used — authentication is handled via the session cookie.
-  _pool: Pool
+  request: NextRequest
 ): Promise<{ user: AuthUser } | { response: NextResponse }> {
   const user = await requireAuthenticatedUser(request)
   if (!user) {

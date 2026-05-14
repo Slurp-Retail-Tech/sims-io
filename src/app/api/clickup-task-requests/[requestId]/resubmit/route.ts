@@ -17,7 +17,7 @@ export async function PATCH(
   { params }: { params: Promise<{ requestId: string }> }
 ) {
   const pool = getPool()
-  const auth = await resolveAuthUser(request, pool)
+  const auth = await resolveAuthUser(request)
   if ("response" in auth) {
     return auth.response
   }

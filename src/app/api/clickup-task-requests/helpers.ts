@@ -82,10 +82,7 @@ export const clickupRequestSelectSql = `
 `
 
 export async function resolveAuthUser(
-  request: NextRequest,
-  // pool is retained in the signature for call-site compatibility but is no
-  // longer used — authentication is handled via the session cookie.
-  _pool: Pool
+  request: NextRequest
 ): Promise<{ user: AuthUser } | { response: NextResponse }> {
   const user = await requireAuthenticatedUser(request)
   if (!user) {

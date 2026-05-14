@@ -21,7 +21,7 @@ export async function POST(
   context: { params: Promise<{ appointmentId: string }> }
 ) {
   const pool = getPool()
-  const auth = await resolveAuthUser(request, pool)
+  const auth = await resolveAuthUser(request)
   if ("response" in auth) {
     return auth.response
   }
