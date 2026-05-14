@@ -3,6 +3,7 @@ import { cookies } from "next/headers"
 
 import { activeSupportRequestWhere } from "@/lib/analytics-ticket-filters"
 import { localSqlDate } from "@/lib/app-timezone"
+import { csatSentLinkHistoryFieldsSql } from "@/lib/csat-insights-metrics"
 import { queryWithReconnect } from "@/lib/db"
 import { formatDateTime } from "@/lib/dates"
 import {
@@ -199,10 +200,7 @@ async function getCsatInsights({
         INNER JOIN tickets
           ON tickets.id = ticket_history.ticket_id
         WHERE ${activeSupportRequestWhere()}
-          AND ticket_history.field_name IN (
-            'csat_link_shared',
-            'csat_link_shared_at'
-          )
+          AND ticket_history.field_name IN (${csatSentLinkHistoryFieldsSql()})
           ${sentDateFilter.sql}
       ) AS sent_links
     `,
