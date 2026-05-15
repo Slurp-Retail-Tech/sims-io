@@ -2,15 +2,27 @@
 
 import * as React from "react"
 import {
+  addDays,
+  addHours,
+  addMonths,
   endOfMonth,
+  endOfWeek,
   format,
   isSameDay,
+  isSameMonth,
+  isToday,
   startOfDay,
   startOfMonth,
+  startOfWeek,
 } from "date-fns"
 import {
   CalendarDays,
   CalendarIcon,
+  CheckCircle2,
+  Clock3,
+  Edit3,
+  ExternalLink,
+  FileText,
   Loader2,
   MapPin,
   Search,
@@ -48,6 +60,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/toast-provider"
 import { formatDateTime, parseDate } from "@/lib/dates"
 import { getSessionUser } from "@/lib/session"
@@ -67,6 +80,7 @@ type Appointment = {
   outletName: string
   installationType: "Online" | "On-site" | "Support"
   scheduledAt: string
+  scheduledEndAt: string
   paymentStatus: "Pending" | "Paid" | "Unpaid"
   status: "Pending" | "Approved" | "Completed"
   locationName: string | null
@@ -124,6 +138,7 @@ type FormState = {
   installationType: "Online" | "On-site" | "Support"
   scheduledDate: string
   scheduledTime: string
+  scheduledEndTime: string
   paymentStatus: "Pending" | "Paid" | "Unpaid"
   locationName: string
   locationAddress: string
@@ -135,9 +150,11 @@ type FormState = {
   newFiles: File[]
 }
 
+type AgendaStatusFilter = "all" | Appointment["status"]
+
 const installationTypeOptions = ["Online", "On-site", "Support"] as const
 const paymentStatusOptions = ["Pending", "Paid", "Unpaid"] as const
-const timeOptions = Array.from({ length: 19 }, (_, index) => {
+const timeOptions = Array.from({ length: 31 }, (_, index) => {
   const totalMinutes = 8 * 60 + index * 30
   const hours = Math.floor(totalMinutes / 60)
   const minutes = totalMinutes % 60
@@ -158,12 +175,20 @@ const paymentBadgeStyles: Record<Appointment["paymentStatus"], string> = {
   Unpaid: "bg-orange-500/10 text-orange-700 ring-1 ring-orange-500/20",
 }
 
+const calendarEventStyles: Record<Appointment["status"], string> = {
+  Pending: "bg-amber-500/12 text-amber-800 border-amber-500/20",
+  Approved: "bg-sky-500/12 text-sky-800 border-sky-500/20",
+  Completed: "bg-emerald-500/12 text-emerald-800 border-emerald-500/20",
+}
+
 function getDefaultFormState(): FormState {
+  const scheduledTime = timeOptions[0].value
   return {
     outletName: "",
     installationType: "Online",
     scheduledDate: format(new Date(), "yyyy-MM-dd"),
-    scheduledTime: timeOptions[0].value,
+    scheduledTime,
+    scheduledEndTime: getDefaultEndTime(scheduledTime),
     paymentStatus: "Pending",
     locationName: "",
     locationAddress: "",
@@ -174,6 +199,12 @@ function getDefaultFormState(): FormState {
     existingAttachments: [],
     newFiles: [],
   }
+}
+
+function getDefaultEndTime(startTime: string) {
+  const [hours, minutes] = startTime.split(":").map(Number)
+  const start = new Date(2000, 0, 1, hours, minutes)
+  return format(addHours(start, 3), "HH:mm")
 }
 
 function buildIsoDateTime(dateValue: string, timeValue: string) {
@@ -209,6 +240,29 @@ function replaceAppointment(current: Appointment[], nextAppointment: Appointment
   })
 }
 
+function formatAppointmentRange(appointment: Appointment) {
+  const start = parseDate(appointment.scheduledAt)
+  const end = parseDate(appointment.scheduledEndAt)
+  if (!start || !end) return formatDateTime(appointment.scheduledAt)
+  return `${format(start, "dd MMM yyyy, h:mm a")} - ${format(end, "h:mm a")}`
+}
+
+function formatCalendarChipLabel(appointment: Appointment) {
+  const start = parseDate(appointment.scheduledAt)
+  const time = start ? format(start, "ha").toLowerCase() : "--"
+  return `${time} ${appointment.installationType}: ${appointment.outletName}`
+}
+
+function getMonthGridDays(month: Date) {
+  const first = startOfWeek(startOfMonth(month), { weekStartsOn: 0 })
+  const last = endOfWeek(endOfMonth(month), { weekStartsOn: 0 })
+  const days: Date[] = []
+  for (let day = first; day <= last; day = addDays(day, 1)) {
+    days.push(day)
+  }
+  return days
+}
+
 export default function OnboardingSchedulePage() {
   const { showToast } = useToast()
   const [sessionUser, setSessionUser] = React.useState<SessionUser | null>(null)
@@ -216,6 +270,7 @@ export default function OnboardingSchedulePage() {
   const [appointments, setAppointments] = React.useState<Appointment[]>([])
   const [month, setMonth] = React.useState(() => startOfMonth(new Date()))
   const [selectedDate, setSelectedDate] = React.useState(() => startOfDay(new Date()))
+  const [agendaStatus, setAgendaStatus] = React.useState<AgendaStatusFilter>("all")
   const [loading, setLoading] = React.useState(false)
 
   const [formOpen, setFormOpen] = React.useState(false)
@@ -411,18 +466,37 @@ export default function OnboardingSchedulePage() {
     return () => controller.abort()
   }, [sessionUser, deferredLocationQuery, formOpen, formState.googlePlaceId, locationSessionToken, showToast])
 
-  const appointmentDays = React.useMemo(
-    () => appointments.map((a) => parseDate(a.scheduledAt)).filter((v): v is Date => Boolean(v)),
-    [appointments]
-  )
+  const calendarDays = React.useMemo(() => getMonthGridDays(month), [month])
 
-  const selectedDayAppointments = React.useMemo(
+  const appointmentsByDate = React.useMemo(() => {
+    const grouped = new Map<string, Appointment[]>()
+    for (const appointment of appointments) {
+      const date = parseDate(appointment.scheduledAt)
+      if (!date) continue
+      const key = format(date, "yyyy-MM-dd")
+      const existing = grouped.get(key)
+      if (existing) {
+        existing.push(appointment)
+      } else {
+        grouped.set(key, [appointment])
+      }
+    }
+    for (const dayAppointments of grouped.values()) {
+      dayAppointments.sort((a, b) => {
+        const left = parseDate(a.scheduledAt)?.valueOf() ?? 0
+        const right = parseDate(b.scheduledAt)?.valueOf() ?? 0
+        return left - right
+      })
+    }
+    return grouped
+  }, [appointments])
+
+  const filteredAgendaAppointments = React.useMemo(
     () =>
-      appointments.filter((appointment) => {
-        const date = parseDate(appointment.scheduledAt)
-        return date ? isSameDay(date, selectedDate) : false
-      }),
-    [appointments, selectedDate]
+      agendaStatus === "all"
+        ? appointments
+        : appointments.filter((appointment) => appointment.status === agendaStatus),
+    [agendaStatus, appointments]
   )
 
   const counts = React.useMemo(
@@ -430,6 +504,7 @@ export default function OnboardingSchedulePage() {
       Pending: appointments.filter((a) => a.status === "Pending").length,
       Approved: appointments.filter((a) => a.status === "Approved").length,
       Completed: appointments.filter((a) => a.status === "Completed").length,
+      Total: appointments.length,
     }),
     [appointments]
   )
@@ -455,6 +530,7 @@ export default function OnboardingSchedulePage() {
       installationType: appointment.installationType,
       scheduledDate: getLocalDatePart(appointment.scheduledAt),
       scheduledTime: normalizeTimeOption(getLocalTimePart(appointment.scheduledAt)),
+      scheduledEndTime: normalizeTimeOption(getLocalTimePart(appointment.scheduledEndAt)),
       paymentStatus: appointment.paymentStatus,
       locationName: appointment.locationName ?? "",
       locationAddress: appointment.locationAddress ?? "",
@@ -559,6 +635,14 @@ export default function OnboardingSchedulePage() {
       showToast("Please select a valid date and time.", "error")
       return
     }
+    const scheduledEndAt = buildIsoDateTime(
+      formState.scheduledDate,
+      formState.scheduledEndTime
+    )
+    if (!scheduledEndAt || new Date(scheduledEndAt) <= new Date(scheduledAt)) {
+      showToast("Please select an end time after the start time.", "error")
+      return
+    }
     setFormLoading(true)
     try {
       const uploadedAttachments: AppointmentAttachment[] = []
@@ -577,6 +661,7 @@ export default function OnboardingSchedulePage() {
                   outletName: formState.outletName.trim(),
                   installationType: formState.installationType,
                   scheduledAt,
+                  scheduledEndAt,
                   paymentStatus: formState.paymentStatus,
                   locationName: formState.locationName,
                   locationAddress: formState.locationAddress,
@@ -592,6 +677,7 @@ export default function OnboardingSchedulePage() {
                   outletName: formState.outletName.trim(),
                   installationType: formState.installationType,
                   scheduledAt,
+                  scheduledEndAt,
                   paymentStatus: formState.paymentStatus,
                   locationName: formState.locationName,
                   locationAddress: formState.locationAddress,
@@ -694,64 +780,170 @@ export default function OnboardingSchedulePage() {
         <Button size="sm" onClick={() => { resetFormState(); setFormOpen(true) }}>New onboarding</Button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(340px,0.8fr)]">
-        <Card className="overflow-hidden">
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2 text-base"><CalendarDays className="size-4" />Calendar</CardTitle>
-            <CardDescription>Browse schedules by day and review the selected agenda.</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="grid gap-4 p-4 md:grid-cols-[minmax(0,1fr)_220px]">
-              <div className="overflow-auto rounded-xl border">
-                <Calendar04
-                  mode="single"
-                  month={month}
-                  onMonthChange={setMonth}
-                  selected={selectedDate}
-                  onSelect={(date: Date | undefined) => date && setSelectedDate(startOfDay(date))}
-                  modifiers={{ hasAppointments: appointmentDays }}
-                  modifiersClassNames={{ hasAppointments: "bg-primary/8 text-foreground font-semibold ring-1 ring-primary/20" }}
-                  className="w-full border-0 shadow-none"
-                />
-              </div>
-              <div className="grid gap-3">
-                <Card className="gap-3 py-4">
-                  <CardHeader className="px-4"><CardTitle className="text-sm">This month</CardTitle></CardHeader>
-                  <CardContent className="grid gap-2 px-4 text-sm">
-                    <div className="flex items-center justify-between rounded-lg border px-3 py-2"><span>Pending</span><span className="font-semibold">{counts.Pending}</span></div>
-                    <div className="flex items-center justify-between rounded-lg border px-3 py-2"><span>Approved</span><span className="font-semibold">{counts.Approved}</span></div>
-                    <div className="flex items-center justify-between rounded-lg border px-3 py-2"><span>Completed</span><span className="font-semibold">{counts.Completed}</span></div>
-                  </CardContent>
-                </Card>
-                <Card className="gap-3 py-4">
-                  <CardHeader className="px-4"><CardTitle className="text-sm">Selected day</CardTitle></CardHeader>
-                  <CardContent className="px-4 text-sm">
-                    <div className="font-medium">{format(selectedDate, "EEEE")}</div>
-                    <div className="text-muted-foreground">{format(selectedDate, "dd MMM yyyy")}</div>
-                    <div className="mt-3 text-2xl font-semibold">{selectedDayAppointments.length}</div>
-                    <div className="text-muted-foreground text-xs">schedules on the selected day</div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: "Total", value: counts.Total, icon: CalendarDays },
+          { label: "Pending", value: counts.Pending, icon: Clock3 },
+          { label: "Approved", value: counts.Approved, icon: UserCheck2 },
+          { label: "Completed", value: counts.Completed, icon: CheckCircle2 },
+        ].map((metric) => {
+          const Icon = metric.icon
+          return (
+            <Card key={metric.label}>
+              <CardContent className="flex items-center justify-between p-4">
+                <div>
+                  <div className="text-muted-foreground text-sm">{metric.label}</div>
+                  <div className="mt-1 text-2xl font-semibold">{metric.value}</div>
+                </div>
+                <div className="bg-muted flex size-10 items-center justify-center rounded-md">
+                  <Icon className="text-muted-foreground size-5" />
+                </div>
+              </CardContent>
+            </Card>
+          )
+        })}
+      </div>
 
-        <Card className="min-h-[420px]">
-          <CardHeader className="border-b">
-            <CardTitle className="text-base">{format(selectedDate, "dd MMM yyyy")} agenda</CardTitle>
-            <CardDescription>Showing all schedules for the selected day.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.75fr)]">
+        <div className="min-w-0 self-start">
+          <Card className="overflow-hidden">
+            <CardHeader className="border-b">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base"><CalendarDays className="size-4" />Calendar</CardTitle>
+                  <CardDescription>{format(month, "MMMM yyyy")} onboarding appointments.</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setMonth(startOfMonth(addMonths(month, -1)))}>Previous</Button>
+                  <Button size="sm" variant="outline" onClick={() => setMonth(startOfMonth(new Date()))}>Today</Button>
+                  <Button size="sm" variant="outline" onClick={() => setMonth(startOfMonth(addMonths(month, 1)))}>Next</Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="overflow-auto">
+                <div className="min-w-[860px]">
+                  <div className="grid grid-cols-7 border-b bg-muted/40">
+                    {["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"].map((day) => (
+                      <div key={day} className="border-r px-3 py-2 text-center text-xs font-medium text-muted-foreground last:border-r-0">{day}</div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-7">
+                    {calendarDays.map((day) => {
+                      const key = format(day, "yyyy-MM-dd")
+                      const dayAppointments = appointmentsByDate.get(key) ?? []
+                      return (
+                        <div
+                          key={key}
+                          role="button"
+                          tabIndex={0}
+                          className={cn(
+                            "min-h-32 border-r border-b p-2 text-left align-top last:border-r-0",
+                            !isSameMonth(day, month) && "bg-muted/30 text-muted-foreground",
+                            isSameDay(day, selectedDate) && "bg-primary/5"
+                          )}
+                          onClick={() => setSelectedDate(startOfDay(day))}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              setSelectedDate(startOfDay(day))
+                            }
+                          }}
+                        >
+                          <div className={cn("mb-2 flex justify-center text-xs", isToday(day) && "font-semibold text-primary")}>
+                            <span className={cn("flex size-6 items-center justify-center rounded-full", isToday(day) && "bg-primary text-primary-foreground")}>{format(day, "d")}</span>
+                          </div>
+                          <div className="space-y-1">
+                            {dayAppointments.slice(0, 4).map((appointment) => (
+                              <Popover key={appointment.id}>
+                                <PopoverTrigger asChild>
+                                  <span
+                                    role="button"
+                                    tabIndex={0}
+                                    className={cn(
+                                      "flex w-full cursor-pointer items-center gap-1 truncate rounded-md border px-2 py-1 text-xs font-medium hover:brightness-95",
+                                      calendarEventStyles[appointment.status]
+                                    )}
+                                    onClick={(event) => event.stopPropagation()}
+                                    onKeyDown={(event) => event.stopPropagation()}
+                                  >
+                                    <span className="size-1.5 shrink-0 rounded-full bg-current" />
+                                    <span className="truncate">{formatCalendarChipLabel(appointment)}</span>
+                                  </span>
+                                </PopoverTrigger>
+                                <PopoverContent align="start" className="w-[360px] p-0">
+                                  <div className="space-y-4 p-4">
+                                    <div className="flex items-start gap-3">
+                                      <span className={cn("mt-1 size-3 rounded-sm", appointment.status === "Pending" ? "bg-amber-500" : appointment.status === "Approved" ? "bg-sky-500" : "bg-emerald-500")} />
+                                      <div className="min-w-0 flex-1">
+                                        <div className="text-base font-semibold leading-snug">{appointment.installationType}: {appointment.outletName}</div>
+                                        <div className="text-muted-foreground mt-1 text-sm">{formatAppointmentRange(appointment)}</div>
+                                      </div>
+                                      {appointment.canEdit ? (
+                                        <Button size="icon" variant="ghost" className="size-8" onClick={() => openEditDialog(appointment)} aria-label="Edit appointment">
+                                          <Edit3 className="size-4" />
+                                        </Button>
+                                      ) : null}
+                                    </div>
+                                    <div className="grid gap-3 text-sm">
+                                      <div className="flex items-start gap-3"><FileText className="text-muted-foreground mt-0.5 size-4" /><div>SIMS appointment: {appointment.id}<br />Status: {appointment.status}<br />Payment: {appointment.paymentStatus}<br />Created by: {appointment.createdByName ?? "--"}<br />Assigned MS: {appointment.assignedMsUserName ?? "--"}{appointment.decisionByName ? <><br />Decision by: {appointment.decisionByName}</> : null}{appointment.decisionAt ? <><br />Decision at: {formatDateTime(appointment.decisionAt)}</> : null}</div></div>
+                                      {appointment.locationAddress ? (
+                                        <div className="flex items-start gap-3">
+                                          <MapPin className="text-muted-foreground mt-0.5 size-4" />
+                                          <div className="min-w-0">
+                                            <div>{appointment.locationName ? `${appointment.locationName}, ${appointment.locationAddress}` : appointment.locationAddress}</div>
+                                            {appointment.googleMapsUri ? <a href={appointment.googleMapsUri} target="_blank" rel="noreferrer" className="text-primary inline-flex items-center gap-1 hover:underline">Google Maps <ExternalLink className="size-3" /></a> : null}
+                                          </div>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {appointment.canReview && appointment.status === "Pending" ? <Button size="sm" variant="outline" onClick={() => { setReviewTarget(appointment); setReviewAction("approve"); setReviewReason(""); setReviewAssignedMsUserId(appointment.assignedMsUserId ?? ""); setReviewOpen(true) }}>Approve</Button> : null}
+                                      {appointment.canReview && appointment.status === "Approved" ? <Button size="sm" onClick={() => { setReviewTarget(appointment); setReviewAction("complete"); setReviewReason(""); setReviewAssignedMsUserId(""); setReviewOpen(true) }}>Complete</Button> : null}
+                                    </div>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            ))}
+                            {dayAppointments.length > 4 ? <div className="text-muted-foreground px-2 text-xs">+{dayAppointments.length - 4} more</div> : null}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="h-[720px] min-h-0 overflow-hidden">
+          <Card className="flex h-full min-h-0 flex-col gap-0 overflow-hidden py-0">
+            <CardHeader className="shrink-0 gap-4 border-b">
+              <div className="space-y-2">
+                <CardTitle className="text-base">{format(month, "MMMM yyyy")} agenda</CardTitle>
+                <CardDescription>Showing schedules for the displayed month.</CardDescription>
+              </div>
+              <Tabs value={agendaStatus} onValueChange={(value) => setAgendaStatus(value as AgendaStatusFilter)}>
+                <TabsList className="grid w-full grid-cols-4">
+                  <TabsTrigger value="all">All</TabsTrigger>
+                  <TabsTrigger value="Pending">Pending</TabsTrigger>
+                  <TabsTrigger value="Approved">Approved</TabsTrigger>
+                  <TabsTrigger value="Completed">Completed</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </CardHeader>
+            <CardContent
+              className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-6 py-6 pr-3"
+            >
             {loading ? (
               <div className="text-muted-foreground flex min-h-[240px] items-center justify-center gap-2 text-sm"><Loader2 className="size-4 animate-spin" />Loading schedules...</div>
-            ) : selectedDayAppointments.length === 0 ? (
-              <div className="text-muted-foreground flex min-h-[240px] items-center justify-center text-sm">No schedules for this day.</div>
-            ) : selectedDayAppointments.map((appointment, index) => {
+            ) : filteredAgendaAppointments.length === 0 ? (
+              <div className="text-muted-foreground flex min-h-[240px] items-center justify-center text-sm">No schedules match this filter.</div>
+            ) : filteredAgendaAppointments.map((appointment, index) => {
               const assignmentValue = assignmentDrafts[appointment.id] ?? appointment.assignedMsUserId ?? "__none__"
               return (
                 <div key={appointment.id} className="space-y-4">
-                  <div className="space-y-4 rounded-xl border p-4">
+                  <div className="space-y-4 rounded-lg border p-4">
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
@@ -759,7 +951,7 @@ export default function OnboardingSchedulePage() {
                           <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium", statusBadgeStyles[appointment.status])}>{appointment.status}</span>
                           <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium", paymentBadgeStyles[appointment.paymentStatus])}>Payment {appointment.paymentStatus}</span>
                         </div>
-                        <div className="text-muted-foreground text-sm">{formatDateTime(appointment.scheduledAt)} • {appointment.installationType}</div>
+                        <div className="text-muted-foreground text-sm">{formatAppointmentRange(appointment)} • {appointment.installationType}</div>
                         {appointment.locationAddress ? (
                           <div className="text-muted-foreground flex items-start gap-2 text-sm">
                             <MapPin className="mt-0.5 size-4 shrink-0" />
@@ -819,12 +1011,13 @@ export default function OnboardingSchedulePage() {
                       <div className="text-muted-foreground text-sm">Assigned MS PIC: <span className="font-medium">{appointment.assignedMsUserName ?? "--"}</span></div>
                     ) : null}
                   </div>
-                  {index < selectedDayAppointments.length - 1 ? <Separator /> : null}
+                  {index < filteredAgendaAppointments.length - 1 ? <Separator /> : null}
                 </div>
               )
             })}
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
 
       <Dialog open={formOpen} onOpenChange={(open) => { if (!open) { setFormOpen(false); resetFormState() } }}>
@@ -995,12 +1188,25 @@ export default function OnboardingSchedulePage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="scheduled-time">Time</Label>
-                <Select value={formState.scheduledTime} onValueChange={(value) => setFormState((current) => ({ ...current, scheduledTime: value }))}>
+                <Label htmlFor="scheduled-time">Start time</Label>
+                <Select value={formState.scheduledTime} onValueChange={(value) => setFormState((current) => ({ ...current, scheduledTime: value, scheduledEndTime: getDefaultEndTime(value) }))}>
                   <SelectTrigger id="scheduled-time"><SelectValue placeholder="Select time" /></SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      <SelectLabel>Business hours</SelectLabel>
+                      <SelectLabel>Available times</SelectLabel>
+                      {timeOptions.map((option) => <SelectItem key={option.id} value={option.value}>{option.label}</SelectItem>)}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="scheduled-end-time">End time</Label>
+                <Select value={formState.scheduledEndTime} onValueChange={(value) => setFormState((current) => ({ ...current, scheduledEndTime: value }))}>
+                  <SelectTrigger id="scheduled-end-time"><SelectValue placeholder="Select end time" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>Available times</SelectLabel>
                       {timeOptions.map((option) => <SelectItem key={option.id} value={option.value}>{option.label}</SelectItem>)}
                     </SelectGroup>
                   </SelectContent>
@@ -1055,7 +1261,7 @@ export default function OnboardingSchedulePage() {
           <div className="space-y-4">
             <div className="rounded-xl border p-4 text-sm">
               <div className="font-medium">{reviewTarget?.outletName ?? "Selected schedule"}</div>
-              <div className="text-muted-foreground mt-1">{reviewTarget ? formatDateTime(reviewTarget.scheduledAt) : "--"}</div>
+              <div className="text-muted-foreground mt-1">{reviewTarget ? formatAppointmentRange(reviewTarget) : "--"}</div>
             </div>
             {reviewAction === "approve" ? (
               <div className="space-y-2">
