@@ -5,6 +5,10 @@ import getPool from "@/lib/db"
 import { parseDate } from "@/lib/dates"
 import { syncOnboardingAppointmentToGoogleCalendar } from "@/lib/google-calendar"
 import { getGooglePlacesConfig } from "@/lib/google-places"
+import {
+  getDefaultScheduledEndAt,
+  validateScheduledRange,
+} from "@/lib/onboarding-appointment-access"
 
 import {
   appointmentSelectSql,
@@ -99,6 +103,7 @@ export async function PATCH(
     outletName?: unknown
     installationType?: unknown
     scheduledAt?: unknown
+    scheduledEndAt?: unknown
     paymentStatus?: unknown
     locationName?: unknown
     locationAddress?: unknown
@@ -124,6 +129,7 @@ export async function PATCH(
     Object.hasOwn(body, "outletName") ||
     Object.hasOwn(body, "installationType") ||
     Object.hasOwn(body, "scheduledAt") ||
+    Object.hasOwn(body, "scheduledEndAt") ||
     Object.hasOwn(body, "paymentStatus") ||
     hasLocationEdits ||
     Object.hasOwn(body, "existingAttachmentKeys") ||
@@ -143,6 +149,8 @@ export async function PATCH(
   let nextLocationName = loaded.appointment.location_name
   let nextLocationAddress = loaded.appointment.location_address
   let nextGooglePlaceId = loaded.appointment.google_place_id
+  let nextScheduledAt = parseDate(loaded.appointment.scheduled_at)
+  let shouldDefaultEndTime = false
 
   if (Object.hasOwn(body, "outletName")) {
     const outletName = cleanString(body.outletName)
@@ -174,6 +182,27 @@ export async function PATCH(
     }
     updates.push("scheduled_at = ?")
     params.push(toSqlDateTime(scheduledAt))
+    nextScheduledAt = scheduledAt
+    shouldDefaultEndTime = !Object.hasOwn(body, "scheduledEndAt")
+  }
+
+  if (!nextScheduledAt) {
+    return NextResponse.json({ error: "Invalid schedule date." }, { status: 400 })
+  }
+
+  if (Object.hasOwn(body, "scheduledEndAt") || shouldDefaultEndTime) {
+    const scheduledEndAtRaw = shouldDefaultEndTime
+      ? getDefaultScheduledEndAt(nextScheduledAt).toISOString()
+      : cleanString(body.scheduledEndAt)
+    const rangeValidation = validateScheduledRange(
+      nextScheduledAt,
+      scheduledEndAtRaw
+    )
+    if (!rangeValidation.ok) {
+      return NextResponse.json({ error: rangeValidation.error }, { status: 400 })
+    }
+    updates.push("scheduled_end_at = ?")
+    params.push(toSqlDateTime(rangeValidation.scheduledEndAt))
   }
 
   if (Object.hasOwn(body, "paymentStatus")) {

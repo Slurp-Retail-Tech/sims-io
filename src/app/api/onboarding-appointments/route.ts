@@ -6,6 +6,10 @@ import { parseDate } from "@/lib/dates"
 import { syncOnboardingAppointmentToGoogleCalendar } from "@/lib/google-calendar"
 import { getGooglePlacesConfig } from "@/lib/google-places"
 import {
+  getDefaultScheduledEndAt,
+  validateScheduledRange,
+} from "@/lib/onboarding-appointment-access"
+import {
   fetchOnboardingSubmissionRecipients,
   mapOnboardingNotificationAppointment,
   sendOnboardingAppointmentNotification,
@@ -115,6 +119,7 @@ export async function POST(request: NextRequest) {
     outletName?: unknown
     installationType?: unknown
     scheduledAt?: unknown
+    scheduledEndAt?: unknown
     paymentStatus?: unknown
     locationName?: unknown
     locationAddress?: unknown
@@ -129,6 +134,7 @@ export async function POST(request: NextRequest) {
   const outletName = cleanString(body.outletName)
   const installationType = cleanString(body.installationType)
   const scheduledAtRaw = cleanString(body.scheduledAt)
+  const scheduledEndAtRaw = cleanString(body.scheduledEndAt)
   const paymentStatus = cleanString(body.paymentStatus)
   const locationName = cleanString(body.locationName)
   const locationAddress = cleanString(body.locationAddress)
@@ -177,6 +183,15 @@ export async function POST(request: NextRequest) {
   if (!scheduledAt) {
     return NextResponse.json({ error: "Invalid schedule date." }, { status: 400 })
   }
+  const rangeValidation = scheduledEndAtRaw
+    ? validateScheduledRange(scheduledAt, scheduledEndAtRaw)
+    : {
+        ok: true as const,
+        scheduledEndAt: getDefaultScheduledEndAt(scheduledAt),
+      }
+  if (!rangeValidation.ok) {
+    return NextResponse.json({ error: rangeValidation.error }, { status: 400 })
+  }
 
   const connection = await pool.getConnection()
   let appointmentId = 0
@@ -189,6 +204,7 @@ export async function POST(request: NextRequest) {
         outlet_name,
         installation_type,
         scheduled_at,
+        scheduled_end_at,
         payment_status,
         location_name,
         location_address,
@@ -198,12 +214,13 @@ export async function POST(request: NextRequest) {
         location_lng,
         created_by_user_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
       [
         outletName,
         installationType,
         toSqlDateTime(scheduledAt),
+        toSqlDateTime(rangeValidation.scheduledEndAt),
         paymentStatus,
         locationName,
         locationAddress,

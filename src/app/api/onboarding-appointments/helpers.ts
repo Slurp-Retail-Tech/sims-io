@@ -2,6 +2,7 @@ import type { Pool, RowDataPacket } from "mysql2/promise"
 import { NextRequest, NextResponse } from "next/server"
 
 import { requireAuthenticatedUser } from "@/lib/auth"
+import { canEditOnboardingAppointment } from "@/lib/onboarding-appointment-access"
 import { getProxyObjectUrl } from "@/lib/storage"
 
 export const INSTALLATION_TYPES = ["Online", "On-site", "Support"] as const
@@ -26,6 +27,7 @@ export type AppointmentRow = RowDataPacket & {
   outlet_name: string
   installation_type: InstallationType
   scheduled_at: string
+  scheduled_end_at: string
   payment_status: PaymentStatus
   status: AppointmentStatus
   location_name: string | null
@@ -67,6 +69,7 @@ export const appointmentSelectSql = `
     appointments.outlet_name,
     appointments.installation_type,
     appointments.scheduled_at,
+    appointments.scheduled_end_at,
     appointments.payment_status,
     appointments.status,
     appointments.location_name,
@@ -182,15 +185,9 @@ export function isMerchantSuccessReviewer(user: AuthUser) {
 
 export function canEditAppointment(
   user: AuthUser,
-  appointment: Pick<AppointmentRow, "created_by_user_id" | "status">
+  appointment: Pick<AppointmentRow, "created_by_user_id" | "assigned_ms_user_id">
 ) {
-  if (isMerchantSuccessReviewer(user)) {
-    return true
-  }
-  return (
-    String(appointment.created_by_user_id) === user.id &&
-    appointment.status === "Pending"
-  )
+  return canEditOnboardingAppointment(user, appointment)
 }
 
 export function canAssignAppointment(
@@ -251,6 +248,7 @@ export function mapAppointment(
     outletName: row.outlet_name,
     installationType: row.installation_type,
     scheduledAt: row.scheduled_at,
+    scheduledEndAt: row.scheduled_end_at,
     paymentStatus: row.payment_status,
     status: row.status,
     locationName: row.location_name,

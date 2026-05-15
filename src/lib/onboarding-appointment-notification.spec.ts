@@ -13,6 +13,7 @@ const appointment: OnboardingNotificationAppointment = {
   outletName: "KLCC Outlet",
   installationType: "On-site",
   scheduledAt: "2026-05-14 10:30:00.000",
+  scheduledEndAt: "2026-05-14 13:30:00.000",
   paymentStatus: "Paid",
   status: "Pending",
   locationName: "Suria KLCC",
@@ -32,6 +33,7 @@ test("builds onboarding submission email with appointment details", () => {
 
   assert.equal(email.subject, "Onboarding Submitted - KLCC Outlet")
   assert.match(email.text, /Outlet: KLCC Outlet/)
+  assert.match(email.text, /Scheduled: 14 may 2026, 6:30 pm - 9:30 pm/)
   assert.match(email.text, /Installation: On-site/)
   assert.match(email.text, /Payment: Paid/)
   assert.match(email.text, /Submitter: Aina <aina@example.com>/)

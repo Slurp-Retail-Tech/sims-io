@@ -16,6 +16,7 @@ export type OnboardingNotificationAppointment = {
   outletName: string
   installationType: string
   scheduledAt: string
+  scheduledEndAt: string
   paymentStatus: string
   status: string
   locationName?: string | null
@@ -42,6 +43,7 @@ export type OnboardingNotificationAppointmentRow = {
   outlet_name: string
   installation_type: string
   scheduled_at: string
+  scheduled_end_at: string
   payment_status: string
   status: string
   location_name?: string | null
@@ -119,6 +121,35 @@ function formatScheduledAt(value: string) {
   return formatted.toLowerCase()
 }
 
+function formatScheduledRange(startValue: string, endValue: string) {
+  const start = parseAppointmentDate(startValue)
+  const end = parseAppointmentDate(endValue)
+  if (!start || !end || end <= start) {
+    return formatScheduledAt(startValue)
+  }
+
+  const datePart = new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: APP_TIME_ZONE,
+  }).format(start)
+  const startTime = new Intl.DateTimeFormat("en-GB", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: APP_TIME_ZONE,
+  }).format(start)
+  const endTime = new Intl.DateTimeFormat("en-GB", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: APP_TIME_ZONE,
+  }).format(end)
+
+  return `${datePart}, ${startTime} - ${endTime}`.toLowerCase()
+}
+
 function notificationTitle(type: OnboardingNotificationType) {
   if (type === "approved") return "Onboarding Approved"
   if (type === "completed") return "Onboarding Completed"
@@ -135,7 +166,10 @@ export function buildOnboardingAppointmentEmail(
 ) {
   const fields = [
     ["Outlet", appointment.outletName],
-    ["Scheduled", formatScheduledAt(appointment.scheduledAt)],
+    [
+      "Scheduled",
+      formatScheduledRange(appointment.scheduledAt, appointment.scheduledEndAt),
+    ],
     ["Installation", appointment.installationType],
     ["Payment", appointment.paymentStatus],
     ["Status", appointment.status],
@@ -199,6 +233,7 @@ export function mapOnboardingNotificationAppointment(
     outletName: row.outlet_name,
     installationType: row.installation_type,
     scheduledAt: row.scheduled_at,
+    scheduledEndAt: row.scheduled_end_at,
     paymentStatus: row.payment_status,
     status: row.status,
     locationName: row.location_name,

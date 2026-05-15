@@ -207,6 +207,7 @@ CREATE TABLE IF NOT EXISTS onboarding_appointments (
   outlet_name VARCHAR(255) NOT NULL,
   installation_type ENUM('Online', 'On-site', 'Support') NOT NULL,
   scheduled_at DATETIME(3) NOT NULL,
+  scheduled_end_at DATETIME(3) NOT NULL,
   payment_status ENUM('Pending', 'Paid', 'Unpaid') NOT NULL DEFAULT 'Pending',
   status ENUM('Pending', 'Approved', 'Completed') NOT NULL DEFAULT 'Pending',
   location_name VARCHAR(255) DEFAULT NULL,

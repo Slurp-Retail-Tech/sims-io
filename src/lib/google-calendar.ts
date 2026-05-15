@@ -29,6 +29,7 @@ export type OnboardingCalendarAppointment = {
   outletName: string
   installationType: string
   scheduledAt: string
+  scheduledEndAt: string
   paymentStatus: string
   status: string
   createdByName: string | null
@@ -70,7 +71,6 @@ type GoogleCalendarEventResponse = {
 const GOOGLE_CALENDAR_API_BASE_URL =
   "https://www.googleapis.com/calendar/v3/calendars"
 const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"
-const ONBOARDING_APPOINTMENT_DURATION_MS = 3 * 60 * 60 * 1000
 const MAX_SYNC_ERROR_LENGTH = 500
 const ACCESS_TOKEN_CACHE_BUFFER_SECONDS = 60
 
@@ -236,7 +236,10 @@ export function buildGoogleCalendarEventPayload(
     throw new Error("Appointment has an invalid schedule date")
   }
 
-  const end = new Date(start.getTime() + ONBOARDING_APPOINTMENT_DURATION_MS)
+  const end = parseCalendarDate(appointment.scheduledEndAt)
+  if (!end || end <= start) {
+    throw new Error("Appointment has an invalid schedule end date")
+  }
   const descriptionLines = [
     `SIMS appointment: ${appointment.id}`,
     `Status: ${appointment.status}`,

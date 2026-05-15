@@ -8,12 +8,13 @@ import {
   syncOnboardingAppointmentToGoogleCalendar,
 } from "./google-calendar.ts"
 
-test("builds onboarding event payload with the SIMS title format and 3 hour duration", () => {
+test("builds onboarding event payload with the SIMS title format and explicit end time", () => {
   const payload = buildGoogleCalendarEventPayload({
     id: "42",
     outletName: "KLCC Outlet",
     installationType: "On-site",
     scheduledAt: "2026-05-14 01:30:00.000",
+    scheduledEndAt: "2026-05-14 06:00:00.000",
     paymentStatus: "Paid",
     status: "Approved",
     createdByName: "Aina",
@@ -27,7 +28,7 @@ test("builds onboarding event payload with the SIMS title format and 3 hour dura
     timeZone: "Asia/Kuala_Lumpur",
   })
   assert.deepEqual(payload.end, {
-    dateTime: "2026-05-14T04:30:00.000Z",
+    dateTime: "2026-05-14T06:00:00.000Z",
     timeZone: "Asia/Kuala_Lumpur",
   })
   assert.equal(payload.extendedProperties.private.simsAppointmentId, "42")
@@ -43,6 +44,7 @@ test("adds selected Google Maps location to the Calendar event", () => {
     outletName: "KLCC Outlet",
     installationType: "On-site",
     scheduledAt: "2026-05-14 01:30:00.000",
+    scheduledEndAt: "2026-05-14 04:30:00.000",
     paymentStatus: "Paid",
     status: "Approved",
     createdByName: "Aina",
@@ -224,6 +226,7 @@ test("records failed sync status without throwing when Google Calendar rejects t
         outletName: "KLCC Outlet",
         installationType: "On-site",
         scheduledAt: "2026-05-14 01:30:00.000",
+        scheduledEndAt: "2026-05-14 04:30:00.000",
         paymentStatus: "Paid",
         status: "Approved",
         createdByName: "Aina",
