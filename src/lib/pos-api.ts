@@ -86,6 +86,14 @@ export function isPosApiRecord(value: unknown): value is PosApiRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+// Redacts a token down to a short, non-reversible preview suitable for logs.
+export function maskToken(token: string): string {
+  if (token.length <= 8) {
+    return "***"
+  }
+  return `${token.slice(0, 4)}…${token.slice(-2)} (${token.length} chars)`
+}
+
 const tokenKeys = [
   "token",
   "access_token",

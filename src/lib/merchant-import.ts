@@ -3,6 +3,7 @@ import {
   authenticatePosApiSession,
   fetchPosApiWithSessionInit,
   getPosApiItems,
+  maskToken,
   resolvePosImportUrl,
 } from "@/lib/pos-api"
 import type { ResultSetHeader } from "mysql2/promise"
@@ -133,6 +134,29 @@ export async function runMerchantImport(trigger: "manual" | "cron") {
       if (!response.ok) {
         const errorBody = await response.text().catch(() => "")
         const details = errorBody ? ` - ${errorBody}` : ""
+
+        if (response.status === 401) {
+          // Login already succeeded (we hold a token), so a 401 here means the
+          // POS import endpoint rejected the session. Log non-secret signals so
+          // we can tell apart a stale/wrong token from the request URL being
+          // downgraded over a redirect (which strips the Authorization header).
+          const requestProtocol = new URL(url.toString()).protocol
+          const finalProtocol = response.url
+            ? new URL(response.url).protocol
+            : requestProtocol
+          console.error(
+            "[merchant-import] POS import rejected the session token after a successful login",
+            {
+              requestUrl: url.toString(),
+              finalUrl: response.url || null,
+              redirected: response.redirected,
+              protocolDowngraded: requestProtocol !== finalProtocol,
+              hasCookie: Boolean(session.cookieHeader),
+              tokenPreview: maskToken(session.token),
+            }
+          )
+        }
+
         throw new Error(`Import failed with status ${response.status}${details}`)
       }
 
