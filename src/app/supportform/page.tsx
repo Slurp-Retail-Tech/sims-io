@@ -470,9 +470,10 @@ export default function SupportFormPage() {
                     required
                     inputMode="numeric"
                     pattern="[0-9]*"
+                    maxLength={4}
                     placeholder={copy[language].fidPlaceholder}
                     value={fid}
-                    onChange={(event) => setFid(digitsOnly(event.target.value))}
+                    onChange={(event) => setFid(digitsOnly(event.target.value).slice(0, 4))}
                     className="h-10 rounded-lg border border-input bg-background px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
@@ -486,9 +487,10 @@ export default function SupportFormPage() {
                     required
                     inputMode="numeric"
                     pattern="[0-9]*"
+                    maxLength={2}
                     placeholder={copy[language].oidPlaceholder}
                     value={oid}
-                    onChange={(event) => setOid(digitsOnly(event.target.value))}
+                    onChange={(event) => setOid(digitsOnly(event.target.value).slice(0, 2))}
                     className="h-10 rounded-lg border border-input bg-background px-3 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                 </div>
