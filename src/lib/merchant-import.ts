@@ -118,7 +118,7 @@ export async function runMerchantImport(trigger: "manual" | "cron") {
   let pages = 0
 
   try {
-    const session = await authenticatePosApiSession()
+    let session = await authenticatePosApiSession()
 
     const perPage = 100
     let page = 1
@@ -129,7 +129,19 @@ export async function runMerchantImport(trigger: "manual" | "cron") {
       url.searchParams.set("per_page", String(perPage))
       url.searchParams.set("page", String(page))
 
-      const response = await fetchImportWithSession(url, session)
+      let response = await fetchImportWithSession(url, session)
+
+      // The token is acquired once, but a large import spans many pages and can
+      // outlive the POS token's TTL — later pages then 401 with "Unauthenticated".
+      // Re-authenticate once and retry this page before treating it as a real
+      // auth failure. A fresh token that still 401s falls through to the throw.
+      if (response.status === 401) {
+        console.warn(
+          `[merchant-import] POS session rejected on page ${page}; re-authenticating and retrying once`
+        )
+        session = await authenticatePosApiSession()
+        response = await fetchImportWithSession(url, session)
+      }
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => "")
