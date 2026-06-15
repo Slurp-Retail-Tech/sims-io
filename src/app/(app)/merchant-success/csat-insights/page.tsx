@@ -44,6 +44,11 @@ type BreakdownRow = {
   total: number | string
 }
 
+type ReviewFunnelRow = {
+  shown: number | string | null
+  clicked: number | string | null
+}
+
 type FeedbackRow = {
   ticket_id: number | string
   merchant_name: string | null
@@ -280,9 +285,27 @@ async function getCsatInsights({
       responseDateFilter.values
     )
 
+    const [reviewFunnelRows] = await queryWithReconnect<ReviewFunnelRow[]>(
+      `
+      SELECT
+        SUM(csat_responses.google_review_shown_at IS NOT NULL) AS shown,
+        SUM(csat_responses.google_review_clicked_at IS NOT NULL) AS clicked
+      FROM csat_responses
+      INNER JOIN tickets
+        ON tickets.id = csat_responses.ticket_id
+      WHERE ${activeSupportRequestWhere()}
+      ${responseDateFilter.sql}
+    `,
+      responseDateFilter.values
+    )
+
     const totalResponses = toNumber(responseRows[0]?.total)
     const sentLinks = toNumber(sentLinkRows[0]?.total)
     const responseRate = toPercentage(totalResponses, sentLinks)
+
+    const googleReviewShown = toNumber(reviewFunnelRows[0]?.shown)
+    const googleReviewClicked = toNumber(reviewFunnelRows[0]?.clicked)
+    const reviewConversionRate = toPercentage(googleReviewClicked, googleReviewShown)
 
     const supportSatisfaction = toNumber(satisfactionRows[0]?.support_satisfaction)
     const productSatisfaction = toNumber(satisfactionRows[0]?.product_satisfaction)
@@ -299,6 +322,9 @@ async function getCsatInsights({
       supportBreakdown,
       productBreakdown,
       feedbackRows,
+      googleReviewShown,
+      googleReviewClicked,
+      reviewConversionRate,
     }
   } catch {
     return {
@@ -310,6 +336,9 @@ async function getCsatInsights({
       supportBreakdown: [] as BreakdownItem[],
       productBreakdown: [] as BreakdownItem[],
       feedbackRows: [] as FeedbackRow[],
+      googleReviewShown: 0,
+      googleReviewClicked: 0,
+      reviewConversionRate: 0,
     }
   }
 }
@@ -454,6 +483,42 @@ export default async function MerchantSuccessCsatInsightsPage({
             <div className="text-2xl font-semibold">
               {formatScore(data.productSatisfaction)}
             </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Google Review Link Shown</CardTitle>
+            <CardDescription>Satisfied/Very Satisfied responses</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-semibold">{data.googleReviewShown}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Google Review Link Clicked</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-semibold">{data.googleReviewClicked}</div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium">Review Conversion Rate</CardTitle>
+            <CardDescription>Clicked of links shown</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-semibold">
+              {data.reviewConversionRate.toFixed(1)}%
+            </div>
+            <p className="text-muted-foreground mt-1 text-xs">
+              {data.googleReviewClicked} clicked / {data.googleReviewShown} shown
+            </p>
           </CardContent>
         </Card>
       </div>

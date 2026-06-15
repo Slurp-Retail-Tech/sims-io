@@ -385,6 +385,16 @@ CREATE TABLE sessions (
 
 > **`csat_tokens` note:** the `token` column has been renamed to `token_hash CHAR(64)`. The SHA-256 of the raw UUID token is stored; the plaintext token is only ever present in the survey URL and is never persisted. Application code hashes the URL token before querying the table.
 
+> **CSAT Google Review trigger.** `csat_responses` carries two funnel columns —
+> `google_review_shown_at` and `google_review_clicked_at` (both `DATETIME(3)`, nullable). On
+> submission, if the Support Service score normalizes to ≥3 (Satisfied/Very Satisfied) **and**
+> `CSAT_GOOGLE_REVIEW_URL` is configured, the survey shows a Google Review link for Slurp Retail
+> Tech Sdn Bhd and stamps `google_review_shown_at`. A fire-and-forget `POST
+> /api/csat/[token]/review-click` stamps `google_review_clicked_at` (idempotent). The eligibility
+> decision lives in `src/lib/csat-google-review.ts`, whose score mapping mirrors the analytics
+> `SCORE_CASE_SQL`. The URL is returned by `GET /api/csat/[token]` only for qualifying responses —
+> never leaked for low scores. CSAT Insights reports the shown → clicked → conversion-rate funnel.
+
 **Message search strategy.** Use FULLTEXT on `message.content_text` for quick phrase search; add `ticket_id` filter and date ranges to keep result sets small.
 
 **Contact → FID/OID resolution.**

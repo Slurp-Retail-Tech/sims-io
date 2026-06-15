@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import type { RowDataPacket } from "mysql2"
 
 import { hashOpaqueToken } from "@/lib/auth"
+import { resolveCsatGoogleReviewUrl } from "@/lib/csat-google-review"
 import {
   getCsatTokenColumn,
   getCsatTokenLookupExpression,
@@ -28,6 +29,7 @@ type TokenRow = RowDataPacket & {
 type ResponseRow = RowDataPacket & {
   id: string
   submitted_at: string
+  support_score: string | null
 }
 
 function getTokenStatus(token: TokenRow, response: ResponseRow | null) {
@@ -87,7 +89,7 @@ export async function GET(
 
   const [responseRows] = await pool.query<ResponseRow[]>(
     `
-    SELECT id, submitted_at
+    SELECT id, submitted_at, support_score
     FROM csat_responses
     WHERE token_id = ?
     LIMIT 1
@@ -96,6 +98,10 @@ export async function GET(
   )
   const latestResponse = responseRows[0] ?? null
   const status = getTokenStatus(tokenRow, latestResponse)
+
+  const googleReviewUrl = latestResponse
+    ? resolveCsatGoogleReviewUrl(latestResponse.support_score ?? "")
+    : null
 
   return NextResponse.json({
     status,
@@ -112,6 +118,7 @@ export async function GET(
       usedAt: tokenRow.used_at,
       submittedAt: latestResponse?.submitted_at ?? null,
     },
+    googleReview: { url: googleReviewUrl },
   })
 }
 
@@ -166,7 +173,7 @@ export async function POST(
 
   const [responseRows] = await pool.query<ResponseRow[]>(
     `
-    SELECT id, submitted_at
+    SELECT id, submitted_at, support_score
     FROM csat_responses
     WHERE token_id = ?
     LIMIT 1
@@ -182,6 +189,10 @@ export async function POST(
     )
   }
 
+  // Decision based on the Support Service rating only — show the public Google
+  // Review link for Satisfied/Very Satisfied responses when a URL is configured.
+  const googleReviewUrl = resolveCsatGoogleReviewUrl(supportScore)
+
   await pool.query(
     `
     INSERT INTO csat_responses (
@@ -190,9 +201,10 @@ export async function POST(
       support_score,
       support_reason,
       product_score,
-      product_feedback
+      product_feedback,
+      google_review_shown_at
     )
-    VALUES (?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ${googleReviewUrl ? "NOW(3)" : "NULL"})
   `,
     [
       tokenRow.ticket_id,
@@ -213,5 +225,5 @@ export async function POST(
     [tokenRow.id]
   )
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, googleReview: { url: googleReviewUrl } })
 }

@@ -165,6 +165,10 @@ RECAPTCHA_SECRET_KEY=
 # ── Mapbox ────────────────────────────────────────────────────────────────────
 # Required for the /maps page. Baked into the client bundle at build time.
 NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=
+
+# ── CSAT Google Review trigger ───────────────────────────────────────────────
+# Company-wide Google review URL shown after a satisfied CSAT submission.
+CSAT_GOOGLE_REVIEW_URL=
 ```
 
 Notes:
@@ -181,6 +185,7 @@ Notes:
 - `GOOGLE_PLACES_ENABLED=true` enables server-side Google Places lookup for onboarding locations; restrict `GOOGLE_PLACES_API_KEY` in Google Cloud and use `GOOGLE_PLACES_REGION_CODES` to bias supported countries
 - `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` and `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` are baked into the JS bundle at build time; changing them requires a full redeploy, not just a container restart
 - `RECAPTCHA_SECRET_KEY` — reCAPTCHA enforcement is fail-closed in production; the demo form POST returns 500 if this is missing
+- `CSAT_GOOGLE_REVIEW_URL` — company-wide Google review link for Slurp Retail Tech Sdn Bhd; shown after a CSAT submission only when the Support Service rating is Satisfied/Very Satisfied. Leave blank to disable the review prompt entirely
 
 ## Google Workspace SMTP Setup
 

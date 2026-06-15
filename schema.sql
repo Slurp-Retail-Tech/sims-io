@@ -324,6 +324,10 @@ CREATE TABLE IF NOT EXISTS csat_responses (
   product_score VARCHAR(32) NOT NULL,
   product_feedback TEXT DEFAULT NULL,
   submitted_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  -- Google Review funnel: set when a qualifying (Satisfied/Very Satisfied support
+  -- score) survey displayed the public review link, and when the link was clicked.
+  google_review_shown_at DATETIME(3) DEFAULT NULL,
+  google_review_clicked_at DATETIME(3) DEFAULT NULL,
   CONSTRAINT fk_csat_responses_ticket_id
     FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE,
   CONSTRAINT fk_csat_responses_token_id

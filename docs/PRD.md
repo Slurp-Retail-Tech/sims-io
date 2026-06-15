@@ -152,6 +152,13 @@ Planned but not implemented in the current app:
 2. User taps 1–5; optional comment
 3. Aggregated by ticket, agent, FID/OID; used in dashboards
 
+**Google Review trigger.** After a CSAT submission, if the **Support Service** rating is
+Satisfied or Very Satisfied (3–4), the survey surfaces a public Google Review link for Slurp
+Retail Tech Sdn Bhd, encouraging happy customers to leave a public review. Neutral/Dissatisfied
+(1–2) responses are routed away from public channels — no link is shown. The decision uses the
+Support Service rating only; the Product rating is captured for analytics. Link "shown" and
+"clicked" are tracked and reported as a shown → clicked → conversion-rate funnel in CSAT Insights.
+
 ---
 
 ## 📊 6. Analytics & Insights

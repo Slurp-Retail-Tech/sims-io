@@ -23,6 +23,9 @@ type SurveyPayload = {
     usedAt: string | null
     submittedAt: string | null
   }
+  googleReview?: {
+    url: string | null
+  }
 }
 
 type Language = "en" | "bm"
@@ -50,6 +53,10 @@ const copy = {
     submittedTitle: "Thank you for your valuable feedback.",
     submittedBody:
       "We’ve recorded your responses and the team will review them to keep improving Slurp Support and product experience.",
+    reviewTitle: "Enjoyed your experience?",
+    reviewBody:
+      "We’d be grateful if you could share a quick public review of Slurp Retail Tech on Google.",
+    reviewButton: "Leave a Google review",
     submitButton: "Submit Feedback",
     submitting: "Submitting...",
     requiredError: "Please complete both ratings before submitting.",
@@ -84,6 +91,10 @@ const copy = {
     submittedTitle: "Terima kasih atas maklum balas anda yang berharga.",
     submittedBody:
       "Kami telah merekod maklum balas anda dan pasukan akan menelitinya untuk terus menambah baik Slurp Support dan pengalaman produk.",
+    reviewTitle: "Berpuas hati dengan pengalaman anda?",
+    reviewBody:
+      "Kami amat menghargai jika anda sudi berkongsi ulasan ringkas mengenai Slurp Retail Tech di Google.",
+    reviewButton: "Tinggalkan ulasan Google",
     submitButton: "Hantar Maklum Balas",
     submitting: "Menghantar...",
     requiredError: "Sila lengkapkan kedua-dua penilaian sebelum hantar.",
@@ -180,6 +191,17 @@ export default function CsatSurveyPage() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const handleReviewClick = () => {
+    if (!token) {
+      return
+    }
+    // Fire-and-forget: record the click but never block opening the review page.
+    void fetch(`/api/csat/${encodeURIComponent(token)}/review-click`, {
+      method: "POST",
+      keepalive: true,
+    }).catch(() => {})
   }
 
   if (loading) {
@@ -305,9 +327,27 @@ export default function CsatSurveyPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {payload.status === "submitted" ? (
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-emerald-700">{text.submittedTitle}</p>
-              <p className="text-sm text-muted-foreground">{text.submittedBody}</p>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-emerald-700">{text.submittedTitle}</p>
+                <p className="text-sm text-muted-foreground">{text.submittedBody}</p>
+              </div>
+              {payload.googleReview?.url ? (
+                <div className="space-y-2 rounded-md border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/40">
+                  <p className="text-sm font-medium">{text.reviewTitle}</p>
+                  <p className="text-sm text-muted-foreground">{text.reviewBody}</p>
+                  <Button asChild>
+                    <a
+                      href={payload.googleReview.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={handleReviewClick}
+                    >
+                      {text.reviewButton}
+                    </a>
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ) : payload.status === "expired" ? (
             <div className="space-y-2">
