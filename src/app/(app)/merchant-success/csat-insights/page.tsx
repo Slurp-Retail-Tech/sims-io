@@ -441,7 +441,7 @@ export default async function MerchantSuccessCsatInsightsPage({
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Total CSAT Responses</CardTitle>
@@ -485,9 +485,7 @@ export default async function MerchantSuccessCsatInsightsPage({
             </div>
           </CardContent>
         </Card>
-      </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Google Review Link Shown</CardTitle>
