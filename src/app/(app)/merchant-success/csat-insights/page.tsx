@@ -446,7 +446,7 @@ export default async function MerchantSuccessCsatInsightsPage({
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Total CSAT Responses</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="mt-auto">
             <div className="text-2xl font-semibold">{data.totalResponses}</div>
           </CardContent>
         </Card>
@@ -456,7 +456,7 @@ export default async function MerchantSuccessCsatInsightsPage({
             <CardTitle className="text-sm font-medium">Response Rate</CardTitle>
             <CardDescription>Based on sent links</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="mt-auto">
             <div className="text-2xl font-semibold">{data.responseRate.toFixed(1)}%</div>
             <p className="text-muted-foreground mt-1 text-xs">
               {data.totalResponses} responses / {data.sentLinks} sent links
@@ -468,7 +468,7 @@ export default async function MerchantSuccessCsatInsightsPage({
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Support Satisfaction</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="mt-auto">
             <div className="text-2xl font-semibold">
               {formatScore(data.supportSatisfaction)}
             </div>
@@ -479,7 +479,7 @@ export default async function MerchantSuccessCsatInsightsPage({
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Product Satisfaction</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="mt-auto">
             <div className="text-2xl font-semibold">
               {formatScore(data.productSatisfaction)}
             </div>
@@ -491,7 +491,7 @@ export default async function MerchantSuccessCsatInsightsPage({
             <CardTitle className="text-sm font-medium">Google Review Link Shown</CardTitle>
             <CardDescription>Satisfied/Very Satisfied responses</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="mt-auto">
             <div className="text-2xl font-semibold">{data.googleReviewShown}</div>
           </CardContent>
         </Card>
@@ -500,7 +500,7 @@ export default async function MerchantSuccessCsatInsightsPage({
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Google Review Link Clicked</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="mt-auto">
             <div className="text-2xl font-semibold">{data.googleReviewClicked}</div>
           </CardContent>
         </Card>
@@ -510,7 +510,7 @@ export default async function MerchantSuccessCsatInsightsPage({
             <CardTitle className="text-sm font-medium">Review Conversion Rate</CardTitle>
             <CardDescription>Clicked of links shown</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="mt-auto">
             <div className="text-2xl font-semibold">
               {data.reviewConversionRate.toFixed(1)}%
             </div>
