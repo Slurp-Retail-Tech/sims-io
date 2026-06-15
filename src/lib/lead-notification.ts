@@ -3,6 +3,7 @@ import { APP_TIME_ZONE, parseDate } from "@/lib/dates"
 import { sendMail } from "@/lib/mail"
 
 export const LEAD_NOTIFICATION_SETTINGS_ID = 1
+export const DEFAULT_LEAD_NOTIFICATION_SENDER = "marketing@leads.getslurp.com"
 
 export type LeadNotificationSettings = {
   id: number
@@ -105,7 +106,7 @@ export async function getLeadNotificationSettings() {
       VALUES (?, TRUE, ?, NULL)
       ON DUPLICATE KEY UPDATE id = VALUES(id)
     `,
-    [LEAD_NOTIFICATION_SETTINGS_ID, "marketing@leads.getslurp.com"]
+    [LEAD_NOTIFICATION_SETTINGS_ID, DEFAULT_LEAD_NOTIFICATION_SENDER]
   )
 
   return {

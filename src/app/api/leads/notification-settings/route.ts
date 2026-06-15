@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { requireAuthenticatedUser } from "@/lib/auth"
 import getPool from "@/lib/db"
 import {
+  DEFAULT_LEAD_NOTIFICATION_SENDER,
   LEAD_NOTIFICATION_SETTINGS_ID,
   getLeadNotificationSettings,
   isValidEmail,
@@ -52,35 +53,45 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "One or more recipient emails are invalid." }, { status: 400 })
   }
 
-  const pool = getPool()
-  await pool.query(
-    `
-      INSERT INTO lead_notification_settings (
-        id,
-        is_enabled,
-        recipients,
-        updated_by
-      )
-      VALUES (?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        is_enabled = VALUES(is_enabled),
-        recipients = VALUES(recipients),
-        updated_by = VALUES(updated_by),
-        updated_at = CURRENT_TIMESTAMP(3)
-    `,
-    [
-      LEAD_NOTIFICATION_SETTINGS_ID,
-      body.isEnabled,
-      serializeLeadNotificationRecipients(recipients) || null,
-      user.id,
-    ]
-  )
+  try {
+    const pool = getPool()
+    await pool.query(
+      `
+        INSERT INTO lead_notification_settings (
+          id,
+          is_enabled,
+          sender_email,
+          recipients,
+          updated_by
+        )
+        VALUES (?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          is_enabled = VALUES(is_enabled),
+          recipients = VALUES(recipients),
+          updated_by = VALUES(updated_by),
+          updated_at = CURRENT_TIMESTAMP(3)
+      `,
+      [
+        LEAD_NOTIFICATION_SETTINGS_ID,
+        body.isEnabled,
+        DEFAULT_LEAD_NOTIFICATION_SENDER,
+        serializeLeadNotificationRecipients(recipients) || null,
+        user.id,
+      ]
+    )
 
-  const settings = await getLeadNotificationSettings()
-  return NextResponse.json({
-    settings: {
-      ...settings,
-      recipientsText: settings.recipients.join("\n"),
-    },
-  })
+    const settings = await getLeadNotificationSettings()
+    return NextResponse.json({
+      settings: {
+        ...settings,
+        recipientsText: settings.recipients.join("\n"),
+      },
+    })
+  } catch (error) {
+    console.error("Failed to save lead notification settings:", error)
+    return NextResponse.json(
+      { error: "Failed to save notification settings. Please try again." },
+      { status: 500 }
+    )
+  }
 }
