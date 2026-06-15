@@ -4,6 +4,7 @@ import * as React from "react"
 import { Search } from "lucide-react"
 import { usePathname } from "next/navigation"
 
+import { GlobalSearch } from "@/components/global-search"
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
   Breadcrumb,
@@ -13,7 +14,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-import { Input } from "@/components/ui/input"
 import { GENERAL_OVERVIEW_PATH } from "@/lib/page-access"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
@@ -63,6 +63,25 @@ const generalSegments = new Set([
 
 export function AppHeader() {
   const pathname = usePathname()
+  const [searchOpen, setSearchOpen] = React.useState(false)
+  const [searchSeed, setSearchSeed] = React.useState("")
+
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault()
+        setSearchSeed("")
+        setSearchOpen((prev) => !prev)
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [])
+
+  const openSearch = React.useCallback((seed: string) => {
+    setSearchSeed(seed)
+    setSearchOpen(true)
+  }, [])
   const segments = pathname.split("/").filter(Boolean)
   const baseCrumbs = segments.map((segment, index) => {
     const href =
@@ -105,15 +124,30 @@ export function AppHeader() {
         </Breadcrumb>
       </div>
       <div className="ml-auto flex items-center gap-2">
-        <div className="relative hidden w-72 md:block">
-          <Search className="text-muted-foreground absolute left-3 top-1/2 size-4 -translate-y-1/2" />
-          <Input
-            placeholder="Search tickets, outlets, contacts"
-            className="h-9 pl-9"
-          />
-        </div>
+        <button
+          type="button"
+          onClick={() => openSearch("")}
+          onKeyDown={(event) => {
+            if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+              event.preventDefault()
+              openSearch(event.key)
+            }
+          }}
+          className="border-input bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground relative hidden h-9 w-72 items-center rounded-md border pl-9 pr-3 text-left text-sm transition-colors md:flex"
+        >
+          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2" />
+          <span className="flex-1 truncate">Search pages and merchants</span>
+          <kbd className="bg-muted text-muted-foreground pointer-events-none ml-2 hidden items-center gap-1 rounded border px-1.5 font-mono text-[10px] font-medium lg:inline-flex">
+            ⌘K
+          </kbd>
+        </button>
         <ThemeToggle />
       </div>
+      <GlobalSearch
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        initialQuery={searchSeed}
+      />
     </header>
   )
 }
