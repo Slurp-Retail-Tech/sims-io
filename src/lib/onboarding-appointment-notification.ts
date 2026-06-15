@@ -9,7 +9,11 @@ type SendMailInput = {
   text: string
 }
 
-export type OnboardingNotificationType = "submitted" | "approved" | "completed"
+export type OnboardingNotificationType =
+  | "submitted"
+  | "approved"
+  | "completed"
+  | "canceled"
 
 export type OnboardingNotificationAppointment = {
   id: string
@@ -29,6 +33,9 @@ export type OnboardingNotificationAppointment = {
   decisionByName?: string | null
   decisionByEmail?: string | null
   decisionReason?: string | null
+  canceledByName?: string | null
+  canceledByEmail?: string | null
+  cancelReason?: string | null
 }
 
 export type OnboardingRecipientUser = {
@@ -56,6 +63,9 @@ export type OnboardingNotificationAppointmentRow = {
   decision_by_name?: string | null
   decision_by_email?: string | null
   decision_reason?: string | null
+  canceled_by_name?: string | null
+  canceled_by_email?: string | null
+  cancel_reason?: string | null
 }
 
 type SendOnboardingAppointmentNotificationInput = {
@@ -153,6 +163,7 @@ function formatScheduledRange(startValue: string, endValue: string) {
 function notificationTitle(type: OnboardingNotificationType) {
   if (type === "approved") return "Onboarding Approved"
   if (type === "completed") return "Onboarding Completed"
+  if (type === "canceled") return "Onboarding Canceled"
   return "Onboarding Submitted"
 }
 
@@ -179,8 +190,21 @@ export function buildOnboardingAppointmentEmail(
       "Assigned MS PIC",
       formatPerson(appointment.assignedMsUserName, appointment.assignedMsUserEmail),
     ],
-    ["Updated by", formatPerson(appointment.decisionByName, appointment.decisionByEmail)],
-    ["Status note", appointment.decisionReason ?? "--"],
+    ...(type === "canceled"
+      ? [
+          [
+            "Canceled by",
+            formatPerson(appointment.canceledByName, appointment.canceledByEmail),
+          ],
+          ["Cancellation reason", appointment.cancelReason ?? "--"],
+        ]
+      : [
+          [
+            "Updated by",
+            formatPerson(appointment.decisionByName, appointment.decisionByEmail),
+          ],
+          ["Status note", appointment.decisionReason ?? "--"],
+        ]),
     ["Appointment ID", appointment.id],
   ]
 
@@ -246,6 +270,9 @@ export function mapOnboardingNotificationAppointment(
     decisionByName: row.decision_by_name,
     decisionByEmail: row.decision_by_email,
     decisionReason: row.decision_reason,
+    canceledByName: row.canceled_by_name,
+    canceledByEmail: row.canceled_by_email,
+    cancelReason: row.cancel_reason,
   }
 }
 

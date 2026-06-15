@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
 
   if (statuses.length > 0) {
     const validStatuses = statuses.filter((value) =>
-      ["Pending", "Approved", "Completed"].includes(value)
+      ["Pending", "Approved", "Completed", "Canceled"].includes(value)
     )
     if (validStatuses.length === 0) {
       return NextResponse.json({ error: "Invalid status filter." }, { status: 400 })

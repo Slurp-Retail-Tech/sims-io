@@ -11,6 +11,10 @@ export type OnboardingAppointmentAccessRecord = {
   assigned_ms_user_id?: string | null
 }
 
+export type OnboardingAppointmentCancelRecord = OnboardingAppointmentAccessRecord & {
+  status: string
+}
+
 export function getDefaultScheduledEndAt(start: Date) {
   return new Date(start.getTime() + DEFAULT_ONBOARDING_APPOINTMENT_DURATION_MS)
 }
@@ -54,4 +58,14 @@ export function canEditOnboardingAppointment(
   return appointment.assigned_ms_user_id
     ? String(appointment.assigned_ms_user_id) === user.id
     : false
+}
+
+export function canCancelOnboardingAppointment(
+  user: OnboardingAppointmentAccessUser,
+  appointment: OnboardingAppointmentCancelRecord
+) {
+  if (appointment.status !== "Pending" && appointment.status !== "Approved") {
+    return false
+  }
+  return canEditOnboardingAppointment(user, appointment)
 }

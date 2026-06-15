@@ -16,6 +16,7 @@ import {
   startOfWeek,
 } from "date-fns"
 import {
+  Ban,
   CalendarDays,
   CalendarIcon,
   CheckCircle2,
@@ -82,7 +83,7 @@ type Appointment = {
   scheduledAt: string
   scheduledEndAt: string
   paymentStatus: "Pending" | "Paid" | "Unpaid"
-  status: "Pending" | "Approved" | "Completed"
+  status: "Pending" | "Approved" | "Completed" | "Canceled"
   locationName: string | null
   locationAddress: string | null
   googlePlaceId: string | null
@@ -97,6 +98,10 @@ type Appointment = {
   decisionReason: string | null
   assignedMsUserId: string | null
   assignedMsUserName: string | null
+  canceledByUserId: string | null
+  canceledByName: string | null
+  canceledAt: string | null
+  cancelReason: string | null
   attachments: string[]
   attachmentFiles: AppointmentAttachment[]
   createdAt: string
@@ -104,6 +109,7 @@ type Appointment = {
   canEdit: boolean
   canReview: boolean
   canAssign: boolean
+  canCancel: boolean
 }
 
 type MerchantOption = {
@@ -167,6 +173,7 @@ const statusBadgeStyles: Record<Appointment["status"], string> = {
   Pending: "bg-amber-500/10 text-amber-700 ring-1 ring-amber-500/20",
   Approved: "bg-sky-500/10 text-sky-700 ring-1 ring-sky-500/20",
   Completed: "bg-emerald-500/10 text-emerald-700 ring-1 ring-emerald-500/20",
+  Canceled: "bg-rose-500/10 text-rose-700 ring-1 ring-rose-500/20",
 }
 
 const paymentBadgeStyles: Record<Appointment["paymentStatus"], string> = {
@@ -179,6 +186,7 @@ const calendarEventStyles: Record<Appointment["status"], string> = {
   Pending: "bg-amber-500/12 text-amber-800 border-amber-500/20",
   Approved: "bg-sky-500/12 text-sky-800 border-sky-500/20",
   Completed: "bg-emerald-500/12 text-emerald-800 border-emerald-500/20",
+  Canceled: "bg-rose-500/12 text-rose-800 border-rose-500/20 line-through",
 }
 
 function getDefaultFormState(): FormState {
@@ -301,6 +309,11 @@ export default function OnboardingSchedulePage() {
   const [reviewReason, setReviewReason] = React.useState("")
   const [reviewAssignedMsUserId, setReviewAssignedMsUserId] = React.useState("")
   const [reviewLoading, setReviewLoading] = React.useState(false)
+
+  const [cancelOpen, setCancelOpen] = React.useState(false)
+  const [cancelTarget, setCancelTarget] = React.useState<Appointment | null>(null)
+  const [cancelReason, setCancelReason] = React.useState("")
+  const [cancelLoading, setCancelLoading] = React.useState(false)
 
   const [msUsers, setMsUsers] = React.useState<MsUser[]>([])
   const [msUsersLoading, setMsUsersLoading] = React.useState(false)
@@ -735,6 +748,40 @@ export default function OnboardingSchedulePage() {
     }
   }, [sessionUser, reviewAction, reviewAssignedMsUserId, reviewReason, reviewTarget, showToast])
 
+  const openCancelDialog = React.useCallback((appointment: Appointment) => {
+    setCancelTarget(appointment)
+    setCancelReason("")
+    setCancelOpen(true)
+  }, [])
+
+  const handleCancelSubmit = React.useCallback(async () => {
+    if (!sessionUser || !cancelTarget) return
+    const reason = cancelReason.trim()
+    if (!reason) {
+      showToast("Please enter a cancellation reason.", "error")
+      return
+    }
+    setCancelLoading(true)
+    try {
+      const response = await fetch(`/api/onboarding-appointments/${cancelTarget.id}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      })
+      const payload = (await response.json()) as { appointment?: Appointment; error?: string }
+      if (!response.ok || !payload.appointment) throw new Error(payload.error ?? "Unable to cancel schedule.")
+      setAppointments((current) => replaceAppointment(current, payload.appointment!))
+      setCancelOpen(false)
+      setCancelTarget(null)
+      setCancelReason("")
+      showToast("Schedule canceled.")
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to cancel schedule.", "error")
+    } finally {
+      setCancelLoading(false)
+    }
+  }, [sessionUser, cancelTarget, cancelReason, showToast])
+
   const handleAssignmentSave = React.useCallback(async (appointment: Appointment) => {
     if (!sessionUser) return
     const assignedMsUserId =
@@ -873,7 +920,7 @@ export default function OnboardingSchedulePage() {
                                 <PopoverContent align="start" className="w-[360px] p-0">
                                   <div className="space-y-4 p-4">
                                     <div className="flex items-start gap-3">
-                                      <span className={cn("mt-1 size-3 rounded-sm", appointment.status === "Pending" ? "bg-amber-500" : appointment.status === "Approved" ? "bg-sky-500" : "bg-emerald-500")} />
+                                      <span className={cn("mt-1 size-3 rounded-sm", appointment.status === "Pending" ? "bg-amber-500" : appointment.status === "Approved" ? "bg-sky-500" : appointment.status === "Canceled" ? "bg-rose-500" : "bg-emerald-500")} />
                                       <div className="min-w-0 flex-1">
                                         <div className="text-base font-semibold leading-snug">{appointment.installationType}: {appointment.outletName}</div>
                                         <div className="text-muted-foreground mt-1 text-sm">{formatAppointmentRange(appointment)}</div>
@@ -896,9 +943,16 @@ export default function OnboardingSchedulePage() {
                                         </div>
                                       ) : null}
                                     </div>
+                                    {appointment.status === "Canceled" ? (
+                                      <div className="rounded-md bg-rose-500/5 p-3 text-sm">
+                                        <div className="text-rose-700 font-medium">Canceled{appointment.canceledByName ? ` by ${appointment.canceledByName}` : ""}{appointment.canceledAt ? ` • ${formatDateTime(appointment.canceledAt)}` : ""}</div>
+                                        <div className="text-muted-foreground mt-1 whitespace-pre-line">{appointment.cancelReason ?? "--"}</div>
+                                      </div>
+                                    ) : null}
                                     <div className="flex flex-wrap gap-2">
                                       {appointment.canReview && appointment.status === "Pending" ? <Button size="sm" variant="outline" onClick={() => { setReviewTarget(appointment); setReviewAction("approve"); setReviewReason(""); setReviewAssignedMsUserId(appointment.assignedMsUserId ?? ""); setReviewOpen(true) }}>Approve</Button> : null}
                                       {appointment.canReview && appointment.status === "Approved" ? <Button size="sm" onClick={() => { setReviewTarget(appointment); setReviewAction("complete"); setReviewReason(""); setReviewAssignedMsUserId(""); setReviewOpen(true) }}>Complete</Button> : null}
+                                      {appointment.canCancel ? <Button size="sm" variant="outline" className="text-rose-700 hover:text-rose-700" onClick={() => openCancelDialog(appointment)}><Ban className="size-3.5" />Cancel</Button> : null}
                                     </div>
                                   </div>
                                 </PopoverContent>
@@ -924,11 +978,12 @@ export default function OnboardingSchedulePage() {
                 <CardDescription>Showing schedules for the displayed month.</CardDescription>
               </div>
               <Tabs value={agendaStatus} onValueChange={(value) => setAgendaStatus(value as AgendaStatusFilter)}>
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-5">
                   <TabsTrigger value="all">All</TabsTrigger>
                   <TabsTrigger value="Pending">Pending</TabsTrigger>
                   <TabsTrigger value="Approved">Approved</TabsTrigger>
                   <TabsTrigger value="Completed">Completed</TabsTrigger>
+                  <TabsTrigger value="Canceled">Canceled</TabsTrigger>
                 </TabsList>
               </Tabs>
             </CardHeader>
@@ -963,6 +1018,7 @@ export default function OnboardingSchedulePage() {
                         {appointment.canEdit ? <Button size="sm" variant="outline" onClick={() => openEditDialog(appointment)}>Edit</Button> : null}
                         {appointment.canReview && appointment.status === "Pending" ? <Button size="sm" variant="outline" onClick={() => { setReviewTarget(appointment); setReviewAction("approve"); setReviewReason(""); setReviewAssignedMsUserId(appointment.assignedMsUserId ?? ""); setReviewOpen(true) }}>Approve</Button> : null}
                         {appointment.canReview && appointment.status === "Approved" ? <Button size="sm" onClick={() => { setReviewTarget(appointment); setReviewAction("complete"); setReviewReason(""); setReviewAssignedMsUserId(""); setReviewOpen(true) }}>Complete</Button> : null}
+                        {appointment.canCancel ? <Button size="sm" variant="outline" className="text-rose-700 hover:text-rose-700" onClick={() => openCancelDialog(appointment)}><Ban className="size-4" />Cancel</Button> : null}
                       </div>
                     </div>
 
@@ -972,6 +1028,13 @@ export default function OnboardingSchedulePage() {
                       <div><div className="text-muted-foreground text-xs uppercase tracking-wide">Status updated</div><div className="font-medium">{appointment.decisionAt ? formatDateTime(appointment.decisionAt) : "--"}</div></div>
                       <div><div className="text-muted-foreground text-xs uppercase tracking-wide">Status note</div><div className="font-medium">{appointment.decisionReason ?? "--"}</div></div>
                     </div>
+
+                    {appointment.status === "Canceled" ? (
+                      <div className="space-y-2 rounded-lg border border-rose-500/20 bg-rose-500/5 p-3 text-sm">
+                        <div className="flex items-center gap-2 font-medium text-rose-700"><Ban className="size-4" />Canceled{appointment.canceledByName ? ` by ${appointment.canceledByName}` : ""}{appointment.canceledAt ? ` • ${formatDateTime(appointment.canceledAt)}` : ""}</div>
+                        <div className="text-muted-foreground whitespace-pre-line">{appointment.cancelReason ?? "--"}</div>
+                      </div>
+                    ) : null}
 
                     <div className="space-y-2">
                       <div className="text-muted-foreground text-xs uppercase tracking-wide">Reference files</div>
@@ -1284,6 +1347,29 @@ export default function OnboardingSchedulePage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => { setReviewOpen(false); setReviewTarget(null); setReviewReason(""); setReviewAssignedMsUserId("") }} disabled={reviewLoading}>Cancel</Button>
             <Button onClick={() => void handleReviewSubmit()} disabled={reviewLoading || (reviewAction === "approve" && !reviewAssignedMsUserId)}>{reviewLoading ? <Loader2 className="size-4 animate-spin" /> : null}{reviewAction === "approve" ? "Approve schedule" : "Complete schedule"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={cancelOpen} onOpenChange={(open) => { setCancelOpen(open); if (!open) { setCancelTarget(null); setCancelReason("") } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Cancel schedule</DialogTitle>
+            <DialogDescription>{cancelTarget ? `Cancel the onboarding schedule for ${cancelTarget.outletName}. The assigned MS PIC will be notified by email.` : "Cancel this onboarding schedule."}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-xl border p-4 text-sm">
+              <div className="font-medium">{cancelTarget?.outletName ?? "Selected schedule"}</div>
+              <div className="text-muted-foreground mt-1">{cancelTarget ? formatAppointmentRange(cancelTarget) : "--"}</div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cancel-reason">Cancellation reason <span className="text-rose-600">*</span></Label>
+              <textarea id="cancel-reason" className="border-input focus-visible:border-ring focus-visible:ring-ring/50 min-h-28 w-full rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-[3px]" placeholder="Explain why this schedule is being canceled. This will be visible to other users." value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setCancelOpen(false); setCancelTarget(null); setCancelReason("") }} disabled={cancelLoading}>Keep schedule</Button>
+            <Button variant="destructive" onClick={() => void handleCancelSubmit()} disabled={cancelLoading || !cancelReason.trim()}>{cancelLoading ? <Loader2 className="size-4 animate-spin" /> : null}Cancel schedule</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

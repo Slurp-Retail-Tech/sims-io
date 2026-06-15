@@ -2,12 +2,20 @@ import type { Pool, RowDataPacket } from "mysql2/promise"
 import { NextRequest, NextResponse } from "next/server"
 
 import { requireAuthenticatedUser } from "@/lib/auth"
-import { canEditOnboardingAppointment } from "@/lib/onboarding-appointment-access"
+import {
+  canCancelOnboardingAppointment,
+  canEditOnboardingAppointment,
+} from "@/lib/onboarding-appointment-access"
 import { getProxyObjectUrl } from "@/lib/storage"
 
 export const INSTALLATION_TYPES = ["Online", "On-site", "Support"] as const
 export const PAYMENT_STATUSES = ["Pending", "Paid", "Unpaid"] as const
-export const APPOINTMENT_STATUSES = ["Pending", "Approved", "Completed"] as const
+export const APPOINTMENT_STATUSES = [
+  "Pending",
+  "Approved",
+  "Completed",
+  "Canceled",
+] as const
 export const MAX_ATTACHMENT_COUNT = 10
 
 export type InstallationType = (typeof INSTALLATION_TYPES)[number]
@@ -41,6 +49,9 @@ export type AppointmentRow = RowDataPacket & {
   decision_at: string | null
   decision_reason: string | null
   assigned_ms_user_id: string | null
+  canceled_by_user_id: string | null
+  canceled_at: string | null
+  cancel_reason: string | null
   google_calendar_id: string | null
   google_event_id: string | null
   google_event_etag: string | null
@@ -55,6 +66,8 @@ export type AppointmentRow = RowDataPacket & {
   decision_by_email: string | null
   assigned_ms_user_name: string | null
   assigned_ms_user_email: string | null
+  canceled_by_name: string | null
+  canceled_by_email: string | null
 }
 
 export type AttachmentRow = RowDataPacket & {
@@ -83,6 +96,9 @@ export const appointmentSelectSql = `
     appointments.decision_at,
     appointments.decision_reason,
     appointments.assigned_ms_user_id,
+    appointments.canceled_by_user_id,
+    appointments.canceled_at,
+    appointments.cancel_reason,
     appointments.google_calendar_id,
     appointments.google_event_id,
     appointments.google_event_etag,
@@ -96,7 +112,9 @@ export const appointmentSelectSql = `
     decision_by.name AS decision_by_name,
     decision_by.email AS decision_by_email,
     assigned_ms_user.name AS assigned_ms_user_name,
-    assigned_ms_user.email AS assigned_ms_user_email
+    assigned_ms_user.email AS assigned_ms_user_email,
+    canceled_by.name AS canceled_by_name,
+    canceled_by.email AS canceled_by_email
   FROM onboarding_appointments AS appointments
   LEFT JOIN users AS created_by
     ON created_by.id = appointments.created_by_user_id
@@ -104,6 +122,8 @@ export const appointmentSelectSql = `
     ON decision_by.id = appointments.decision_by_user_id
   LEFT JOIN users AS assigned_ms_user
     ON assigned_ms_user.id = appointments.assigned_ms_user_id
+  LEFT JOIN users AS canceled_by
+    ON canceled_by.id = appointments.canceled_by_user_id
 `
 
 export async function resolveAuthUser(
@@ -197,6 +217,17 @@ export function canAssignAppointment(
   return isMerchantSuccessReviewer(user) && appointment.status === "Approved"
 }
 
+export function canCancelAppointment(
+  user: AuthUser,
+  appointment: {
+    created_by_user_id: string
+    assigned_ms_user_id?: string | null
+    status: string
+  }
+) {
+  return canCancelOnboardingAppointment(user, appointment)
+}
+
 export async function fetchAppointmentAttachments(
   pool: Pool,
   appointmentIds: number[]
@@ -269,6 +300,12 @@ export function mapAppointment(
       ? String(row.assigned_ms_user_id)
       : null,
     assignedMsUserName: row.assigned_ms_user_name,
+    canceledByUserId: row.canceled_by_user_id
+      ? String(row.canceled_by_user_id)
+      : null,
+    canceledByName: row.canceled_by_name,
+    canceledAt: row.canceled_at,
+    cancelReason: row.cancel_reason,
     googleCalendarId: row.google_calendar_id,
     googleEventId: row.google_event_id,
     googleEventEtag: row.google_event_etag,
@@ -282,6 +319,7 @@ export function mapAppointment(
     canEdit: canEditAppointment(currentUser, row),
     canReview: isMerchantSuccessReviewer(currentUser),
     canAssign: canAssignAppointment(currentUser, row),
+    canCancel: canCancelAppointment(currentUser, row),
   }
 }
 
