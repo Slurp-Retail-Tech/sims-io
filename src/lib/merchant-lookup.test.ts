@@ -50,13 +50,10 @@ test("builds merchant option search with the same fields as the merchants page",
   ])
 })
 
-test("builds outlet merchant resolver for database id, fid, or external id", () => {
+test("builds outlet merchant resolver for fid or external id (never surrogate id)", () => {
   const resolver = buildMerchantOutletResolver("merchant-123")
 
-  assert.match(resolver.sql, /WHERE id = \? OR fid = \? OR external_id = \?/)
-  assert.deepEqual(resolver.values, [
-    "merchant-123",
-    "merchant-123",
-    "merchant-123",
-  ])
+  assert.match(resolver.sql, /WHERE fid = \? OR external_id = \?/)
+  assert.doesNotMatch(resolver.sql, /\bid = \?/)
+  assert.deepEqual(resolver.values, ["merchant-123", "merchant-123"])
 })

@@ -86,13 +86,18 @@ export function buildMerchantSearchClause(query: string) {
 }
 
 export function buildMerchantOutletResolver(merchantId: string) {
+  // Resolve only by the business keys (fid / external_id). The route param is
+  // always a merchant fid, and these two columns are equal and unique per
+  // merchant. Matching on the surrogate `id` is unsafe: a numeric fid can
+  // collide with a *different* merchant's auto-increment primary key, and with
+  // LIMIT 1 the PK hit wins — returning the wrong merchant's outlets.
   return {
     sql: `
     SELECT external_id
     FROM merchants
-    WHERE id = ? OR fid = ? OR external_id = ?
+    WHERE fid = ? OR external_id = ?
     LIMIT 1
   `,
-    values: [merchantId, merchantId, merchantId],
+    values: [merchantId, merchantId],
   }
 }
