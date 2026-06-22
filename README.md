@@ -162,6 +162,11 @@ DEMOFORM_WHATSAPP_NUMBER=
 NEXT_PUBLIC_RECAPTCHA_SITE_KEY=
 RECAPTCHA_SECRET_KEY=
 
+# ── Google Tag Manager (optional) ────────────────────────────────────────────
+# When set, the GTM container loads site-wide and the demo form pushes a
+# `demo_form_submit` event to the dataLayer on success. Leave blank to disable.
+NEXT_PUBLIC_GTM_ID=
+
 # ── Mapbox ────────────────────────────────────────────────────────────────────
 # Required for the /maps page. Baked into the client bundle at build time.
 NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=
@@ -183,7 +188,7 @@ Notes:
 - `GOOGLE_CALENDAR_REDIRECT_URI` is optional; it defaults to `${APP_BASE_URL}/api/google-calendar/oauth/callback` for the one-time refresh-token helper flow
 - `GOOGLE_CALENDAR_ACCESS_TOKEN` is a local fallback; access tokens expire, so do not use it as the production setup
 - `GOOGLE_PLACES_ENABLED=true` enables server-side Google Places lookup for onboarding locations; restrict `GOOGLE_PLACES_API_KEY` in Google Cloud and use `GOOGLE_PLACES_REGION_CODES` to bias supported countries
-- `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` and `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` are baked into the JS bundle at build time; changing them requires a full redeploy, not just a container restart
+- `NEXT_PUBLIC_RECAPTCHA_SITE_KEY`, `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN`, and `NEXT_PUBLIC_GTM_ID` are baked into the JS bundle at build time; changing them requires a full redeploy, not just a container restart
 - `RECAPTCHA_SECRET_KEY` — reCAPTCHA enforcement is fail-closed in production; the demo form POST returns 500 if this is missing
 - `CSAT_GOOGLE_REVIEW_URL` — company-wide Google review link for Slurp Retail Tech Sdn Bhd; shown after a CSAT submission only when the Support Service rating is Satisfied/Very Satisfied. Leave blank to disable the review prompt entirely
 

@@ -206,6 +206,15 @@ export default function DemoFormPage() {
           ? payload.whatsappUrl
           : null
 
+      const dataLayer = ((window as Window & { dataLayer?: Record<string, unknown>[] }).dataLayer ??=
+        [])
+      dataLayer.push({
+        event: "demo_form_submit",
+        form_id: "demo-form",
+        business_type: String(formData.get("business_type") ?? ""),
+        language,
+      })
+
       setAlert({ message: t.messages.success, variant: "success" })
       form.reset()
 
