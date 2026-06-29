@@ -17,12 +17,8 @@ export type LeadNotificationLead = {
   id: string
   name: string
   telephone: string
-  email: string
-  businessName: string
   businessType: string
   businessLocation: string
-  hubspotSyncStatus: "Pending" | "Success" | "Failed" | "Skipped"
-  hubspotSyncError: string | null
   createdAt: string
 }
 
@@ -135,18 +131,11 @@ function buildLeadNotificationHtml(lead: LeadNotificationLead) {
   const rows = [
     ["Lead name", lead.name],
     ["Submitted", formatLeadSubmittedAt(lead.createdAt)],
-    ["Business", lead.businessName],
     ["Type", lead.businessType],
     ["Location", lead.businessLocation],
-    ["Email", `<a href="mailto:${encodeURI(lead.email)}" style="color:#0f766e;text-decoration:none;">${escapeHtml(lead.email)}</a>`],
     ["Telephone", `<a href="tel:${encodeURI(lead.telephone)}" style="color:#0f766e;text-decoration:none;">${escapeHtml(lead.telephone)}</a>`],
     ["Lead ID", escapeHtml(lead.id)],
-    ["HubSpot Status", escapeHtml(lead.hubspotSyncStatus)],
   ]
-
-  if (lead.hubspotSyncStatus === "Failed" && lead.hubspotSyncError) {
-    rows.push(["HubSpot Detail", escapeHtml(lead.hubspotSyncError)])
-  }
 
   const tableRows = rows
     .map(
@@ -182,18 +171,11 @@ function buildLeadNotificationHtml(lead: LeadNotificationLead) {
 function buildLeadNotificationText(lead: LeadNotificationLead) {
   const lines = [
     `New demo lead: ${lead.name}`,
-    `Business: ${lead.businessName}`,
     `Type: ${lead.businessType}`,
     `Location: ${lead.businessLocation}`,
-    `Email: ${lead.email}`,
     `Telephone: ${lead.telephone}`,
     `Lead ID: ${lead.id}`,
-    `HubSpot Status: ${lead.hubspotSyncStatus}`,
   ]
-
-  if (lead.hubspotSyncStatus === "Failed" && lead.hubspotSyncError) {
-    lines.push(`HubSpot Detail: ${lead.hubspotSyncError}`)
-  }
 
   return lines.join("\n")
 }

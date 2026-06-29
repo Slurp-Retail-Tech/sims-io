@@ -29,18 +29,13 @@ import {
 } from "@/components/ui/pagination"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
 type LeadRow = {
   id: string
   name: string
   telephone: string
-  email: string
-  businessName: string
   businessType: string
   businessLocation: string
-  hubspotSyncStatus: "Pending" | "Success" | "Failed" | "Skipped"
-  hubspotSyncError: string | null
   createdAt: string
   archived: boolean
 }
@@ -53,13 +48,6 @@ type LeadNotificationSettings = {
 }
 
 const perPageOptions = [10, 25, 50, 100]
-
-const statusStyles: Record<LeadRow["hubspotSyncStatus"], string> = {
-  Pending: "text-amber-700 bg-amber-500/10 dark:text-amber-300",
-  Success: "text-emerald-700 bg-emerald-500/10 dark:text-emerald-300",
-  Failed: "text-red-700 bg-red-500/10 dark:text-red-300",
-  Skipped: "text-primary bg-primary/10",
-}
 
 function getPaginationItems(current: number, total: number) {
   if (total <= 7) {
@@ -424,7 +412,7 @@ export default function LeadsTable() {
         <CardHeader className="space-y-2">
           <CardTitle className="text-base">Lead pipeline</CardTitle>
           <Input
-            placeholder="Search by lead, contact, or business"
+            placeholder="Search by name, phone, or location"
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
           />
@@ -446,7 +434,6 @@ export default function LeadsTable() {
                       <th className="px-4 py-3">Lead</th>
                       <th className="px-4 py-3">Contacts</th>
                       <th className="px-4 py-3">Business</th>
-                      <th className="px-4 py-3">HubSpot</th>
                       <th className="px-4 py-3">Created</th>
                       <th className="px-4 py-3">Actions</th>
                     </tr>
@@ -460,43 +447,15 @@ export default function LeadsTable() {
                         <td className="px-4 py-3 font-medium">#{lead.id}</td>
                         <td className="px-4 py-3 text-xs">
                           <div className="font-semibold">{lead.name}</div>
-                          <div className="text-muted-foreground">
-                            {lead.businessName || "--"}
-                          </div>
                         </td>
                         <td className="px-4 py-3 text-xs">
                           <div>{lead.telephone || "--"}</div>
-                          <div className="text-muted-foreground">{lead.email || "--"}</div>
                         </td>
                         <td className="px-4 py-3 text-xs">
                           <div>{lead.businessType || "--"}</div>
                           <div className="text-muted-foreground">
                             {lead.businessLocation || "--"}
                           </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          {lead.hubspotSyncStatus === "Failed" && lead.hubspotSyncError ? (
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span
-                                  className={`inline-flex cursor-help items-center rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${statusStyles[lead.hubspotSyncStatus]}`}
-                                >
-                                  {lead.hubspotSyncStatus}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent sideOffset={6}>
-                                <div className="max-w-xs whitespace-pre-wrap">
-                                  {lead.hubspotSyncError}
-                                </div>
-                              </TooltipContent>
-                            </Tooltip>
-                          ) : (
-                            <span
-                              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${statusStyles[lead.hubspotSyncStatus]}`}
-                            >
-                              {lead.hubspotSyncStatus}
-                            </span>
-                          )}
                         </td>
                         <td className="px-4 py-3 text-xs text-muted-foreground">
                           {formatDateTime(lead.createdAt)}
@@ -617,7 +576,6 @@ export default function LeadsTable() {
                     <th className="px-4 py-3">Lead</th>
                     <th className="px-4 py-3">Contacts</th>
                     <th className="px-4 py-3">Business</th>
-                    <th className="px-4 py-3">HubSpot</th>
                     <th className="px-4 py-3">Created</th>
                     <th className="px-4 py-3">Actions</th>
                   </tr>
@@ -631,13 +589,9 @@ export default function LeadsTable() {
                       <td className="px-4 py-3 font-medium">#{lead.id}</td>
                       <td className="px-4 py-3 text-xs">
                         <div className="font-semibold">{lead.name}</div>
-                        <div className="text-muted-foreground">
-                          {lead.businessName || "--"}
-                        </div>
                       </td>
                       <td className="px-4 py-3 text-xs">
                         <div>{lead.telephone || "--"}</div>
-                        <div className="text-muted-foreground">{lead.email || "--"}</div>
                       </td>
                       <td className="px-4 py-3 text-xs">
                         <div>{lead.businessType || "--"}</div>
@@ -645,7 +599,6 @@ export default function LeadsTable() {
                           {lead.businessLocation || "--"}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-xs">{lead.hubspotSyncStatus}</td>
                       <td className="px-4 py-3 text-xs text-muted-foreground">
                         {formatDateTime(lead.createdAt)}
                       </td>

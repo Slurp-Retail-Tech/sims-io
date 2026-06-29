@@ -10,12 +10,8 @@ type LeadDbRow = {
   id: number | string
   name: string
   telephone: string
-  email: string
-  business_name: string
   business_type: string
   business_location: string
-  hubspot_sync_status: "Pending" | "Success" | "Failed" | "Skipped"
-  hubspot_sync_error: string | null
   created_at: string
   archived: number
 }
@@ -95,121 +91,6 @@ async function verifyRecaptchaToken(token: string, remoteIp?: string | null) {
   )
 }
 
-function splitContactName(fullName: string) {
-  const parts = fullName.trim().split(/\s+/).filter(Boolean)
-  if (parts.length <= 1) {
-    return {
-      firstName: parts[0] ?? fullName,
-      lastName: "",
-    }
-  }
-
-  return {
-    firstName: parts[0],
-    lastName: parts.slice(1).join(" "),
-  }
-}
-
-async function syncLeadToHubspot(params: {
-  name: string
-  telephone: string
-  email: string
-  businessName: string
-  businessType: string
-  businessLocation: string
-  source: string
-}) {
-  const token = process.env.HUBSPOT_ACCESS_TOKEN?.trim()
-  if (!token) {
-    return {
-      status: "Skipped" as const,
-      contactId: null,
-      error: "HubSpot token is not configured.",
-    }
-  }
-
-  const { firstName, lastName } = splitContactName(params.name)
-  const properties: Record<string, string> = {
-    email: params.email,
-    firstname: firstName,
-    lastname: lastName,
-    phone: params.telephone,
-    company: params.businessName,
-    city: params.businessLocation,
-  }
-
-  const businessTypeProperty = process.env.HUBSPOT_BUSINESS_TYPE_PROPERTY?.trim()
-  const businessLocationProperty = process.env.HUBSPOT_BUSINESS_LOCATION_PROPERTY?.trim()
-  const sourceProperty = process.env.HUBSPOT_SOURCE_PROPERTY?.trim()
-
-  if (businessTypeProperty) {
-    properties[businessTypeProperty] = params.businessType
-  }
-  if (businessLocationProperty) {
-    properties[businessLocationProperty] = params.businessLocation
-  }
-  if (sourceProperty) {
-    properties[sourceProperty] = params.source
-  }
-
-  const requestHeaders = {
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
-  }
-
-  const patchUrl = `https://api.hubapi.com/crm/v3/objects/contacts/${encodeURIComponent(
-    params.email
-  )}?idProperty=email`
-
-  const patchResponse = await fetch(patchUrl, {
-    method: "PATCH",
-    headers: requestHeaders,
-    body: JSON.stringify({ properties }),
-    cache: "no-store",
-  })
-
-  if (patchResponse.ok) {
-    const patchPayload = (await patchResponse.json()) as { id?: string }
-    return {
-      status: "Success" as const,
-      contactId: patchPayload.id ?? null,
-      error: null,
-    }
-  }
-
-  if (patchResponse.status !== 404) {
-    const errorText = await patchResponse.text()
-    return {
-      status: "Failed" as const,
-      contactId: null,
-      error: errorText || "HubSpot update failed.",
-    }
-  }
-
-  const createResponse = await fetch("https://api.hubapi.com/crm/v3/objects/contacts", {
-    method: "POST",
-    headers: requestHeaders,
-    body: JSON.stringify({ properties }),
-    cache: "no-store",
-  })
-
-  if (!createResponse.ok) {
-    const errorText = await createResponse.text()
-    return {
-      status: "Failed" as const,
-      contactId: null,
-      error: errorText || "HubSpot create failed.",
-    }
-  }
-
-  const createPayload = (await createResponse.json()) as { id?: string }
-  return {
-    status: "Success" as const,
-    contactId: createPayload.id ?? null,
-    error: null,
-  }
-}
-
 export async function GET(request: NextRequest) {
   const user = await requireAuthenticatedUser(request)
   if (!user) {
@@ -245,13 +126,11 @@ export async function GET(request: NextRequest) {
       (
         LOWER(name) LIKE ?
         OR LOWER(telephone) LIKE ?
-        OR LOWER(email) LIKE ?
-        OR LOWER(business_name) LIKE ?
         OR LOWER(business_location) LIKE ?
       )
     `
     )
-    values.push(likeValue, likeValue, likeValue, likeValue, likeValue)
+    values.push(likeValue, likeValue, likeValue)
   }
 
   const whereSql = whereClauses.length
@@ -281,12 +160,8 @@ export async function GET(request: NextRequest) {
         id,
         name,
         telephone,
-        email,
-        business_name,
         business_type,
         business_location,
-        hubspot_sync_status,
-        hubspot_sync_error,
         created_at,
         archived
       FROM leads
@@ -303,12 +178,8 @@ export async function GET(request: NextRequest) {
       id: String(row.id),
       name: row.name,
       telephone: row.telephone,
-      email: row.email,
-      businessName: row.business_name,
       businessType: row.business_type,
       businessLocation: row.business_location,
-      hubspotSyncStatus: row.hubspot_sync_status,
-      hubspotSyncError: row.hubspot_sync_error,
       createdAt: row.created_at,
       archived: Boolean(row.archived),
     })),
@@ -336,14 +207,12 @@ export async function POST(request: NextRequest) {
 
   const name = normalizeText(formData.get("name"))
   const telephone = normalizeText(formData.get("telephone"))
-  const email = normalizeText(formData.get("email"))
-  const businessName = normalizeText(formData.get("business_name"))
   const businessType = normalizeText(formData.get("business_type"))
   const businessLocation = normalizeText(formData.get("business_location"))
   const source = normalizeText(formData.get("source")) ?? "demo-form"
   const recaptchaToken = normalizeText(formData.get("g-recaptcha-response"))
 
-  if (!name || !telephone || !email || !businessName || !businessType || !businessLocation) {
+  if (!name || !telephone || !businessType || !businessLocation) {
     return NextResponse.json({ error: "Missing required fields." }, { status: 400 })
   }
 
@@ -352,10 +221,6 @@ export async function POST(request: NextRequest) {
       { error: "Telephone must contain 8 to 15 digits." },
       { status: 400 }
     )
-  }
-
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return NextResponse.json({ error: "Invalid email address." }, { status: 400 })
   }
 
   if (!recaptchaToken) {
@@ -387,20 +252,16 @@ export async function POST(request: NextRequest) {
       INSERT INTO leads (
         name,
         telephone,
-        email,
-        business_name,
         business_type,
         business_location,
         source,
         referrer
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?)
     `,
     [
       name,
       telephone,
-      email,
-      businessName,
       businessType,
       businessLocation,
       source,
@@ -409,35 +270,6 @@ export async function POST(request: NextRequest) {
   )
 
   const leadId = String(insertResult.insertId)
-  const hubspotSync = await syncLeadToHubspot({
-    name,
-    telephone,
-    email,
-    businessName,
-    businessType,
-    businessLocation,
-    source,
-  })
-
-  await pool.query(
-    `
-      UPDATE leads
-      SET
-        hubspot_contact_id = ?,
-        hubspot_sync_status = ?,
-        hubspot_sync_error = ?,
-        hubspot_synced_at = CASE WHEN ? = 'Success' THEN CURRENT_TIMESTAMP(3) ELSE NULL END,
-        updated_at = CURRENT_TIMESTAMP(3)
-      WHERE id = ?
-    `,
-    [
-      hubspotSync.contactId,
-      hubspotSync.status,
-      hubspotSync.error,
-      hubspotSync.status,
-      leadId,
-    ]
-  )
 
   const [insertedLeadRows] = await pool.query(
     `
@@ -455,12 +287,8 @@ export async function POST(request: NextRequest) {
       id: leadId,
       name,
       telephone,
-      email,
-      businessName,
       businessType,
       businessLocation,
-      hubspotSyncStatus: hubspotSync.status,
-      hubspotSyncError: hubspotSync.error,
       createdAt: insertedLead?.created_at ?? new Date().toISOString(),
     })
   } catch (error) {
@@ -471,8 +299,6 @@ export async function POST(request: NextRequest) {
   const whatsappMessage = `Hi Slurp! I want to book a demo.
 Name: ${name}
 Phone: ${telephone}
-Email: ${email}
-Business Name: ${businessName}
 Business Type: ${businessType}
 Business Location: ${businessLocation}`
   const whatsappUrl = whatsappBaseUrl
@@ -482,6 +308,5 @@ Business Location: ${businessLocation}`
   return NextResponse.json({
     leadId,
     whatsappUrl,
-    hubspotSyncStatus: hubspotSync.status,
   })
 }
