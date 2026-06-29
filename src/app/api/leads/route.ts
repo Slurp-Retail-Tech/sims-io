@@ -12,6 +12,7 @@ type LeadDbRow = {
   telephone: string
   business_type: string
   business_location: string
+  source: string | null
   created_at: string
   archived: number
 }
@@ -162,6 +163,7 @@ export async function GET(request: NextRequest) {
         telephone,
         business_type,
         business_location,
+        source,
         created_at,
         archived
       FROM leads
@@ -180,6 +182,7 @@ export async function GET(request: NextRequest) {
       telephone: row.telephone,
       businessType: row.business_type,
       businessLocation: row.business_location,
+      source: row.source,
       createdAt: row.created_at,
       archived: Boolean(row.archived),
     })),
