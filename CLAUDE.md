@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Is
 
-SIMS is an internal merchant engagement platform built with Next.js App Router. It manages support tickets, sales leads, merchant directories, renewal tracking, and appointment scheduling — with integrations to ClickUp, a POS API, Google Workspace, MinIO, and HubSpot.
+SIMS is an internal merchant engagement platform built with Next.js App Router. It manages support tickets, sales leads, merchant directories, renewal tracking, and appointment scheduling — with integrations to ClickUp, a POS API, Google Workspace, and MinIO.
 
 ## Commands
 
@@ -68,7 +68,6 @@ All API routes live at `src/app/api/**/route.ts` and must stay thin — move bus
 | ClickUp (task sync) | `CLICKUP_*` | `src/lib/clickup.ts`, `clickup-ticket-sync.ts` |
 | POS API (merchant import) | `POS_*` | `src/lib/pos-api.ts`, `merchant-import.ts` |
 | Google OAuth | `GOOGLE_*` | `src/lib/auth.ts` |
-| HubSpot (leads) | `HUBSPOT_*` | `src/lib/lead-notification.ts` |
 | Email (Google SMTP) | `SMTP_*` | `src/lib/mail.ts`, `auth-email.ts` |
 | MinIO/S3 | `MINIO_*` | `src/lib/storage.ts` |
 | Mapbox | `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` | `src/lib/outlet-map.ts` |
