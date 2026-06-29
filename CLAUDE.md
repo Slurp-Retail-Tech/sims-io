@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Is
 
-SIMS is an internal merchant engagement platform built with Next.js App Router. It manages support tickets, sales leads, merchant directories, renewal tracking, and appointment scheduling — with integrations to ClickUp, a POS API, Google Workspace, MinIO, and HubSpot.
+SIMS is an internal merchant engagement platform built with Next.js App Router. It manages support tickets, sales leads, merchant directories, renewal tracking, and appointment scheduling — with integrations to ClickUp, a POS API, Google Workspace, and MinIO.
 
 ## Commands
 
@@ -15,12 +15,17 @@ npm run dev          # Starts Next.js dev server on port 3000 (uses Webpack, not
 npm run build
 npm run lint         # ESLint with Next.js config
 
+# Tests — Node's built-in runner over an explicit allowlist of focused helper tests
+npm test
+# Run a single file directly:
+node --test src/lib/merchant-lookup.test.ts
+
 # Local services (MySQL:3307, phpMyAdmin:8081, MinIO:9002/9003)
 docker compose up -d
 npm run db:import:platform-data  # Import platform data from SQL dump
 ```
 
-There is currently no automated test suite. For linting only `npm run lint` is available.
+Tests are **not** auto-discovered: `npm test` runs a hardcoded file list in `package.json`'s `test` script (`*.test.ts` / `*.spec.ts` colocated in `src/lib/` and a few under `src/app/`). When you add a new test file, append it to that list or it won't run in CI.
 
 ## Architecture
 
@@ -29,9 +34,10 @@ There is currently no automated test suite. For linting only `npm run lint` is a
 ```
 src/app/
 ├── (app)/          # Protected routes — require sims-auth cookie
-│   ├── dashboard/, tickets/, merchants/, leads/, sales/
+│   ├── tickets/, merchants/, sales/, overview/, maps/
+│   ├── merchant-success/, clickup-tasks/, plus/
 │   ├── renewal-retention/   # Preview-only; not live analytics
-│   ├── analytics/, overview/, inbox/, knowledge-base/
+│   ├── knowledge-base/, release-notes/
 │   └── user-management/, preferences/, profile/
 ├── api/            # Route handlers (thin — delegate to src/lib/)
 ├── login/, activate/, reset-password/
@@ -68,10 +74,12 @@ All API routes live at `src/app/api/**/route.ts` and must stay thin — move bus
 | ClickUp (task sync) | `CLICKUP_*` | `src/lib/clickup.ts`, `clickup-ticket-sync.ts` |
 | POS API (merchant import) | `POS_*` | `src/lib/pos-api.ts`, `merchant-import.ts` |
 | Google OAuth | `GOOGLE_*` | `src/lib/auth.ts` |
-| HubSpot (leads) | `HUBSPOT_*` | `src/lib/lead-notification.ts` |
 | Email (Google SMTP) | `SMTP_*` | `src/lib/mail.ts`, `auth-email.ts` |
 | MinIO/S3 | `MINIO_*` | `src/lib/storage.ts` |
 | Mapbox | `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` | `src/lib/outlet-map.ts` |
+| Redis (rate-limit store) | `REDIS_URL` | `src/lib/rate-limit.ts`, `rate-limit-store.ts` |
+
+Rate limiting uses Redis when `REDIS_URL` is set (required in production) and falls back to an in-memory `Map` for local dev only — don't rely on the in-memory path across multiple instances.
 
 ## Conventions
 
