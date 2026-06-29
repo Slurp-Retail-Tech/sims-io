@@ -1,14 +1,12 @@
 "use client"
 
 import * as React from "react"
-import { ChevronDown } from "lucide-react"
 
 import { formatDateTime } from "@/lib/dates"
 import { getSessionUser } from "@/lib/session"
 import { useToast } from "@/components/toast-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
   Dialog,
   DialogContent,
@@ -36,6 +34,7 @@ type LeadRow = {
   telephone: string
   businessType: string
   businessLocation: string
+  source: string | null
   createdAt: string
   archived: boolean
 }
@@ -88,7 +87,7 @@ export default function LeadsTable() {
   const [settingsLoading, setSettingsLoading] = React.useState(true)
   const [settingsSaving, setSettingsSaving] = React.useState(false)
   const [settingsError, setSettingsError] = React.useState<string | null>(null)
-  const [settingsExpanded, setSettingsExpanded] = React.useState(false)
+  const [settingsDialogOpen, setSettingsDialogOpen] = React.useState(false)
   const [pendingArchiveAction, setPendingArchiveAction] = React.useState<{
     lead: LeadRow
     archived: boolean
@@ -299,6 +298,9 @@ export default function LeadsTable() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setSettingsDialogOpen(true)}>
+            Email notifications
+          </Button>
           <Button size="sm" variant="outline" onClick={() => void openArchivedModal()}>
             Archived leads
           </Button>
@@ -309,104 +311,6 @@ export default function LeadsTable() {
           </Button>
         </div>
       </div>
-
-      <Collapsible open={settingsExpanded} onOpenChange={setSettingsExpanded}>
-        <Card>
-          <CardHeader className="space-y-0">
-            <CollapsibleTrigger className="flex w-full items-start justify-between gap-4 text-left">
-              <div className="space-y-2">
-                <CardTitle className="text-base">New lead email notification</CardTitle>
-                <div className="text-muted-foreground text-sm">
-                  Control email notifications for new demoform submissions.
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {settingsLoading
-                    ? "Loading notification settings..."
-                    : settings.isEnabled
-                      ? "Enabled"
-                      : "Disabled"}
-                  {!settingsLoading && !canManageNotificationSettings
-                    ? " · View only"
-                    : ""}
-                </div>
-              </div>
-              <ChevronDown
-                className={`mt-1 size-4 shrink-0 text-muted-foreground transition-transform ${
-                  settingsExpanded ? "rotate-180" : ""
-                }`}
-              />
-            </CollapsibleTrigger>
-          </CardHeader>
-          <CollapsibleContent>
-            <CardContent className="space-y-4">
-              {settingsLoading ? (
-                <div className="text-muted-foreground text-sm">Loading notification settings...</div>
-              ) : (
-                <>
-                  <label className="flex items-center gap-3 rounded-lg border px-4 py-3 text-sm">
-                    <input
-                      type="checkbox"
-                      className="size-4"
-                      checked={settings.isEnabled}
-                      disabled={!canManageNotificationSettings}
-                      onChange={(event) => {
-                        setSettings((current) => ({
-                          ...current,
-                          isEnabled: event.target.checked,
-                        }))
-                      }}
-                    />
-                    <div>
-                      <div className="font-medium">Enable email notification</div>
-                      <div className="text-muted-foreground text-xs">
-                        Send an SMTP email when a new lead is submitted from the demoform.
-                      </div>
-                    </div>
-                  </label>
-
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium">Recipients</div>
-                    <textarea
-                      className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-28 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none"
-                      placeholder={"marketing@getslurp.com\nsales@getslurp.com"}
-                      value={settings.recipientsText}
-                      disabled={!canManageNotificationSettings}
-                      onChange={(event) => {
-                        const value = event.target.value
-                        setSettings((current) => ({ ...current, recipientsText: value }))
-                      }}
-                    />
-                    <p className="text-muted-foreground text-xs">
-                      One email per line. These addresses receive new demo lead alerts.
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                    <div className="text-muted-foreground text-xs">
-                      {canManageNotificationSettings
-                        ? settings.updatedAt
-                          ? `Last updated ${formatDateTime(settings.updatedAt)}`
-                          : " "
-                        : "Only Admins and Super Admins can make changes."}
-                    </div>
-                    <Button
-                      size="sm"
-                      onClick={() => void handleSaveSettings()}
-                      disabled={settingsSaving || !canManageNotificationSettings}
-                    >
-                      {settingsSaving ? "Saving..." : "Save notification settings"}
-                    </Button>
-                  </div>
-
-                  {settingsError ? (
-                    <div className="text-sm text-red-600">{settingsError}</div>
-                  ) : null}
-                </>
-              )}
-            </CardContent>
-          </CollapsibleContent>
-        </Card>
-      </Collapsible>
 
       <Card>
         <CardHeader className="space-y-2">
@@ -434,6 +338,7 @@ export default function LeadsTable() {
                       <th className="px-4 py-3">Lead</th>
                       <th className="px-4 py-3">Contacts</th>
                       <th className="px-4 py-3">Business</th>
+                      <th className="px-4 py-3">Source</th>
                       <th className="px-4 py-3">Created</th>
                       <th className="px-4 py-3">Actions</th>
                     </tr>
@@ -456,6 +361,9 @@ export default function LeadsTable() {
                           <div className="text-muted-foreground">
                             {lead.businessLocation || "--"}
                           </div>
+                        </td>
+                        <td className="px-4 py-3 text-xs capitalize">
+                          {lead.source || "--"}
                         </td>
                         <td className="px-4 py-3 text-xs text-muted-foreground">
                           {formatDateTime(lead.createdAt)}
@@ -556,6 +464,82 @@ export default function LeadsTable() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>New lead email notification</DialogTitle>
+            <DialogDescription>
+              Control email notifications for new demoform submissions.
+              {!settingsLoading && !canManageNotificationSettings ? " View only." : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {settingsLoading ? (
+            <div className="text-muted-foreground text-sm">Loading notification settings...</div>
+          ) : (
+            <div className="space-y-4">
+              <label className="flex items-center gap-3 rounded-lg border px-4 py-3 text-sm">
+                <input
+                  type="checkbox"
+                  className="size-4"
+                  checked={settings.isEnabled}
+                  disabled={!canManageNotificationSettings}
+                  onChange={(event) => {
+                    setSettings((current) => ({
+                      ...current,
+                      isEnabled: event.target.checked,
+                    }))
+                  }}
+                />
+                <div>
+                  <div className="font-medium">Enable email notification</div>
+                  <div className="text-muted-foreground text-xs">
+                    Send an SMTP email when a new lead is submitted from the demoform.
+                  </div>
+                </div>
+              </label>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Recipients</div>
+                <textarea
+                  className="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-28 w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:outline-none"
+                  placeholder={"marketing@getslurp.com\nsales@getslurp.com"}
+                  value={settings.recipientsText}
+                  disabled={!canManageNotificationSettings}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    setSettings((current) => ({ ...current, recipientsText: value }))
+                  }}
+                />
+                <p className="text-muted-foreground text-xs">
+                  One email per line. These addresses receive new demo lead alerts.
+                </p>
+              </div>
+
+              {settingsError ? (
+                <div className="text-sm text-red-600">{settingsError}</div>
+              ) : null}
+
+              <DialogFooter className="flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-muted-foreground text-xs">
+                  {canManageNotificationSettings
+                    ? settings.updatedAt
+                      ? `Last updated ${formatDateTime(settings.updatedAt)}`
+                      : " "
+                    : "Only Admins and Super Admins can make changes."}
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => void handleSaveSettings()}
+                  disabled={settingsSaving || !canManageNotificationSettings}
+                >
+                  {settingsSaving ? "Saving..." : "Save notification settings"}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={archivedDialogOpen} onOpenChange={setArchivedDialogOpen}>
         <DialogContent className="max-h-[85vh] max-w-5xl overflow-y-auto">
