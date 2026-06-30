@@ -33,6 +33,7 @@ const accessRouteMappings: { prefix: string; accessKeys: string[] }[] = [
   { prefix: "/merchant-success", accessKeys: ["/merchant-success"] },
   { prefix: "/sales/overview", accessKeys: ["/sales/overview"] },
   { prefix: "/sales/leads", accessKeys: ["/sales/leads"] },
+  { prefix: "/sales/deals", accessKeys: ["/sales/deals"] },
   { prefix: "/sales/appointments", accessKeys: ["/sales/appointments"] },
   { prefix: "/sales/analytics", accessKeys: ["/sales/analytics"] },
   { prefix: "/sales", accessKeys: ["/sales"] }, // legacy: workspace-level grant

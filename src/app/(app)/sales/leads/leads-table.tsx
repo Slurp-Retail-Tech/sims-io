@@ -1,11 +1,13 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 
 import { formatDateTime } from "@/lib/dates"
 import { getSessionUser } from "@/lib/session"
 import { useToast } from "@/components/toast-provider"
 import { Button } from "@/components/ui/button"
+import { NewLeadDialog } from "./new-lead-dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
@@ -66,6 +68,9 @@ export default function LeadsTable() {
   const sessionUser = React.useMemo(() => getSessionUser(), [])
   const canManageNotificationSettings =
     sessionUser?.role === "Admin" || sessionUser?.role === "Super Admin"
+  const isManager =
+    sessionUser?.role === "Admin" || sessionUser?.role === "Super Admin"
+  const [newLeadDialogOpen, setNewLeadDialogOpen] = React.useState(false)
   const [leads, setLeads] = React.useState<LeadRow[]>([])
   const [archivedLeads, setArchivedLeads] = React.useState<LeadRow[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -304,10 +309,13 @@ export default function LeadsTable() {
           <Button size="sm" variant="outline" onClick={() => void openArchivedModal()}>
             Archived leads
           </Button>
-          <Button size="sm" asChild>
+          <Button size="sm" variant="outline" asChild>
             <a href="/demoform" target="_blank" rel="noreferrer">
               Open Demo Form
             </a>
+          </Button>
+          <Button size="sm" onClick={() => setNewLeadDialogOpen(true)}>
+            New Lead
           </Button>
         </div>
       </div>
@@ -349,9 +357,21 @@ export default function LeadsTable() {
                         key={lead.id}
                         className={index % 2 === 0 ? "bg-background" : "bg-muted/20"}
                       >
-                        <td className="px-4 py-3 font-medium">#{lead.id}</td>
+                        <td className="px-4 py-3 font-medium">
+                          <Link
+                            href={`/sales/leads/${lead.id}`}
+                            className="hover:underline"
+                          >
+                            #{lead.id}
+                          </Link>
+                        </td>
                         <td className="px-4 py-3 text-xs">
-                          <div className="font-semibold">{lead.name}</div>
+                          <Link
+                            href={`/sales/leads/${lead.id}`}
+                            className="font-semibold hover:underline"
+                          >
+                            {lead.name}
+                          </Link>
                         </td>
                         <td className="px-4 py-3 text-xs">
                           <div>{lead.telephone || "--"}</div>
@@ -464,6 +484,13 @@ export default function LeadsTable() {
           )}
         </CardContent>
       </Card>
+
+      <NewLeadDialog
+        open={newLeadDialogOpen}
+        isManager={isManager}
+        onClose={() => setNewLeadDialogOpen(false)}
+        onCreated={() => void loadLeads()}
+      />
 
       <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
         <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">

@@ -7,6 +7,7 @@ import {
   CalendarRange,
   ClipboardCheck,
   ClipboardList,
+  Handshake,
   LayoutDashboard,
   ListTree,
   MapPinned,
@@ -119,6 +120,11 @@ export const salesNav: NavItem[] = [
     title: "Leads",
     url: "/sales/leads",
     icon: UserPlus,
+  },
+  {
+    title: "Deals",
+    url: "/sales/deals",
+    icon: Handshake,
   },
   {
     title: "Analytics",
