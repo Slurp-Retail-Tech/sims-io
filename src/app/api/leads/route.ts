@@ -103,7 +103,9 @@ export async function GET(request: NextRequest) {
   const query = searchParams.get("q")?.trim().toLowerCase() ?? ""
   const archivedParam = searchParams.get("archived")?.trim().toLowerCase()
   const allParam = searchParams.get("all")?.trim().toLowerCase()
-  const assignedParam = parseOptionalUserId(searchParams.get("assigned"))
+  const assignedRaw = searchParams.get("assigned")?.trim() ?? ""
+  const assignedParam = parseOptionalUserId(assignedRaw)
+  const businessTypeParam = searchParams.get("business_type")?.trim() ?? ""
   const pageParam = Number(searchParams.get("page") ?? "1")
   const perPageParam = Number(searchParams.get("per_page") ?? "25")
 
@@ -116,9 +118,12 @@ export async function GET(request: NextRequest) {
   const whereClauses: string[] = []
   const values: Array<string | number> = []
 
+  // archived: "true"/"1" → archived only, "all" → both, anything else → active only.
   if (archivedParam === "true" || archivedParam === "1") {
     whereClauses.push("leads.archived = TRUE")
-  } else if (archivedParam === "false" || archivedParam === "0" || !archivedParam) {
+  } else if (archivedParam === "all") {
+    // No archived clause: include active and archived leads.
+  } else {
     whereClauses.push("leads.archived = FALSE")
   }
 
@@ -136,9 +141,16 @@ export async function GET(request: NextRequest) {
     values.push(likeValue, likeValue, likeValue)
   }
 
-  if (assignedParam !== null) {
+  if (assignedRaw.toLowerCase() === "unassigned") {
+    whereClauses.push("leads.assigned_user_id IS NULL")
+  } else if (assignedParam !== null) {
     whereClauses.push("leads.assigned_user_id = ?")
     values.push(assignedParam)
+  }
+
+  if (businessTypeParam) {
+    whereClauses.push("leads.business_type = ?")
+    values.push(businessTypeParam)
   }
 
   // Role scoping: non-managers only see leads assigned to them.
