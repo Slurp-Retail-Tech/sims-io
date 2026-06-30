@@ -62,12 +62,18 @@ export function useBreadcrumbLabels(): Record<string, string> {
  */
 export function useSetBreadcrumbLabel(href: string, label: string | null) {
   const context = React.useContext(BreadcrumbLabelContext)
+  // Depend on the stable setLabel/clearLabel callbacks, NOT the context object:
+  // the context value's identity changes on every label update, so depending on
+  // it would make this effect's cleanup (clearLabel) and re-run (setLabel)
+  // ping-pong forever — an infinite render loop (React error #185).
+  const setLabel = context?.setLabel
+  const clearLabel = context?.clearLabel
 
   React.useEffect(() => {
-    if (!context || !label) {
+    if (!setLabel || !clearLabel || !label) {
       return
     }
-    context.setLabel(href, label)
-    return () => context.clearLabel(href)
-  }, [context, href, label])
+    setLabel(href, label)
+    return () => clearLabel(href)
+  }, [setLabel, clearLabel, href, label])
 }
