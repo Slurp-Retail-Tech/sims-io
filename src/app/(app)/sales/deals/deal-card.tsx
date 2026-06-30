@@ -24,7 +24,7 @@ export function DealCard({ deal }: { deal: MappedGlobalDeal }) {
     if (isDragging) {
       return
     }
-    router.push(`/sales/leads/${deal.leadId}`)
+    router.push(`/sales/deals/${deal.id}`)
   }
 
   return (

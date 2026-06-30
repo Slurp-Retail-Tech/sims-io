@@ -94,7 +94,7 @@ export function DateTimePicker({
           </span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" portalled={false} className="w-auto p-0">
+      <PopoverContent align="start" className="w-auto p-0">
         <Calendar04
           mode="single"
           selected={selectedDate ?? undefined}

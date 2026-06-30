@@ -10,7 +10,9 @@ import {
   mapDeal,
   reconcileDealFields,
   type DealRow,
+  type DealStage,
 } from "@/lib/deals"
+import { logDealActivity } from "@/lib/deal-activities"
 import {
   cleanString,
   loadLeadAssignment,
@@ -123,6 +125,16 @@ export async function PATCH(
       parsedLeadId,
     ]
   )
+
+  if (existing.deal_stage !== stageRaw) {
+    await logDealActivity(pool, {
+      dealId: parsedDealId,
+      activityType: "stage_changed",
+      fromStage: existing.deal_stage as DealStage,
+      toStage: stageRaw,
+      userId: user.id,
+    })
+  }
 
   const [rows] = await pool.query(
     `${dealSelectSql} WHERE deals.id = ? LIMIT 1`,
