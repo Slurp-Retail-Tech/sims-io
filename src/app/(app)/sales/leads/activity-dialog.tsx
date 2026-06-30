@@ -12,6 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { format } from "date-fns"
+
 import { DateTimePicker } from "@/components/ui/date-time-picker"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -22,6 +24,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { TimeSelect } from "@/components/ui/time-select"
+import { parseDate } from "@/lib/dates"
 import {
   ACTIVITY_TYPES,
   CALL_DIRECTIONS,
@@ -40,13 +44,24 @@ type ActivityDialogProps = {
   onSaved: (activity: MappedActivity) => void
 }
 
-// DB datetime ("YYYY-MM-DD HH:MM:SS.mmm" or ISO) -> separate "YYYY-MM-DD" + "HH:MM".
+// Stored UTC datetime ("YYYY-MM-DD HH:MM:SS.mmm" or ISO) -> the local-wall-clock
+// "YYYY-MM-DD" + "HH:MM" the user originally entered (app timezone).
 function splitActivityDateTime(value: string | null): { date: string; time: string } {
   if (!value) {
     return { date: "", time: "" }
   }
-  const normalized = value.replace(" ", "T")
-  return { date: normalized.slice(0, 10), time: normalized.slice(11, 16) }
+  const parsed = parseDate(value)
+  if (!parsed) {
+    return { date: "", time: "" }
+  }
+  return { date: format(parsed, "yyyy-MM-dd"), time: format(parsed, "HH:mm") }
+}
+
+// Local-wall-clock date + time -> UTC ISO string for storage, so it round-trips
+// back to the same local time on display (matches the onboarding schedule page).
+function toUtcIso(dateValue: string, timeValue: string): string | null {
+  const date = new Date(`${dateValue}T${timeValue}`)
+  return Number.isNaN(date.valueOf()) ? null : date.toISOString()
 }
 
 export function ActivityDialog({
@@ -139,7 +154,7 @@ export function ActivityDialog({
           activityType,
           activityDate:
             showDate && activityDate && activityTime
-              ? `${activityDate}T${activityTime}`
+              ? toUtcIso(activityDate, activityTime)
               : null,
           remarks: remarks.trim() || null,
           callOutcome: showCall ? callOutcome : null,
@@ -213,11 +228,11 @@ export function ActivityDialog({
               </Field>
               <Field>
                 <FieldLabel htmlFor="activity-time">Activity time</FieldLabel>
-                <Input
+                <TimeSelect
                   id="activity-time"
-                  type="time"
                   value={activityTime}
-                  onChange={(event) => setActivityTime(event.target.value)}
+                  onChange={setActivityTime}
+                  placeholder="Select time"
                 />
                 <FieldError
                   errors={errors.activityTime ? [{ message: errors.activityTime }] : undefined}
