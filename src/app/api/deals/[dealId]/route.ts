@@ -144,3 +144,43 @@ export async function PATCH(
   )
   return NextResponse.json({ deal: mapGlobalDeal((rows as DealGlobalRow[])[0]) })
 }
+
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ dealId: string }> }
+) {
+  const auth = await resolveDealsUser(request)
+  if ("response" in auth) {
+    return auth.response
+  }
+  const { user } = auth
+
+  const { dealId } = await context.params
+  const parsedDealId = parseDealId(dealId)
+  if (parsedDealId === null) {
+    return NextResponse.json({ error: "Invalid deal id." }, { status: 400 })
+  }
+
+  const pool = getPool()
+  const [authRows] = await pool.query(
+    `
+      SELECT deals.id, leads.assigned_user_id
+      FROM deals
+      INNER JOIN leads ON leads.id = deals.lead_id
+      WHERE deals.id = ?
+      LIMIT 1
+    `,
+    [parsedDealId]
+  )
+  const existing = (authRows as Array<{ id: string; assigned_user_id: string | null }>)[0]
+  if (!existing) {
+    return NextResponse.json({ error: "Deal not found." }, { status: 404 })
+  }
+  if (!canEditLead(user, { assigned_user_id: existing.assigned_user_id })) {
+    return NextResponse.json({ error: "Forbidden." }, { status: 403 })
+  }
+
+  await pool.query<ResultSetHeader>(`DELETE FROM deals WHERE id = ?`, [parsedDealId])
+
+  return NextResponse.json({ ok: true })
+}

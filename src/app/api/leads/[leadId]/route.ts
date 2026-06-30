@@ -6,8 +6,10 @@ import {
   canEditLead,
   canViewLead,
   isLeadManager,
+  leadScopeClause,
   leadSelectSql,
   mapLead,
+  type LeadAuthUser,
   type LeadRow,
 } from "@/lib/leads"
 import {
@@ -25,6 +27,41 @@ async function loadLead(leadId: number): Promise<LeadRow | null> {
     [leadId]
   )
   return (rows as LeadRow[])[0] ?? null
+}
+
+/**
+ * Computes the previous/next lead ids relative to `leadId`, ordered the same
+ * way as the leads list (created_at DESC), scoped to what the user may see, so
+ * record-to-record navigation on the detail page matches the table order.
+ */
+async function loadLeadNavigation(
+  user: LeadAuthUser,
+  leadId: number,
+  archived: boolean
+): Promise<{ previousLeadId: string | null; nextLeadId: string | null }> {
+  const pool = getPool()
+  const scope = leadScopeClause(user, "leads.assigned_user_id")
+  // Keep navigation within the same archived bucket as the current lead so
+  // prev/next matches the list the user was browsing (which filters by status).
+  const whereClauses = ["leads.archived = ?"]
+  const params: Array<string | number> = [archived ? 1 : 0]
+  if (scope.clause) {
+    whereClauses.push(scope.clause)
+    params.push(...scope.params)
+  }
+  const [rows] = await pool.query(
+    `SELECT id FROM leads WHERE ${whereClauses.join(" AND ")} ORDER BY leads.created_at DESC, leads.id DESC`,
+    params
+  )
+  const ids = (rows as Array<{ id: string | number }>).map((row) => String(row.id))
+  const index = ids.indexOf(String(leadId))
+  if (index === -1) {
+    return { previousLeadId: null, nextLeadId: null }
+  }
+  return {
+    previousLeadId: index > 0 ? ids[index - 1] : null,
+    nextLeadId: index < ids.length - 1 ? ids[index + 1] : null,
+  }
 }
 
 export async function GET(
@@ -50,7 +87,10 @@ export async function GET(
     return NextResponse.json({ error: "Lead not found." }, { status: 404 })
   }
 
-  return NextResponse.json({ lead: mapLead(lead) })
+  const mapped = mapLead(lead)
+  const navigation = await loadLeadNavigation(user, parsedLeadId, mapped.archived)
+
+  return NextResponse.json({ lead: mapped, navigation })
 }
 
 type ArchiveBody = { archived: boolean }

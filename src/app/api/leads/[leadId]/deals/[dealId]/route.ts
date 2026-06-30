@@ -130,3 +130,37 @@ export async function PATCH(
   )
   return NextResponse.json({ deal: mapDeal((rows as DealRow[])[0]) })
 }
+
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ leadId: string; dealId: string }> }
+) {
+  const auth = await resolveLeadsUser(request)
+  if ("response" in auth) {
+    return auth.response
+  }
+  const { user } = auth
+
+  const { leadId, dealId } = await context.params
+  const parsedLeadId = parseLeadId(leadId)
+  const parsedDealId = parseDealId(dealId)
+  if (parsedLeadId === null || parsedDealId === null) {
+    return NextResponse.json({ error: "Invalid id." }, { status: 400 })
+  }
+
+  const lead = await loadLeadAssignment(parsedLeadId)
+  if (!lead || !canEditLead(user, lead)) {
+    return NextResponse.json({ error: "Lead not found." }, { status: 404 })
+  }
+
+  const pool = getPool()
+  const [result] = await pool.query<ResultSetHeader>(
+    `DELETE FROM deals WHERE id = ? AND lead_id = ?`,
+    [parsedDealId, parsedLeadId]
+  )
+  if (result.affectedRows === 0) {
+    return NextResponse.json({ error: "Deal not found." }, { status: 404 })
+  }
+
+  return NextResponse.json({ ok: true })
+}

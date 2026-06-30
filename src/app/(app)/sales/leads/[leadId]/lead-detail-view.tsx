@@ -2,13 +2,17 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 
 import { formatDate, formatDateTime } from "@/lib/dates"
 import { formatCurrency } from "@/lib/currency"
 import { getSessionUser } from "@/lib/session"
 import { useToast } from "@/components/toast-provider"
+import { useSetBreadcrumbLabel } from "@/components/breadcrumb-context"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
@@ -49,8 +53,14 @@ function draftFromLead(lead: MappedLead): EditDraft {
   }
 }
 
+type LeadNavigation = {
+  previousLeadId: string | null
+  nextLeadId: string | null
+}
+
 export function LeadDetailView({ leadId }: { leadId: string }) {
   const { showToast } = useToast()
+  const router = useRouter()
   const sessionUser = React.useMemo(() => getSessionUser(), [])
   const isManager =
     sessionUser?.role === "Admin" || sessionUser?.role === "Super Admin"
@@ -58,6 +68,15 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
   const [lead, setLead] = React.useState<MappedLead | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [navigation, setNavigation] = React.useState<LeadNavigation>({
+    previousLeadId: null,
+    nextLeadId: null,
+  })
+  const [archiveConfirmOpen, setArchiveConfirmOpen] = React.useState(false)
+  const [archiving, setArchiving] = React.useState(false)
+
+  // Show the lead name (not the raw id) in the global breadcrumb.
+  useSetBreadcrumbLabel(`/sales/leads/${leadId}`, lead?.name ?? null)
 
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState<EditDraft | null>(null)
@@ -69,12 +88,15 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
   const [dealsLoading, setDealsLoading] = React.useState(true)
   const [dealDialogOpen, setDealDialogOpen] = React.useState(false)
   const [editingDeal, setEditingDeal] = React.useState<MappedDeal | null>(null)
+  const [deletingDeal, setDeletingDeal] = React.useState<MappedDeal | null>(null)
+  const [deletingDealId, setDeletingDealId] = React.useState<string | null>(null)
 
   const [activities, setActivities] = React.useState<MappedActivity[]>([])
   const [activitiesLoading, setActivitiesLoading] = React.useState(true)
   const [activityFilter, setActivityFilter] = React.useState<string>("All")
   const [activityDialogOpen, setActivityDialogOpen] = React.useState(false)
   const [editingActivity, setEditingActivity] = React.useState<MappedActivity | null>(null)
+  const [deletingActivity, setDeletingActivity] = React.useState<MappedActivity | null>(null)
   const [deletingActivityId, setDeletingActivityId] = React.useState<string | null>(null)
 
   const canEdit = Boolean(
@@ -84,6 +106,9 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
   const loadLead = React.useCallback(async () => {
     setLoading(true)
     setError(null)
+    // Drop the previous lead so the breadcrumb/title don't show a stale name
+    // while navigating between leads via Previous/Next.
+    setLead(null)
     try {
       const response = await fetch(`/api/leads/${leadId}`)
       if (response.status === 404) {
@@ -92,8 +117,14 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
       if (!response.ok) {
         throw new Error("Unable to load lead.")
       }
-      const data = (await response.json()) as { lead: MappedLead }
+      const data = (await response.json()) as {
+        lead: MappedLead
+        navigation?: LeadNavigation
+      }
       setLead(data.lead)
+      setNavigation(
+        data.navigation ?? { previousLeadId: null, nextLeadId: null }
+      )
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load lead.")
       setLead(null)
@@ -261,9 +292,6 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
   }
 
   const handleDeleteActivity = async (activity: MappedActivity) => {
-    if (!window.confirm("Delete this activity? This cannot be undone.")) {
-      return
-    }
     setDeletingActivityId(activity.id)
     try {
       const response = await fetch(
@@ -283,6 +311,59 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
       )
     } finally {
       setDeletingActivityId(null)
+      setDeletingActivity(null)
+    }
+  }
+
+  const handleDeleteDeal = async (deal: MappedDeal) => {
+    setDeletingDealId(deal.id)
+    try {
+      const response = await fetch(`/api/leads/${leadId}/deals/${deal.id}`, {
+        method: "DELETE",
+      })
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
+        throw new Error(data.error || "Unable to delete deal.")
+      }
+      setDeals((current) => current.filter((item) => item.id !== deal.id))
+      showToast("Deal deleted.")
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Unable to delete deal.",
+        "error"
+      )
+    } finally {
+      setDeletingDealId(null)
+      setDeletingDeal(null)
+    }
+  }
+
+  const handleToggleArchived = async () => {
+    if (!lead) {
+      return
+    }
+    const nextArchived = !lead.archived
+    setArchiving(true)
+    try {
+      const response = await fetch(`/api/leads/${leadId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ archived: nextArchived }),
+      })
+      const data = (await response.json()) as { lead?: MappedLead; error?: string }
+      if (!response.ok || !data.lead) {
+        throw new Error(data.error || "Unable to update lead.")
+      }
+      setLead(data.lead)
+      showToast(nextArchived ? "Lead archived." : "Lead unarchived.")
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Unable to update lead.",
+        "error"
+      )
+    } finally {
+      setArchiving(false)
+      setArchiveConfirmOpen(false)
     }
   }
 
@@ -310,15 +391,64 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <Link href="/sales/leads" className="text-muted-foreground text-xs hover:underline">
-          ← Sales Leads
-        </Link>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/sales/leads">
+              <ChevronLeft className="size-4" />
+              Back to leads
+            </Link>
+          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!navigation.previousLeadId}
+              onClick={() => {
+                if (navigation.previousLeadId) {
+                  router.push(`/sales/leads/${navigation.previousLeadId}`)
+                }
+              }}
+            >
+              <ChevronLeft className="size-4" />
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!navigation.nextLeadId}
+              onClick={() => {
+                if (navigation.nextLeadId) {
+                  router.push(`/sales/leads/${navigation.nextLeadId}`)
+                }
+              }}
+            >
+              Next
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{lead.name}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-semibold tracking-tight">{lead.name}</h1>
+              {lead.archived ? (
+                <span className="rounded bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                  Archived
+                </span>
+              ) : null}
+            </div>
             <p className="text-muted-foreground text-sm">Lead #{lead.id}</p>
           </div>
+          {canEdit ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setArchiveConfirmOpen(true)}
+            >
+              {lead.archived ? "Unarchive lead" : "Archive lead"}
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -448,157 +578,171 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
         </CardContent>
       </Card>
 
-      {/* Deals */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-          <CardTitle className="text-base">Deals</CardTitle>
-          {canEdit ? (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                setEditingDeal(null)
-                setDealDialogOpen(true)
-              }}
-            >
-              Add deal
-            </Button>
-          ) : null}
-        </CardHeader>
-        <CardContent>
-          {dealsLoading ? (
-            <div className="text-muted-foreground text-sm">Loading deals...</div>
-          ) : deals.length ? (
-            <div className="overflow-x-auto rounded-lg border">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 text-left text-xs font-semibold text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3">Deal</th>
-                    <th className="px-4 py-3">Stage</th>
-                    <th className="px-4 py-3">Amount</th>
-                    <th className="px-4 py-3">Closed date</th>
-                    {canEdit ? <th className="px-4 py-3" /> : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {deals.map((deal, index) => (
-                    <tr key={deal.id} className={index % 2 === 0 ? "bg-background" : "bg-muted/20"}>
-                      <td className="px-4 py-3 font-medium">{deal.dealName}</td>
-                      <td className="px-4 py-3">{deal.dealStage}</td>
-                      <td className="px-4 py-3">{formatCurrency(deal.amount)}</td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        {deal.closedDate ? formatDate(deal.closedDate) : "--"}
-                      </td>
-                      {canEdit ? (
-                        <td className="px-4 py-3 text-right">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setEditingDeal(deal)
-                              setDealDialogOpen(true)
-                            }}
-                          >
-                            Edit
-                          </Button>
-                        </td>
-                      ) : null}
-                    </tr>
+      {/* Activity log (left) + Deals (right) */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Activity log */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+            <CardTitle className="text-base">Activity log</CardTitle>
+            <div className="flex items-center gap-2">
+              <Select value={activityFilter} onValueChange={setActivityFilter}>
+                <SelectTrigger className="h-8 w-[160px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="All">All activities</SelectItem>
+                  {ACTIVITY_TYPES.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type}
+                    </SelectItem>
                   ))}
-                </tbody>
-              </table>
+                </SelectContent>
+              </Select>
+              {canEdit ? (
+                <Button size="sm" variant="outline" onClick={openLogActivity}>
+                  Log activity
+                </Button>
+              ) : null}
             </div>
-          ) : (
-            <div className="text-muted-foreground text-sm">No deals yet.</div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Activity log */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
-          <CardTitle className="text-base">Activity log</CardTitle>
-          <div className="flex items-center gap-2">
-            <Select value={activityFilter} onValueChange={setActivityFilter}>
-              <SelectTrigger className="h-8 w-[160px] text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="All">All activities</SelectItem>
-                {ACTIVITY_TYPES.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {type}
-                  </SelectItem>
+          </CardHeader>
+          <CardContent>
+            {activitiesLoading ? (
+              <div className="text-muted-foreground text-sm">Loading activities...</div>
+            ) : activities.length ? (
+              <ul className="flex flex-col gap-3">
+                {activities.map((activity) => (
+                  <li key={activity.id} className="rounded-lg border px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{activity.activityType}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-muted-foreground text-xs">
+                          {activity.activityDate
+                            ? formatDateTime(activity.activityDate)
+                            : formatDateTime(activity.createdAt)}
+                          {activity.updatedAt ? " · edited" : null}
+                        </span>
+                        {canEdit ? (
+                          <div className="flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => openEditActivity(activity)}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive h-7 px-2 text-xs"
+                              disabled={deletingActivityId === activity.id}
+                              onClick={() => setDeletingActivity(activity)}
+                            >
+                              {deletingActivityId === activity.id ? "Deleting..." : "Delete"}
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                    <ActivityMeta activity={activity} />
+                    {activity.remarks ? (
+                      <p className="text-muted-foreground mt-1">{activity.remarks}</p>
+                    ) : null}
+                    {activity.createdByName ? (
+                      <p className="text-muted-foreground mt-1 text-xs">
+                        Logged by {activity.createdByName}
+                      </p>
+                    ) : null}
+                  </li>
                 ))}
-              </SelectContent>
-            </Select>
+              </ul>
+            ) : (
+              <div className="text-muted-foreground text-sm">
+                {activityFilter === "All"
+                  ? "No activities logged yet."
+                  : "No activities match this filter."}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Deals */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+            <CardTitle className="text-base">Deals</CardTitle>
             {canEdit ? (
-              <Button size="sm" variant="outline" onClick={openLogActivity}>
-                Log activity
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setEditingDeal(null)
+                  setDealDialogOpen(true)
+                }}
+              >
+                Add deal
               </Button>
             ) : null}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {activitiesLoading ? (
-            <div className="text-muted-foreground text-sm">Loading activities...</div>
-          ) : activities.length ? (
-            <ul className="flex flex-col gap-3">
-              {activities.map((activity) => (
-                <li key={activity.id} className="rounded-lg border px-4 py-3 text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium">{activity.activityType}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-muted-foreground text-xs">
-                        {activity.activityDate
-                          ? formatDateTime(activity.activityDate)
-                          : formatDateTime(activity.createdAt)}
-                        {activity.updatedAt ? " · edited" : null}
-                      </span>
-                      {canEdit ? (
-                        <div className="flex items-center gap-1">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 px-2 text-xs"
-                            onClick={() => openEditActivity(activity)}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-destructive hover:text-destructive h-7 px-2 text-xs"
-                            disabled={deletingActivityId === activity.id}
-                            onClick={() => void handleDeleteActivity(activity)}
-                          >
-                            {deletingActivityId === activity.id ? "Deleting..." : "Delete"}
-                          </Button>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                  <ActivityMeta activity={activity} />
-                  {activity.remarks ? (
-                    <p className="text-muted-foreground mt-1">{activity.remarks}</p>
-                  ) : null}
-                  {activity.createdByName ? (
-                    <p className="text-muted-foreground mt-1 text-xs">
-                      Logged by {activity.createdByName}
-                    </p>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="text-muted-foreground text-sm">
-              {activityFilter === "All"
-                ? "No activities logged yet."
-                : "No activities match this filter."}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>
+            {dealsLoading ? (
+              <div className="text-muted-foreground text-sm">Loading deals...</div>
+            ) : deals.length ? (
+              <div className="overflow-x-auto rounded-lg border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-left text-xs font-semibold text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3">Deal</th>
+                      <th className="px-4 py-3">Stage</th>
+                      <th className="px-4 py-3">Amount</th>
+                      <th className="px-4 py-3">Closed date</th>
+                      {canEdit ? <th className="px-4 py-3" /> : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deals.map((deal, index) => (
+                      <tr key={deal.id} className={index % 2 === 0 ? "bg-background" : "bg-muted/20"}>
+                        <td className="px-4 py-3 font-medium">{deal.dealName}</td>
+                        <td className="px-4 py-3">{deal.dealStage}</td>
+                        <td className="px-4 py-3">{formatCurrency(deal.amount)}</td>
+                        <td className="px-4 py-3 text-muted-foreground">
+                          {deal.closedDate ? formatDate(deal.closedDate) : "--"}
+                        </td>
+                        {canEdit ? (
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setEditingDeal(deal)
+                                  setDealDialogOpen(true)
+                                }}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive hover:text-destructive"
+                                disabled={deletingDealId === deal.id}
+                                onClick={() => setDeletingDeal(deal)}
+                              >
+                                {deletingDealId === deal.id ? "Deleting..." : "Delete"}
+                              </Button>
+                            </div>
+                          </td>
+                        ) : null}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-muted-foreground text-sm">No deals yet.</div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <DealDialog
         leadId={leadId}
@@ -613,6 +757,58 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
         open={activityDialogOpen}
         onClose={() => setActivityDialogOpen(false)}
         onSaved={handleActivitySaved}
+      />
+
+      <ConfirmDialog
+        open={archiveConfirmOpen}
+        onOpenChange={setArchiveConfirmOpen}
+        title={lead.archived ? "Unarchive lead" : "Archive lead"}
+        description={
+          lead.archived
+            ? `Are you sure you want to unarchive "${lead.name}"?`
+            : `Are you sure you want to archive "${lead.name}"?`
+        }
+        confirmLabel={lead.archived ? "Unarchive" : "Archive"}
+        loading={archiving}
+        onConfirm={() => void handleToggleArchived()}
+      />
+
+      <ConfirmDialog
+        open={deletingDeal !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingDeal(null)
+        }}
+        title="Delete deal"
+        description={
+          deletingDeal
+            ? `Are you sure you want to delete "${deletingDeal.dealName}"? This cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        destructive
+        loading={deletingDealId !== null}
+        onConfirm={() => {
+          if (deletingDeal) {
+            void handleDeleteDeal(deletingDeal)
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={deletingActivity !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeletingActivity(null)
+        }}
+        title="Delete activity"
+        description="Are you sure you want to delete this activity? This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        loading={deletingActivityId !== null}
+        onConfirm={() => {
+          if (deletingActivity) {
+            void handleDeleteActivity(deletingActivity)
+          }
+        }}
       />
     </div>
   )

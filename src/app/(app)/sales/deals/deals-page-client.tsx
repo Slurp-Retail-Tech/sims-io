@@ -5,6 +5,7 @@ import { LayoutGrid, List } from "lucide-react"
 
 import { useToast } from "@/components/toast-provider"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/components/ui/confirm-dialog"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   isTerminalStage,
@@ -31,6 +32,8 @@ export function DealsPageClient() {
   const [error, setError] = React.useState<string | null>(null)
   const [view, setView] = React.useState<DealsView>(() => readDealsViewCookie())
   const [prompt, setPrompt] = React.useState<StagePrompt | null>(null)
+  const [deleteTarget, setDeleteTarget] = React.useState<MappedGlobalDeal | null>(null)
+  const [deletingDealId, setDeletingDealId] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -132,6 +135,30 @@ export function DealsPageClient() {
     [commitStageChange]
   )
 
+  const handleDeleteDeal = React.useCallback(
+    async (deal: MappedGlobalDeal) => {
+      setDeletingDealId(deal.id)
+      try {
+        const response = await fetch(`/api/deals/${deal.id}`, { method: "DELETE" })
+        if (!response.ok) {
+          const data = (await response.json().catch(() => ({}))) as { error?: string }
+          throw new Error(data.error || "Unable to delete deal.")
+        }
+        setDeals((current) => current.filter((item) => item.id !== deal.id))
+        showToast("Deal deleted.")
+      } catch (err) {
+        showToast(
+          err instanceof Error ? err.message : "Unable to delete deal.",
+          "error"
+        )
+      } finally {
+        setDeletingDealId(null)
+        setDeleteTarget(null)
+      }
+    },
+    [showToast]
+  )
+
   const handlePromptConfirm = (input: {
     closedDate: string
     closeLostReason: string | null
@@ -187,13 +214,38 @@ export function DealsPageClient() {
       ) : view === "kanban" ? (
         <KanbanBoard deals={deals} onStageChange={handleStageChange} />
       ) : (
-        <DealsTable deals={deals} />
+        <DealsTable
+          deals={deals}
+          onDelete={setDeleteTarget}
+          deletingDealId={deletingDealId}
+        />
       )}
 
       <StageChangePromptDialog
         prompt={prompt}
         onConfirm={handlePromptConfirm}
         onCancel={() => setPrompt(null)}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+        title="Delete deal"
+        description={
+          deleteTarget
+            ? `Are you sure you want to delete "${deleteTarget.dealName}"? This cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        destructive
+        loading={deletingDealId !== null}
+        onConfirm={() => {
+          if (deleteTarget) {
+            void handleDeleteDeal(deleteTarget)
+          }
+        }}
       />
     </div>
   )
