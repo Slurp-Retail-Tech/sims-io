@@ -4,8 +4,9 @@ import getPool from "@/lib/db"
 import { resolveLeadsUser } from "../../leads/helpers"
 
 /**
- * Lists active Sales & Marketing "User" accounts that a lead can be assigned
- * to. Gated behind Leads Management access.
+ * Lists active Sales & Marketing accounts that a lead can be assigned to.
+ * Any user in the Sales & Marketing department is assignable regardless of
+ * role (User, Admin, Super Admin). Gated behind Leads Management access.
  */
 export async function GET(request: NextRequest) {
   const auth = await resolveLeadsUser(request)
@@ -19,7 +20,6 @@ export async function GET(request: NextRequest) {
       SELECT id, name, email
       FROM users
       WHERE department = 'Sales & Marketing'
-        AND role = 'User'
         AND status = 'active'
       ORDER BY name ASC
     `

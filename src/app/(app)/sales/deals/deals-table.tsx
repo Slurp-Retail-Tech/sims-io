@@ -41,7 +41,7 @@ export function DealsTable({
           {deals.map((deal, index) => (
             <tr key={deal.id} className={index % 2 === 0 ? "bg-background" : "bg-muted/20"}>
               <td className="px-4 py-3 font-medium">
-                <Link href={`/sales/leads/${deal.leadId}`} className="hover:underline">
+                <Link href={`/sales/deals/${deal.id}`} className="hover:underline">
                   {deal.dealName}
                 </Link>
               </td>

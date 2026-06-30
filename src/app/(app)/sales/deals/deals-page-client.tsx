@@ -3,9 +3,17 @@
 import * as React from "react"
 import { LayoutGrid, List } from "lucide-react"
 
+import { getSessionUser } from "@/lib/session"
 import { useToast } from "@/components/toast-provider"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   isTerminalStage,
@@ -13,6 +21,7 @@ import {
   type DealStage,
   type MappedGlobalDeal,
 } from "@/lib/deals"
+import type { AssignableUser } from "../leads/types"
 import { DealsTable } from "./deals-table"
 import { KanbanBoard } from "./kanban-board"
 import {
@@ -25,8 +34,14 @@ import {
   type DealsView,
 } from "./view-state"
 
+const ALL_VALUE = "__all__"
+const UNASSIGNED_VALUE = "__unassigned__"
+
 export function DealsPageClient() {
   const { showToast } = useToast()
+  const sessionUser = React.useMemo(() => getSessionUser(), [])
+  const isManager =
+    sessionUser?.role === "Admin" || sessionUser?.role === "Super Admin"
   const [deals, setDeals] = React.useState<MappedGlobalDeal[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -34,12 +49,23 @@ export function DealsPageClient() {
   const [prompt, setPrompt] = React.useState<StagePrompt | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<MappedGlobalDeal | null>(null)
   const [deletingDealId, setDeletingDealId] = React.useState<string | null>(null)
+  const [assignedFilter, setAssignedFilter] = React.useState<string>(ALL_VALUE)
+  const [assignableUsers, setAssignableUsers] = React.useState<AssignableUser[]>([])
 
   const load = React.useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch("/api/deals")
+      const params = new URLSearchParams()
+      // Only managers can filter by assignee; the server ignores it otherwise.
+      if (isManager && assignedFilter !== ALL_VALUE) {
+        params.set(
+          "assigned",
+          assignedFilter === UNASSIGNED_VALUE ? "unassigned" : assignedFilter
+        )
+      }
+      const query = params.toString()
+      const response = await fetch(`/api/deals${query ? `?${query}` : ""}`)
       if (!response.ok) {
         throw new Error("Unable to load deals.")
       }
@@ -50,11 +76,31 @@ export function DealsPageClient() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [isManager, assignedFilter])
 
   React.useEffect(() => {
     void load()
   }, [load])
+
+  // Managers can filter by assignee; load the option list once.
+  React.useEffect(() => {
+    if (!isManager) {
+      return
+    }
+    const loadUsers = async () => {
+      try {
+        const response = await fetch("/api/users/sales-agents")
+        if (!response.ok) {
+          return
+        }
+        const data = (await response.json()) as { users: AssignableUser[] }
+        setAssignableUsers(data.users ?? [])
+      } catch {
+        // Filter degrades gracefully to "All" if options fail to load.
+      }
+    }
+    void loadUsers()
+  }, [isManager])
 
   const handleViewChange = (next: string) => {
     const value: DealsView = next === "list" ? "list" : "kanban"
@@ -186,18 +232,36 @@ export function DealsPageClient() {
             Track every deal across leads in one pipeline.
           </p>
         </div>
-        <Tabs value={view} onValueChange={handleViewChange}>
-          <TabsList>
-            <TabsTrigger value="kanban">
-              <LayoutGrid className="mr-1.5 size-4" />
-              Kanban
-            </TabsTrigger>
-            <TabsTrigger value="list">
-              <List className="mr-1.5 size-4" />
-              List
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="flex items-center gap-2">
+          {isManager ? (
+            <Select value={assignedFilter} onValueChange={setAssignedFilter}>
+              <SelectTrigger className="h-9 w-[180px] text-xs">
+                <SelectValue placeholder="Assigned user" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_VALUE}>All assignees</SelectItem>
+                <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
+                {assignableUsers.map((user) => (
+                  <SelectItem key={user.id} value={user.id}>
+                    {user.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : null}
+          <Tabs value={view} onValueChange={handleViewChange}>
+            <TabsList>
+              <TabsTrigger value="kanban">
+                <LayoutGrid className="mr-1.5 size-4" />
+                Kanban
+              </TabsTrigger>
+              <TabsTrigger value="list">
+                <List className="mr-1.5 size-4" />
+                List
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </div>
 
       {loading ? (

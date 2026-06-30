@@ -11,6 +11,7 @@ import {
   mapDeal,
   type DealRow,
 } from "@/lib/deals"
+import { logDealActivity } from "@/lib/deal-activities"
 import {
   cleanString,
   loadLeadAssignment,
@@ -134,6 +135,14 @@ export async function POST(
       user.id,
     ]
   )
+
+  await logDealActivity(pool, {
+    dealId: insertResult.insertId,
+    activityType: "created",
+    fromStage: null,
+    toStage: stageRaw,
+    userId: user.id,
+  })
 
   const [rows] = await pool.query(
     `${dealSelectSql} WHERE deals.id = ? LIMIT 1`,

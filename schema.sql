@@ -430,6 +430,35 @@ CREATE TABLE IF NOT EXISTS deals (
   INDEX deals_stage_idx (deal_stage, created_at)
 );
 
+-- Audit log of deal lifecycle events. Currently records deal creation and
+-- every stage transition (from_stage -> to_stage). Append-only.
+CREATE TABLE IF NOT EXISTS deal_activities (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  deal_id BIGINT UNSIGNED NOT NULL,
+  activity_type ENUM('created', 'stage_changed') NOT NULL,
+  from_stage ENUM(
+    'To Qualify',
+    'Demo Scheduled',
+    'Quotation Sent',
+    'Closed Won',
+    'Closed Lost'
+  ) DEFAULT NULL,
+  to_stage ENUM(
+    'To Qualify',
+    'Demo Scheduled',
+    'Quotation Sent',
+    'Closed Won',
+    'Closed Lost'
+  ) DEFAULT NULL,
+  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  CONSTRAINT fk_deal_activities_deal_id
+    FOREIGN KEY (deal_id) REFERENCES deals(id) ON DELETE CASCADE,
+  CONSTRAINT fk_deal_activities_created_by
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX deal_activities_deal_idx (deal_id, created_at)
+);
+
 CREATE TABLE IF NOT EXISTS lead_activities (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   lead_id BIGINT UNSIGNED NOT NULL,

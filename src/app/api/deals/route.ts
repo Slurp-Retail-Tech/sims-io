@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import getPool from "@/lib/db"
-import { leadScopeClause } from "@/lib/leads"
+import { isLeadManager, leadScopeClause } from "@/lib/leads"
 import {
   dealGlobalSelectSql,
   isDealStage,
@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url)
   const stageParam = searchParams.get("stage")?.trim()
+  const assignedParam = searchParams.get("assigned")?.trim()
 
   const whereClauses: string[] = []
   const values: Array<string | number> = []
@@ -29,6 +30,17 @@ export async function GET(request: NextRequest) {
     }
     whereClauses.push("deals.deal_stage = ?")
     values.push(stageParam)
+  }
+
+  // Assigned-user filter is only honoured for managers. Non-managers are always
+  // scoped to their own deals by leadScopeClause below, so the param is ignored.
+  if (assignedParam && isLeadManager(user)) {
+    if (assignedParam === "unassigned") {
+      whereClauses.push("leads.assigned_user_id IS NULL")
+    } else {
+      whereClauses.push("leads.assigned_user_id = ?")
+      values.push(assignedParam)
+    }
   }
 
   // Role scoping: non-managers only see deals on leads assigned to them.
