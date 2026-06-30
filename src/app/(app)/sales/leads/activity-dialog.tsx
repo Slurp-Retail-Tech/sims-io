@@ -40,12 +40,13 @@ type ActivityDialogProps = {
   onSaved: (activity: MappedActivity) => void
 }
 
-// DB datetime ("YYYY-MM-DD HH:MM:SS.mmm" or ISO) -> picker value "YYYY-MM-DDTHH:MM".
-function toPickerDateTime(value: string | null): string {
+// DB datetime ("YYYY-MM-DD HH:MM:SS.mmm" or ISO) -> separate "YYYY-MM-DD" + "HH:MM".
+function splitActivityDateTime(value: string | null): { date: string; time: string } {
   if (!value) {
-    return ""
+    return { date: "", time: "" }
   }
-  return value.replace(" ", "T").slice(0, 16)
+  const normalized = value.replace(" ", "T")
+  return { date: normalized.slice(0, 10), time: normalized.slice(11, 16) }
 }
 
 export function ActivityDialog({
@@ -58,6 +59,7 @@ export function ActivityDialog({
   const { showToast } = useToast()
   const [activityType, setActivityType] = React.useState<ActivityType>("Note")
   const [activityDate, setActivityDate] = React.useState("")
+  const [activityTime, setActivityTime] = React.useState("")
   const [remarks, setRemarks] = React.useState("")
   const [callOutcome, setCallOutcome] = React.useState("")
   const [callDirection, setCallDirection] = React.useState("")
@@ -71,8 +73,10 @@ export function ActivityDialog({
     if (!open) {
       return
     }
+    const { date, time } = splitActivityDateTime(activity?.activityDate ?? null)
     setActivityType(activity?.activityType ?? "Note")
-    setActivityDate(toPickerDateTime(activity?.activityDate ?? null))
+    setActivityDate(date)
+    setActivityTime(time)
     setRemarks(activity?.remarks ?? "")
     setCallOutcome(activity?.callOutcome ?? "")
     setCallDirection(activity?.callDirection ?? "")
@@ -99,8 +103,13 @@ export function ActivityDialog({
 
   const handleSubmit = async () => {
     const nextErrors: Record<string, string> = {}
-    if (showDate && !activityDate) {
-      nextErrors.activityDate = "Activity date is required."
+    if (showDate) {
+      if (!activityDate) {
+        nextErrors.activityDate = "Activity date is required."
+      }
+      if (!activityTime) {
+        nextErrors.activityTime = "Activity time is required."
+      }
     }
     if (showCall) {
       if (!callOutcome) nextErrors.callOutcome = "Call outcome is required."
@@ -128,7 +137,10 @@ export function ActivityDialog({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           activityType,
-          activityDate: showDate && activityDate ? activityDate : null,
+          activityDate:
+            showDate && activityDate && activityTime
+              ? `${activityDate}T${activityTime}`
+              : null,
           remarks: remarks.trim() || null,
           callOutcome: showCall ? callOutcome : null,
           callDirection: showCall ? callDirection : null,
@@ -185,19 +197,33 @@ export function ActivityDialog({
           </Field>
 
           {showDate ? (
-            <Field>
-              <FieldLabel htmlFor="activity-date">Activity date</FieldLabel>
-              <DateTimePicker
-                id="activity-date"
-                mode="datetime"
-                value={activityDate}
-                onChange={setActivityDate}
-                placeholder="Select date and time"
-              />
-              <FieldError
-                errors={errors.activityDate ? [{ message: errors.activityDate }] : undefined}
-              />
-            </Field>
+            <div className="grid grid-cols-2 gap-4">
+              <Field>
+                <FieldLabel htmlFor="activity-date">Activity date</FieldLabel>
+                <DateTimePicker
+                  id="activity-date"
+                  mode="date"
+                  value={activityDate}
+                  onChange={setActivityDate}
+                  placeholder="Select date"
+                />
+                <FieldError
+                  errors={errors.activityDate ? [{ message: errors.activityDate }] : undefined}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="activity-time">Activity time</FieldLabel>
+                <Input
+                  id="activity-time"
+                  type="time"
+                  value={activityTime}
+                  onChange={(event) => setActivityTime(event.target.value)}
+                />
+                <FieldError
+                  errors={errors.activityTime ? [{ message: errors.activityTime }] : undefined}
+                />
+              </Field>
+            </div>
           ) : null}
 
           {showCall ? (
