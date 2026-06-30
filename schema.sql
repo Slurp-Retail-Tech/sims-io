@@ -379,6 +379,7 @@ CREATE TABLE IF NOT EXISTS leads (
   business_type VARCHAR(255) NOT NULL,
   business_location VARCHAR(255) NOT NULL,
   source VARCHAR(255) DEFAULT NULL,
+  assigned_user_id BIGINT UNSIGNED DEFAULT NULL,
   referrer VARCHAR(1024) DEFAULT NULL,
   hubspot_contact_id VARCHAR(64) DEFAULT NULL,
   hubspot_sync_status ENUM('Pending', 'Success', 'Failed', 'Skipped') NOT NULL DEFAULT 'Pending',
@@ -387,8 +388,87 @@ CREATE TABLE IF NOT EXISTS leads (
   archived BOOLEAN NOT NULL DEFAULT FALSE,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  CONSTRAINT fk_leads_assigned_user_id
+    FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL,
   INDEX leads_created_idx (created_at),
-  INDEX leads_email_idx (email)
+  INDEX leads_email_idx (email),
+  INDEX leads_assigned_user_idx (assigned_user_id, created_at)
+);
+
+CREATE TABLE IF NOT EXISTS deals (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  lead_id BIGINT UNSIGNED NOT NULL,
+  deal_name VARCHAR(255) NOT NULL,
+  deal_stage ENUM(
+    'To Qualify',
+    'Demo Scheduled',
+    'Quotation Sent',
+    'Closed Won',
+    'Closed Lost'
+  ) NOT NULL DEFAULT 'To Qualify',
+  amount DECIMAL(12, 2) NOT NULL DEFAULT 0,
+  closed_date DATE DEFAULT NULL,
+  close_lost_reason ENUM(
+    'Unreachable Contact',
+    'Low Budget',
+    'Using Current POS',
+    'Product Unfit',
+    'Wrong Target Audience',
+    'Delivery Integration',
+    'Inventory',
+    'KDS',
+    'Disqualify'
+  ) DEFAULT NULL,
+  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  CONSTRAINT fk_deals_lead_id
+    FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
+  CONSTRAINT fk_deals_created_by
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX deals_lead_idx (lead_id, created_at),
+  INDEX deals_stage_idx (deal_stage, created_at)
+);
+
+CREATE TABLE IF NOT EXISTS lead_activities (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  lead_id BIGINT UNSIGNED NOT NULL,
+  activity_type ENUM(
+    'Note',
+    'Email',
+    'Call',
+    'Task',
+    'Meeting',
+    'WhatsApp Message'
+  ) NOT NULL,
+  activity_date DATETIME(3) DEFAULT NULL,
+  remarks TEXT DEFAULT NULL,
+  call_outcome ENUM(
+    'Busy',
+    'Connected',
+    'Left Live Message',
+    'Left Voicemail',
+    'No Answer',
+    'Wrong Number'
+  ) DEFAULT NULL,
+  call_direction ENUM('Inbound', 'Outbound') DEFAULT NULL,
+  meeting_outcome ENUM(
+    'Scheduled',
+    'Completed',
+    'Rescheduled',
+    'No Show',
+    'Canceled'
+  ) DEFAULT NULL,
+  location_type ENUM('Online', 'Onsite') DEFAULT NULL,
+  location VARCHAR(255) DEFAULT NULL,
+  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  CONSTRAINT fk_lead_activities_lead_id
+    FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
+  CONSTRAINT fk_lead_activities_created_by
+    FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  INDEX lead_activities_lead_idx (lead_id, created_at),
+  INDEX lead_activities_type_idx (lead_id, activity_type, created_at)
 );
 
 CREATE TABLE IF NOT EXISTS lead_notification_settings (

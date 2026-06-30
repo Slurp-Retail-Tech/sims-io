@@ -12,7 +12,7 @@ We're building a centralized **Support, Sales, and Renewal Engagement Platform**
 
 **Ticket creation (current):** Tickets are created and managed inside the app workflow.
 
-**Current app scope:** The live repository implements an internal Next.js workspace with support tickets, merchant operations, ClickUp sync, sales leads, onboarding appointments, user management, public forms, and selected analytics pages.
+**Current app scope:** The live repository implements an internal Next.js workspace with support tickets, merchant operations, ClickUp sync, sales leads, onboarding appointments, user management, public forms, and selected analytics pages. The sales lead module supports the full lead lifecycle — assignment, manual creation, editing, per-lead deal tracking, and activity logging — plus a dedicated Deals page with List and Kanban (drag-and-drop stage) views.
 
 **Current analytics note:** Not every dashboard in the app is backed by live metrics yet. The Renewal & Retention overview page is currently a preview-only screen with sample KPI values and placeholder chart content.
 

@@ -1,21 +1,16 @@
 import { NextRequest, NextResponse } from "next/server"
 import type { ResultSetHeader } from "mysql2/promise"
 
-import { requireAuthenticatedUser } from "@/lib/auth"
 import getPool from "@/lib/db"
 import { sendLeadNotificationEmail } from "@/lib/lead-notification"
 import { checkRateLimit, getRateLimitIp } from "@/lib/rate-limit"
-
-type LeadDbRow = {
-  id: number | string
-  name: string
-  telephone: string
-  business_type: string
-  business_location: string
-  source: string | null
-  created_at: string
-  archived: number
-}
+import {
+  leadScopeClause,
+  leadSelectSql,
+  mapLead,
+  type LeadRow,
+} from "@/lib/leads"
+import { parseOptionalUserId, resolveLeadsUser } from "./helpers"
 
 type CountRow = {
   total: number | string
@@ -93,15 +88,22 @@ async function verifyRecaptchaToken(token: string, remoteIp?: string | null) {
 }
 
 export async function GET(request: NextRequest) {
-  const user = await requireAuthenticatedUser(request)
-  if (!user) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 })
+  // The Sales Appointments lead picker also calls this endpoint, so accept
+  // either Leads or Appointments access.
+  const auth = await resolveLeadsUser(request, [
+    "/sales/leads",
+    "/sales/appointments",
+  ])
+  if ("response" in auth) {
+    return auth.response
   }
+  const { user } = auth
 
   const { searchParams } = new URL(request.url)
   const query = searchParams.get("q")?.trim().toLowerCase() ?? ""
   const archivedParam = searchParams.get("archived")?.trim().toLowerCase()
   const allParam = searchParams.get("all")?.trim().toLowerCase()
+  const assignedParam = parseOptionalUserId(searchParams.get("assigned"))
   const pageParam = Number(searchParams.get("page") ?? "1")
   const perPageParam = Number(searchParams.get("per_page") ?? "25")
 
@@ -115,9 +117,9 @@ export async function GET(request: NextRequest) {
   const values: Array<string | number> = []
 
   if (archivedParam === "true" || archivedParam === "1") {
-    whereClauses.push("archived = TRUE")
+    whereClauses.push("leads.archived = TRUE")
   } else if (archivedParam === "false" || archivedParam === "0" || !archivedParam) {
-    whereClauses.push("archived = FALSE")
+    whereClauses.push("leads.archived = FALSE")
   }
 
   if (query) {
@@ -125,13 +127,25 @@ export async function GET(request: NextRequest) {
     whereClauses.push(
       `
       (
-        LOWER(name) LIKE ?
-        OR LOWER(telephone) LIKE ?
-        OR LOWER(business_location) LIKE ?
+        LOWER(leads.name) LIKE ?
+        OR LOWER(leads.telephone) LIKE ?
+        OR LOWER(leads.business_location) LIKE ?
       )
     `
     )
     values.push(likeValue, likeValue, likeValue)
+  }
+
+  if (assignedParam !== null) {
+    whereClauses.push("leads.assigned_user_id = ?")
+    values.push(assignedParam)
+  }
+
+  // Role scoping: non-managers only see leads assigned to them.
+  const scope = leadScopeClause(user, "leads.assigned_user_id")
+  if (scope.clause) {
+    whereClauses.push(scope.clause)
+    values.push(...scope.params)
   }
 
   const whereSql = whereClauses.length
@@ -157,35 +171,17 @@ export async function GET(request: NextRequest) {
 
   const [rowsRaw] = await pool.query(
     `
-      SELECT
-        id,
-        name,
-        telephone,
-        business_type,
-        business_location,
-        source,
-        created_at,
-        archived
-      FROM leads
+      ${leadSelectSql}
       ${whereSql}
-      ORDER BY created_at DESC
+      ORDER BY leads.created_at DESC
       ${paginationSql}
     `,
     rowValues
   )
-  const rows = rowsRaw as LeadDbRow[]
+  const rows = rowsRaw as LeadRow[]
 
   return NextResponse.json({
-    leads: rows.map((row) => ({
-      id: String(row.id),
-      name: row.name,
-      telephone: row.telephone,
-      businessType: row.business_type,
-      businessLocation: row.business_location,
-      source: row.source,
-      createdAt: row.created_at,
-      archived: Boolean(row.archived),
-    })),
+    leads: rows.map(mapLead),
     total,
     page,
     perPage,
@@ -212,7 +208,12 @@ export async function POST(request: NextRequest) {
   const telephone = normalizeText(formData.get("telephone"))
   const businessType = normalizeText(formData.get("business_type"))
   const businessLocation = normalizeText(formData.get("business_location"))
-  const source = normalizeText(formData.get("source")) ?? "demo-form"
+  // Normalise lead source to the canonical labels (web | mobile | manual).
+  // Legacy "desktop"/"demo-form" values map to "web"; the public form only ever
+  // submits "web" or "mobile".
+  const rawSource = normalizeText(formData.get("source"))
+  const source =
+    rawSource === "mobile" ? "mobile" : rawSource === "manual" ? "manual" : "web"
   const recaptchaToken = normalizeText(formData.get("g-recaptcha-response"))
 
   if (!name || !telephone || !businessType || !businessLocation) {
