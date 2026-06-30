@@ -74,6 +74,8 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
   const [activitiesLoading, setActivitiesLoading] = React.useState(true)
   const [activityFilter, setActivityFilter] = React.useState<string>("All")
   const [activityDialogOpen, setActivityDialogOpen] = React.useState(false)
+  const [editingActivity, setEditingActivity] = React.useState<MappedActivity | null>(null)
+  const [deletingActivityId, setDeletingActivityId] = React.useState<string | null>(null)
 
   const canEdit = Boolean(
     lead && (isManager || lead.assignedUserId === sessionUser?.id)
@@ -246,6 +248,42 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
   const handleActivitySaved = () => {
     // Refetch to respect the current filter and ordering.
     void loadActivities()
+  }
+
+  const openLogActivity = () => {
+    setEditingActivity(null)
+    setActivityDialogOpen(true)
+  }
+
+  const openEditActivity = (activity: MappedActivity) => {
+    setEditingActivity(activity)
+    setActivityDialogOpen(true)
+  }
+
+  const handleDeleteActivity = async (activity: MappedActivity) => {
+    if (!window.confirm("Delete this activity? This cannot be undone.")) {
+      return
+    }
+    setDeletingActivityId(activity.id)
+    try {
+      const response = await fetch(
+        `/api/leads/${leadId}/activities/${activity.id}`,
+        { method: "DELETE" }
+      )
+      if (!response.ok) {
+        const data = (await response.json().catch(() => ({}))) as { error?: string }
+        throw new Error(data.error || "Unable to delete activity.")
+      }
+      setActivities((current) => current.filter((item) => item.id !== activity.id))
+      showToast("Activity deleted.")
+    } catch (error) {
+      showToast(
+        error instanceof Error ? error.message : "Unable to delete activity.",
+        "error"
+      )
+    } finally {
+      setDeletingActivityId(null)
+    }
   }
 
   if (loading) {
@@ -495,7 +533,7 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
               </SelectContent>
             </Select>
             {canEdit ? (
-              <Button size="sm" variant="outline" onClick={() => setActivityDialogOpen(true)}>
+              <Button size="sm" variant="outline" onClick={openLogActivity}>
                 Log activity
               </Button>
             ) : null}
@@ -510,11 +548,35 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
                 <li key={activity.id} className="rounded-lg border px-4 py-3 text-sm">
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium">{activity.activityType}</span>
-                    <span className="text-muted-foreground text-xs">
-                      {activity.activityDate
-                        ? formatDateTime(activity.activityDate)
-                        : formatDateTime(activity.createdAt)}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground text-xs">
+                        {activity.activityDate
+                          ? formatDateTime(activity.activityDate)
+                          : formatDateTime(activity.createdAt)}
+                        {activity.updatedAt ? " · edited" : null}
+                      </span>
+                      {canEdit ? (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => openEditActivity(activity)}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive h-7 px-2 text-xs"
+                            disabled={deletingActivityId === activity.id}
+                            onClick={() => void handleDeleteActivity(activity)}
+                          >
+                            {deletingActivityId === activity.id ? "Deleting..." : "Delete"}
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                   <ActivityMeta activity={activity} />
                   {activity.remarks ? (
@@ -547,6 +609,7 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
       />
       <ActivityDialog
         leadId={leadId}
+        activity={editingActivity}
         open={activityDialogOpen}
         onClose={() => setActivityDialogOpen(false)}
         onSaved={handleActivitySaved}

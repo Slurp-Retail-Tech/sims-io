@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { DateTimePicker } from "@/components/ui/date-time-picker"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
@@ -33,12 +34,27 @@ import {
 
 type ActivityDialogProps = {
   leadId: string
+  activity?: MappedActivity | null
   open: boolean
   onClose: () => void
   onSaved: (activity: MappedActivity) => void
 }
 
-export function ActivityDialog({ leadId, open, onClose, onSaved }: ActivityDialogProps) {
+// DB datetime ("YYYY-MM-DD HH:MM:SS.mmm" or ISO) -> picker value "YYYY-MM-DDTHH:MM".
+function toPickerDateTime(value: string | null): string {
+  if (!value) {
+    return ""
+  }
+  return value.replace(" ", "T").slice(0, 16)
+}
+
+export function ActivityDialog({
+  leadId,
+  activity,
+  open,
+  onClose,
+  onSaved,
+}: ActivityDialogProps) {
   const { showToast } = useToast()
   const [activityType, setActivityType] = React.useState<ActivityType>("Note")
   const [activityDate, setActivityDate] = React.useState("")
@@ -55,16 +71,16 @@ export function ActivityDialog({ leadId, open, onClose, onSaved }: ActivityDialo
     if (!open) {
       return
     }
-    setActivityType("Note")
-    setActivityDate("")
-    setRemarks("")
-    setCallOutcome("")
-    setCallDirection("")
-    setMeetingOutcome("")
-    setLocationType("")
-    setLocation("")
+    setActivityType(activity?.activityType ?? "Note")
+    setActivityDate(toPickerDateTime(activity?.activityDate ?? null))
+    setRemarks(activity?.remarks ?? "")
+    setCallOutcome(activity?.callOutcome ?? "")
+    setCallDirection(activity?.callDirection ?? "")
+    setMeetingOutcome(activity?.meetingOutcome ?? "")
+    setLocationType(activity?.locationType ?? "")
+    setLocation(activity?.location ?? "")
     setErrors({})
-  }, [open])
+  }, [open, activity])
 
   const handleTypeChange = (next: ActivityType) => {
     setActivityType(next)
@@ -104,8 +120,11 @@ export function ActivityDialog({ leadId, open, onClose, onSaved }: ActivityDialo
 
     setSubmitting(true)
     try {
-      const response = await fetch(`/api/leads/${leadId}/activities`, {
-        method: "POST",
+      const url = activity
+        ? `/api/leads/${leadId}/activities/${activity.id}`
+        : `/api/leads/${leadId}/activities`
+      const response = await fetch(url, {
+        method: activity ? "PATCH" : "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           activityType,
@@ -123,14 +142,14 @@ export function ActivityDialog({ leadId, open, onClose, onSaved }: ActivityDialo
         error?: string
       }
       if (!response.ok || !data.activity) {
-        throw new Error(data.error || "Unable to log activity.")
+        throw new Error(data.error || "Unable to save activity.")
       }
       onSaved(data.activity)
-      showToast("Activity logged.")
+      showToast(activity ? "Activity updated." : "Activity logged.")
       onClose()
     } catch (error) {
       showToast(
-        error instanceof Error ? error.message : "Unable to log activity.",
+        error instanceof Error ? error.message : "Unable to save activity.",
         "error"
       )
     } finally {
@@ -142,7 +161,7 @@ export function ActivityDialog({ leadId, open, onClose, onSaved }: ActivityDialo
     <Dialog open={open} onOpenChange={(next) => (!next ? onClose() : undefined)}>
       <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Log activity</DialogTitle>
+          <DialogTitle>{activity ? "Edit activity" : "Log activity"}</DialogTitle>
           <DialogDescription>Record an interaction with this lead.</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-5">
@@ -168,11 +187,12 @@ export function ActivityDialog({ leadId, open, onClose, onSaved }: ActivityDialo
           {showDate ? (
             <Field>
               <FieldLabel htmlFor="activity-date">Activity date</FieldLabel>
-              <Input
+              <DateTimePicker
                 id="activity-date"
-                type="datetime-local"
+                mode="datetime"
                 value={activityDate}
-                onChange={(event) => setActivityDate(event.target.value)}
+                onChange={setActivityDate}
+                placeholder="Select date and time"
               />
               <FieldError
                 errors={errors.activityDate ? [{ message: errors.activityDate }] : undefined}
@@ -298,7 +318,7 @@ export function ActivityDialog({ leadId, open, onClose, onSaved }: ActivityDialo
             Cancel
           </Button>
           <Button type="button" onClick={() => void handleSubmit()} disabled={submitting}>
-            {submitting ? "Saving..." : "Log activity"}
+            {submitting ? "Saving..." : activity ? "Save activity" : "Log activity"}
           </Button>
         </DialogFooter>
       </DialogContent>

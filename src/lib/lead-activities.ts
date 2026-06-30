@@ -144,6 +144,7 @@ export type ActivityRow = RowDataPacket & {
   location: string | null
   created_by_user_id: string | null
   created_at: string
+  updated_at: string | null
   created_by_name: string | null
 }
 
@@ -161,6 +162,7 @@ export const activitySelectSql = `
     lead_activities.location,
     lead_activities.created_by_user_id,
     lead_activities.created_at,
+    lead_activities.updated_at,
     created_by.name AS created_by_name
   FROM lead_activities
   LEFT JOIN users AS created_by
@@ -180,6 +182,7 @@ export type MappedActivity = {
   location: string | null
   createdByName: string | null
   createdAt: string
+  updatedAt: string | null
 }
 
 export function mapActivity(row: ActivityRow): MappedActivity {
@@ -196,5 +199,6 @@ export function mapActivity(row: ActivityRow): MappedActivity {
     location: row.location,
     createdByName: row.created_by_name,
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
   }
 }

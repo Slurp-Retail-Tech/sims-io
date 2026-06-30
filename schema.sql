@@ -463,6 +463,7 @@ CREATE TABLE IF NOT EXISTS lead_activities (
   location VARCHAR(255) DEFAULT NULL,
   created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) DEFAULT NULL,
   CONSTRAINT fk_lead_activities_lead_id
     FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
   CONSTRAINT fk_lead_activities_created_by
