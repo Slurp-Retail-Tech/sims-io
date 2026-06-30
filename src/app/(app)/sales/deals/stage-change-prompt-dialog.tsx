@@ -11,8 +11,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { DateTimePicker } from "@/components/ui/date-time-picker"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -89,11 +89,12 @@ export function StageChangePromptDialog({
         <div className="flex flex-col gap-5">
           <Field>
             <FieldLabel htmlFor="prompt-closed-date">Closed date</FieldLabel>
-            <Input
+            <DateTimePicker
               id="prompt-closed-date"
-              type="date"
+              mode="date"
               value={closedDate}
-              onChange={(event) => setClosedDate(event.target.value)}
+              onChange={setClosedDate}
+              placeholder="Select closed date"
             />
             <FieldError errors={errors.closedDate ? [{ message: errors.closedDate }] : undefined} />
           </Field>

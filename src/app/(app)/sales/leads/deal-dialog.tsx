@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { DateTimePicker } from "@/components/ui/date-time-picker"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import {
@@ -180,11 +181,12 @@ export function DealDialog({ leadId, deal, open, onClose, onSaved }: DealDialogP
           {terminal ? (
             <Field>
               <FieldLabel htmlFor="deal-closed-date">Closed date</FieldLabel>
-              <Input
+              <DateTimePicker
                 id="deal-closed-date"
-                type="date"
+                mode="date"
                 value={closedDate ? closedDate.slice(0, 10) : ""}
-                onChange={(event) => setClosedDate(event.target.value)}
+                onChange={setClosedDate}
+                placeholder="Select closed date"
               />
               <FieldError errors={errors.closedDate ? [{ message: errors.closedDate }] : undefined} />
             </Field>
