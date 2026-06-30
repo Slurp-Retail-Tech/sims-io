@@ -13,8 +13,6 @@ import { useSetBreadcrumbLabel } from "@/components/breadcrumb-context"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
-import { Field, FieldError, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
 import {
   Select,
   SelectContent,
@@ -27,31 +25,7 @@ import type { MappedDeal } from "@/lib/deals"
 import { ACTIVITY_TYPES, type MappedActivity } from "@/lib/lead-activities"
 import { DealDialog } from "../deal-dialog"
 import { ActivityDialog } from "../activity-dialog"
-import type { AssignableUser } from "../types"
-
-const UNASSIGNED_VALUE = "__unassigned__"
-
-type EditDraft = {
-  name: string
-  telephone: string
-  email: string
-  businessName: string
-  businessType: string
-  businessLocation: string
-  assignedUserId: string
-}
-
-function draftFromLead(lead: MappedLead): EditDraft {
-  return {
-    name: lead.name,
-    telephone: lead.telephone,
-    email: lead.email ?? "",
-    businessName: lead.businessName ?? "",
-    businessType: lead.businessType,
-    businessLocation: lead.businessLocation,
-    assignedUserId: lead.assignedUserId ?? UNASSIGNED_VALUE,
-  }
-}
+import { LeadEditDialog } from "../lead-edit-dialog"
 
 type LeadNavigation = {
   previousLeadId: string | null
@@ -78,11 +52,7 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
   // Show the lead name (not the raw id) in the global breadcrumb.
   useSetBreadcrumbLabel(`/sales/leads/${leadId}`, lead?.name ?? null)
 
-  const [editing, setEditing] = React.useState(false)
-  const [draft, setDraft] = React.useState<EditDraft | null>(null)
-  const [editErrors, setEditErrors] = React.useState<Record<string, string>>({})
-  const [saving, setSaving] = React.useState(false)
-  const [assignableUsers, setAssignableUsers] = React.useState<AssignableUser[]>([])
+  const [editDialogOpen, setEditDialogOpen] = React.useState(false)
 
   const [deals, setDeals] = React.useState<MappedDeal[]>([])
   const [dealsLoading, setDealsLoading] = React.useState(true)
@@ -179,93 +149,6 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
   React.useEffect(() => {
     void loadActivities()
   }, [loadActivities])
-
-  React.useEffect(() => {
-    if (!editing || !isManager) {
-      return
-    }
-    const loadUsers = async () => {
-      try {
-        const response = await fetch("/api/users/sales-agents")
-        if (!response.ok) {
-          return
-        }
-        const data = (await response.json()) as { users: AssignableUser[] }
-        setAssignableUsers(data.users ?? [])
-      } catch {
-        // optional
-      }
-    }
-    void loadUsers()
-  }, [editing, isManager])
-
-  const startEdit = () => {
-    if (!lead) {
-      return
-    }
-    setDraft(draftFromLead(lead))
-    setEditErrors({})
-    setEditing(true)
-  }
-
-  const cancelEdit = () => {
-    setEditing(false)
-    setDraft(null)
-    setEditErrors({})
-  }
-
-  const saveEdit = async () => {
-    if (!draft || !lead) {
-      return
-    }
-    const nextErrors: Record<string, string> = {}
-    if (!draft.name.trim()) nextErrors.name = "Name is required."
-    if (!/^\d{8,15}$/.test(draft.telephone.trim())) {
-      nextErrors.telephone = "Telephone must contain 8 to 15 digits."
-    }
-    if (!draft.businessType.trim()) nextErrors.businessType = "Business type is required."
-    if (!draft.businessLocation.trim()) {
-      nextErrors.businessLocation = "Business location is required."
-    }
-    setEditErrors(nextErrors)
-    if (Object.keys(nextErrors).length > 0) {
-      return
-    }
-
-    setSaving(true)
-    try {
-      const payload: Record<string, unknown> = {
-        name: draft.name.trim(),
-        telephone: draft.telephone.trim(),
-        email: draft.email.trim() || null,
-        businessName: draft.businessName.trim() || null,
-        businessType: draft.businessType.trim(),
-        businessLocation: draft.businessLocation.trim(),
-      }
-      // Only managers can change assignment.
-      if (isManager) {
-        payload.assignedUserId =
-          draft.assignedUserId === UNASSIGNED_VALUE ? null : draft.assignedUserId
-      }
-      const response = await fetch(`/api/leads/${leadId}`, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      const data = (await response.json()) as { lead?: MappedLead; error?: string }
-      if (!response.ok || !data.lead) {
-        throw new Error(data.error || "Unable to save lead.")
-      }
-      setLead(data.lead)
-      setEditing(false)
-      setDraft(null)
-      showToast("Lead updated.")
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : "Unable to save lead.", "error")
-    } finally {
-      setSaving(false)
-    }
-  }
 
   const handleDealSaved = (saved: MappedDeal) => {
     setDeals((current) => {
@@ -456,125 +339,23 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle className="text-base">Lead details</CardTitle>
-          {canEdit && !editing ? (
-            <Button size="sm" variant="outline" onClick={startEdit}>
+          {canEdit ? (
+            <Button size="sm" variant="outline" onClick={() => setEditDialogOpen(true)}>
               Edit
             </Button>
           ) : null}
         </CardHeader>
         <CardContent>
-          {editing && draft ? (
-            <div className="flex flex-col gap-5">
-              <Field>
-                <FieldLabel htmlFor="edit-name">Name</FieldLabel>
-                <Input
-                  id="edit-name"
-                  value={draft.name}
-                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                />
-                <FieldError errors={editErrors.name ? [{ message: editErrors.name }] : undefined} />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="edit-telephone">Telephone</FieldLabel>
-                <Input
-                  id="edit-telephone"
-                  value={draft.telephone}
-                  onChange={(e) => setDraft({ ...draft, telephone: e.target.value })}
-                />
-                <FieldError
-                  errors={editErrors.telephone ? [{ message: editErrors.telephone }] : undefined}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="edit-email">Email</FieldLabel>
-                <Input
-                  id="edit-email"
-                  type="email"
-                  value={draft.email}
-                  onChange={(e) => setDraft({ ...draft, email: e.target.value })}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="edit-business-name">Business name</FieldLabel>
-                <Input
-                  id="edit-business-name"
-                  value={draft.businessName}
-                  onChange={(e) => setDraft({ ...draft, businessName: e.target.value })}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="edit-business-type">Business type</FieldLabel>
-                <Input
-                  id="edit-business-type"
-                  value={draft.businessType}
-                  onChange={(e) => setDraft({ ...draft, businessType: e.target.value })}
-                />
-                <FieldError
-                  errors={editErrors.businessType ? [{ message: editErrors.businessType }] : undefined}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="edit-business-location">Business location</FieldLabel>
-                <Input
-                  id="edit-business-location"
-                  value={draft.businessLocation}
-                  onChange={(e) => setDraft({ ...draft, businessLocation: e.target.value })}
-                />
-                <FieldError
-                  errors={
-                    editErrors.businessLocation
-                      ? [{ message: editErrors.businessLocation }]
-                      : undefined
-                  }
-                />
-              </Field>
-              {/* Source is read-only */}
-              <Field>
-                <FieldLabel>Source</FieldLabel>
-                <Input value={lead.source ?? "--"} disabled readOnly className="capitalize" />
-              </Field>
-              {isManager ? (
-                <Field>
-                  <FieldLabel>Assigned to</FieldLabel>
-                  <Select
-                    value={draft.assignedUserId}
-                    onValueChange={(value) => setDraft({ ...draft, assignedUserId: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
-                      {assignableUsers.map((agent) => (
-                        <SelectItem key={agent.id} value={agent.id}>
-                          {agent.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-              ) : null}
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={cancelEdit} disabled={saving}>
-                  Cancel
-                </Button>
-                <Button onClick={() => void saveEdit()} disabled={saving}>
-                  {saving ? "Saving..." : "Save"}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
-              <DetailRow label="Telephone" value={lead.telephone} />
-              <DetailRow label="Email" value={lead.email ?? "--"} />
-              <DetailRow label="Business name" value={lead.businessName ?? "--"} />
-              <DetailRow label="Business type" value={lead.businessType} />
-              <DetailRow label="Business location" value={lead.businessLocation} />
-              <DetailRow label="Source" value={lead.source ?? "--"} capitalize />
-              <DetailRow label="Assigned to" value={lead.assignedUserName ?? "Unassigned"} />
-              <DetailRow label="Created" value={formatDateTime(lead.createdAt)} />
-            </dl>
-          )}
+          <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+            <DetailRow label="Telephone" value={lead.telephone} />
+            <DetailRow label="Email" value={lead.email ?? "--"} />
+            <DetailRow label="Business name" value={lead.businessName ?? "--"} />
+            <DetailRow label="Business type" value={lead.businessType} />
+            <DetailRow label="Business location" value={lead.businessLocation} />
+            <DetailRow label="Source" value={lead.source ?? "--"} capitalize />
+            <DetailRow label="Assigned to" value={lead.assignedUserName ?? "Unassigned"} />
+            <DetailRow label="Created" value={formatDateTime(lead.createdAt)} />
+          </dl>
         </CardContent>
       </Card>
 
@@ -744,6 +525,14 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
         </Card>
       </div>
 
+      <LeadEditDialog
+        leadId={leadId}
+        lead={lead}
+        isManager={isManager}
+        open={editDialogOpen}
+        onClose={() => setEditDialogOpen(false)}
+        onSaved={(updated) => setLead(updated)}
+      />
       <DealDialog
         leadId={leadId}
         deal={editingDeal}
