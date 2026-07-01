@@ -1,11 +1,13 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 
 import { formatDateTime } from "@/lib/dates"
 import { getSessionUser } from "@/lib/session"
 import { useToast } from "@/components/toast-provider"
 import { Button } from "@/components/ui/button"
+import { NewLeadDialog } from "./new-lead-dialog"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
@@ -27,6 +29,7 @@ import {
 } from "@/components/ui/pagination"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import type { AssignableUser } from "./types"
 
 type LeadRow = {
   id: string
@@ -37,6 +40,8 @@ type LeadRow = {
   source: string | null
   createdAt: string
   archived: boolean
+  assignedUserId: string | null
+  assignedUserName: string | null
 }
 
 type LeadNotificationSettings = {
@@ -47,6 +52,11 @@ type LeadNotificationSettings = {
 }
 
 const perPageOptions = [10, 25, 50, 100]
+
+const ALL_VALUE = "__all__"
+const UNASSIGNED_VALUE = "__unassigned__"
+
+type StatusFilter = "active" | "archived" | "all"
 
 function getPaginationItems(current: number, total: number) {
   if (total <= 7) {
@@ -66,18 +76,26 @@ export default function LeadsTable() {
   const sessionUser = React.useMemo(() => getSessionUser(), [])
   const canManageNotificationSettings =
     sessionUser?.role === "Admin" || sessionUser?.role === "Super Admin"
+  const isManager =
+    sessionUser?.role === "Admin" || sessionUser?.role === "Super Admin"
+  const [newLeadDialogOpen, setNewLeadDialogOpen] = React.useState(false)
   const [leads, setLeads] = React.useState<LeadRow[]>([])
-  const [archivedLeads, setArchivedLeads] = React.useState<LeadRow[]>([])
   const [loading, setLoading] = React.useState(true)
-  const [archivedLoading, setArchivedLoading] = React.useState(false)
-  const [archivedDialogOpen, setArchivedDialogOpen] = React.useState(false)
   const [searchInput, setSearchInput] = React.useState("")
   const [searchQuery, setSearchQuery] = React.useState("")
   const [page, setPage] = React.useState(1)
   const [perPage, setPerPage] = React.useState(25)
   const [total, setTotal] = React.useState(0)
-  const [archivingLeadId, setArchivingLeadId] = React.useState<string | null>(null)
-  const [confirmDialogOpen, setConfirmDialogOpen] = React.useState(false)
+
+  // Filters.
+  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("active")
+  const [businessTypeFilter, setBusinessTypeFilter] = React.useState<string>(ALL_VALUE)
+  const [assignedFilter, setAssignedFilter] = React.useState<string>(ALL_VALUE)
+  const [businessTypes, setBusinessTypes] = React.useState<string[]>([])
+  const [assignableUsers, setAssignableUsers] = React.useState<AssignableUser[]>([])
+
+  const [assigningLeadId, setAssigningLeadId] = React.useState<string | null>(null)
+
   const [settings, setSettings] = React.useState<LeadNotificationSettings>({
     isEnabled: true,
     recipientsText: "",
@@ -88,10 +106,6 @@ export default function LeadsTable() {
   const [settingsSaving, setSettingsSaving] = React.useState(false)
   const [settingsError, setSettingsError] = React.useState<string | null>(null)
   const [settingsDialogOpen, setSettingsDialogOpen] = React.useState(false)
-  const [pendingArchiveAction, setPendingArchiveAction] = React.useState<{
-    lead: LeadRow
-    archived: boolean
-  } | null>(null)
 
   const totalPages = Math.max(1, Math.ceil(total / perPage))
   const paginationItems = React.useMemo(() => getPaginationItems(page, totalPages), [page, totalPages])
@@ -106,7 +120,7 @@ export default function LeadsTable() {
 
   React.useEffect(() => {
     setPage(1)
-  }, [searchQuery, perPage])
+  }, [searchQuery, perPage, statusFilter, businessTypeFilter, assignedFilter])
 
   const loadLeads = React.useCallback(async () => {
     const user = getSessionUser()
@@ -118,15 +132,25 @@ export default function LeadsTable() {
     setLoading(true)
     try {
       const params = new URLSearchParams()
-      params.set("archived", "false")
+      params.set(
+        "archived",
+        statusFilter === "all" ? "all" : statusFilter === "archived" ? "true" : "false"
+      )
       params.set("page", String(page))
       params.set("per_page", String(perPage))
       if (searchQuery) {
         params.set("q", searchQuery)
       }
+      if (businessTypeFilter !== ALL_VALUE) {
+        params.set("business_type", businessTypeFilter)
+      }
+      if (assignedFilter === UNASSIGNED_VALUE) {
+        params.set("assigned", "unassigned")
+      } else if (assignedFilter !== ALL_VALUE) {
+        params.set("assigned", assignedFilter)
+      }
 
-      const response = await fetch(`/api/leads?${params.toString()}`, {
-      })
+      const response = await fetch(`/api/leads?${params.toString()}`)
       if (!response.ok) {
         throw new Error("Unable to load leads.")
       }
@@ -141,39 +165,38 @@ export default function LeadsTable() {
     } finally {
       setLoading(false)
     }
-  }, [page, perPage, searchQuery])
-
-  const loadArchivedLeads = React.useCallback(async () => {
-    const user = getSessionUser()
-    if (!user?.id) {
-      return
-    }
-
-    setArchivedLoading(true)
-    try {
-      const params = new URLSearchParams()
-      params.set("archived", "true")
-      params.set("all", "true")
-
-      const response = await fetch(`/api/leads?${params.toString()}`, {
-      })
-      if (!response.ok) {
-        throw new Error("Unable to load archived leads.")
-      }
-
-      const data = (await response.json()) as { leads: LeadRow[] }
-      setArchivedLeads(data.leads ?? [])
-    } catch (error) {
-      console.error(error)
-      setArchivedLeads([])
-    } finally {
-      setArchivedLoading(false)
-    }
-  }, [])
+  }, [page, perPage, searchQuery, statusFilter, businessTypeFilter, assignedFilter])
 
   React.useEffect(() => {
     void loadLeads()
   }, [loadLeads])
+
+  // Load filter option lists once.
+  React.useEffect(() => {
+    const user = getSessionUser()
+    if (!user?.id) {
+      return
+    }
+    const loadOptions = async () => {
+      try {
+        const [typesRes, usersRes] = await Promise.all([
+          fetch("/api/leads/filter-options"),
+          fetch("/api/users/sales-agents"),
+        ])
+        if (typesRes.ok) {
+          const data = (await typesRes.json()) as { businessTypes: string[] }
+          setBusinessTypes(data.businessTypes ?? [])
+        }
+        if (usersRes.ok) {
+          const data = (await usersRes.json()) as { users: AssignableUser[] }
+          setAssignableUsers(data.users ?? [])
+        }
+      } catch {
+        // Filters degrade gracefully to "All" if options fail to load.
+      }
+    }
+    void loadOptions()
+  }, [])
 
   React.useEffect(() => {
     const user = getSessionUser()
@@ -185,8 +208,7 @@ export default function LeadsTable() {
     const loadSettings = async () => {
       setSettingsLoading(true)
       try {
-        const response = await fetch("/api/leads/notification-settings", {
-        })
+        const response = await fetch("/api/leads/notification-settings")
         if (!response.ok) {
           throw new Error("Unable to load notification settings.")
         }
@@ -207,46 +229,55 @@ export default function LeadsTable() {
     void loadSettings()
   }, [])
 
-  const handleSetArchived = React.useCallback(async (lead: LeadRow, archived: boolean) => {
-    const user = getSessionUser()
-    if (!user?.id || archivingLeadId) {
-      return
-    }
-
-    setArchivingLeadId(lead.id)
-    try {
-      const response = await fetch(`/api/leads/${lead.id}`, {
-        method: "PATCH",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ archived }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Unable to ${archived ? "archive" : "unarchive"} lead.`)
+  const handleAssign = React.useCallback(
+    async (lead: LeadRow, nextValue: string) => {
+      const nextUserId = nextValue === UNASSIGNED_VALUE ? null : nextValue
+      if (nextUserId === lead.assignedUserId) {
+        return
       }
-
-      await loadLeads()
-      if (archivedDialogOpen) {
-        await loadArchivedLeads()
+      setAssigningLeadId(lead.id)
+      const nextName =
+        nextUserId === null
+          ? null
+          : assignableUsers.find((user) => user.id === nextUserId)?.name ?? null
+      // Optimistic update.
+      setLeads((current) =>
+        current.map((item) =>
+          item.id === lead.id
+            ? { ...item, assignedUserId: nextUserId, assignedUserName: nextName }
+            : item
+        )
+      )
+      try {
+        const response = await fetch(`/api/leads/${lead.id}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ assignedUserId: nextUserId }),
+        })
+        const data = (await response.json()) as { lead?: LeadRow; error?: string }
+        if (!response.ok || !data.lead) {
+          throw new Error(data.error || "Unable to update assignment.")
+        }
+        setLeads((current) =>
+          current.map((item) => (item.id === lead.id ? data.lead! : item))
+        )
+        showToast("Lead assignment updated.")
+      } catch (error) {
+        // Revert just this row to its pre-change value (avoids a full reload
+        // that could clobber other rows' in-flight optimistic updates).
+        setLeads((current) =>
+          current.map((item) => (item.id === lead.id ? lead : item))
+        )
+        showToast(
+          error instanceof Error ? error.message : "Unable to update assignment.",
+          "error"
+        )
+      } finally {
+        setAssigningLeadId(null)
       }
-    } catch (error) {
-      console.error(error)
-    } finally {
-      setArchivingLeadId(null)
-    }
-  }, [archivedDialogOpen, archivingLeadId, loadArchivedLeads, loadLeads])
-
-  const requestSetArchived = React.useCallback((lead: LeadRow, archived: boolean) => {
-    setPendingArchiveAction({ lead, archived })
-    setConfirmDialogOpen(true)
-  }, [])
-
-  const openArchivedModal = React.useCallback(async () => {
-    setArchivedDialogOpen(true)
-    await loadArchivedLeads()
-  }, [loadArchivedLeads])
+    },
+    [assignableUsers, showToast]
+  )
 
   const handleSaveSettings = React.useCallback(async () => {
     const user = getSessionUser()
@@ -301,25 +332,67 @@ export default function LeadsTable() {
           <Button size="sm" variant="outline" onClick={() => setSettingsDialogOpen(true)}>
             Email notifications
           </Button>
-          <Button size="sm" variant="outline" onClick={() => void openArchivedModal()}>
-            Archived leads
-          </Button>
-          <Button size="sm" asChild>
+          <Button size="sm" variant="outline" asChild>
             <a href="/demoform" target="_blank" rel="noreferrer">
               Open Demo Form
             </a>
+          </Button>
+          <Button size="sm" onClick={() => setNewLeadDialogOpen(true)}>
+            New Lead
           </Button>
         </div>
       </div>
 
       <Card>
-        <CardHeader className="space-y-2">
+        <CardHeader className="space-y-3">
           <CardTitle className="text-base">Lead pipeline</CardTitle>
           <Input
             placeholder="Search by name, phone, or location"
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
           />
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Select
+              value={statusFilter}
+              onValueChange={(value) => setStatusFilter(value as StatusFilter)}
+            >
+              <SelectTrigger className="h-9 w-full text-xs sm:w-[160px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active leads</SelectItem>
+                <SelectItem value="archived">Archived leads</SelectItem>
+                <SelectItem value="all">All leads</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={businessTypeFilter} onValueChange={setBusinessTypeFilter}>
+              <SelectTrigger className="h-9 w-full text-xs sm:w-[180px]">
+                <SelectValue placeholder="Business type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_VALUE}>All business types</SelectItem>
+                {businessTypes.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={assignedFilter} onValueChange={setAssignedFilter}>
+              <SelectTrigger className="h-9 w-full text-xs sm:w-[180px]">
+                <SelectValue placeholder="Assigned user" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_VALUE}>All assignees</SelectItem>
+                <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
+                {assignableUsers.map((user) => (
+                  <SelectItem key={user.id} value={user.id}>
+                    {user.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {loading ? (
@@ -340,6 +413,7 @@ export default function LeadsTable() {
                       <th className="px-4 py-3">Business</th>
                       <th className="px-4 py-3">Source</th>
                       <th className="px-4 py-3">Created</th>
+                      <th className="px-4 py-3">Assigned</th>
                       <th className="px-4 py-3">Actions</th>
                     </tr>
                   </thead>
@@ -349,9 +423,26 @@ export default function LeadsTable() {
                         key={lead.id}
                         className={index % 2 === 0 ? "bg-background" : "bg-muted/20"}
                       >
-                        <td className="px-4 py-3 font-medium">#{lead.id}</td>
+                        <td className="px-4 py-3 font-medium">
+                          <Link
+                            href={`/sales/leads/${lead.id}`}
+                            className="hover:underline"
+                          >
+                            #{lead.id}
+                          </Link>
+                        </td>
                         <td className="px-4 py-3 text-xs">
-                          <div className="font-semibold">{lead.name}</div>
+                          <Link
+                            href={`/sales/leads/${lead.id}`}
+                            className="font-semibold hover:underline"
+                          >
+                            {lead.name}
+                          </Link>
+                          {lead.archived ? (
+                            <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              Archived
+                            </span>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3 text-xs">
                           <div>{lead.telephone || "--"}</div>
@@ -368,14 +459,34 @@ export default function LeadsTable() {
                         <td className="px-4 py-3 text-xs text-muted-foreground">
                           {formatDateTime(lead.createdAt)}
                         </td>
+                        <td className="px-4 py-3 text-xs">
+                          {isManager ? (
+                            <Select
+                              value={lead.assignedUserId ?? UNASSIGNED_VALUE}
+                              disabled={assigningLeadId === lead.id}
+                              onValueChange={(value) => void handleAssign(lead, value)}
+                            >
+                              <SelectTrigger className="h-8 w-[150px] text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
+                                {assignableUsers.map((user) => (
+                                  <SelectItem key={user.id} value={user.id}>
+                                    {user.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              {lead.assignedUserName ?? "Unassigned"}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={archivingLeadId === lead.id}
-                            onClick={() => requestSetArchived(lead, true)}
-                          >
-                            {archivingLeadId === lead.id ? "Archiving..." : "Archive"}
+                          <Button size="sm" variant="outline" asChild>
+                            <Link href={`/sales/leads/${lead.id}`}>View</Link>
                           </Button>
                         </td>
                       </tr>
@@ -465,6 +576,13 @@ export default function LeadsTable() {
         </CardContent>
       </Card>
 
+      <NewLeadDialog
+        open={newLeadDialogOpen}
+        isManager={isManager}
+        onClose={() => setNewLeadDialogOpen(false)}
+        onCreated={() => void loadLeads()}
+      />
+
       <Dialog open={settingsDialogOpen} onOpenChange={setSettingsDialogOpen}>
         <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
           <DialogHeader>
@@ -538,125 +656,6 @@ export default function LeadsTable() {
               </DialogFooter>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={archivedDialogOpen} onOpenChange={setArchivedDialogOpen}>
-        <DialogContent className="max-h-[85vh] max-w-5xl overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Archived Leads</DialogTitle>
-            <DialogDescription>
-              All leads marked as archived.
-            </DialogDescription>
-          </DialogHeader>
-          {archivedLoading ? (
-            <div className="text-muted-foreground text-sm">Loading archived leads...</div>
-          ) : archivedLeads.length ? (
-            <div className="overflow-x-auto rounded-lg border bg-card">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50 text-left text-xs font-semibold text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3">ID</th>
-                    <th className="px-4 py-3">Lead</th>
-                    <th className="px-4 py-3">Contacts</th>
-                    <th className="px-4 py-3">Business</th>
-                    <th className="px-4 py-3">Created</th>
-                    <th className="px-4 py-3">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {archivedLeads.map((lead, index) => (
-                    <tr
-                      key={lead.id}
-                      className={index % 2 === 0 ? "bg-background" : "bg-muted/20"}
-                    >
-                      <td className="px-4 py-3 font-medium">#{lead.id}</td>
-                      <td className="px-4 py-3 text-xs">
-                        <div className="font-semibold">{lead.name}</div>
-                      </td>
-                      <td className="px-4 py-3 text-xs">
-                        <div>{lead.telephone || "--"}</div>
-                      </td>
-                      <td className="px-4 py-3 text-xs">
-                        <div>{lead.businessType || "--"}</div>
-                        <div className="text-muted-foreground">
-                          {lead.businessLocation || "--"}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">
-                        {formatDateTime(lead.createdAt)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={archivingLeadId === lead.id}
-                          onClick={() => requestSetArchived(lead, false)}
-                        >
-                          {archivingLeadId === lead.id ? "Saving..." : "Unarchive"}
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-muted-foreground text-sm">No archived leads found.</div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={confirmDialogOpen}
-        onOpenChange={(open) => {
-          setConfirmDialogOpen(open)
-          if (!open) {
-            setPendingArchiveAction(null)
-          }
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {pendingArchiveAction?.archived ? "Archive Lead" : "Unarchive Lead"}
-            </DialogTitle>
-            <DialogDescription>
-              {pendingArchiveAction
-                ? pendingArchiveAction.archived
-                  ? `Are you sure you want to archive "${pendingArchiveAction.lead.name}"?`
-                  : `Are you sure you want to unarchive "${pendingArchiveAction.lead.name}"?`
-                : "Please confirm this action."}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setConfirmDialogOpen(false)
-                setPendingArchiveAction(null)
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={() => {
-                if (!pendingArchiveAction) {
-                  return
-                }
-                setConfirmDialogOpen(false)
-                void handleSetArchived(
-                  pendingArchiveAction.lead,
-                  pendingArchiveAction.archived
-                )
-                setPendingArchiveAction(null)
-              }}
-            >
-              Confirm
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

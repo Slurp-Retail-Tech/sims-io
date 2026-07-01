@@ -25,10 +25,11 @@ const languageTag = {
 export type DemoFormVariant = "whatsapp" | "web"
 
 // WhatsApp entries are submitted from the mobile-oriented form; the plain web
-// form is the desktop entry point. The value is stored in the lead `source`.
+// form is the desktop entry point. The value is stored in the lead `source`
+// using the canonical labels (web | mobile | manual).
 const sourceByVariant: Record<DemoFormVariant, string> = {
   whatsapp: "mobile",
-  web: "desktop",
+  web: "web",
 }
 
 const copy = {

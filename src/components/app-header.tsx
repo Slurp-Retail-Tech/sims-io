@@ -4,6 +4,7 @@ import * as React from "react"
 import { Search } from "lucide-react"
 import { usePathname } from "next/navigation"
 
+import { useBreadcrumbLabels } from "@/components/breadcrumb-context"
 import { GlobalSearch } from "@/components/global-search"
 import { ThemeToggle } from "@/components/theme-toggle"
 import {
@@ -63,6 +64,7 @@ const generalSegments = new Set([
 
 export function AppHeader() {
   const pathname = usePathname()
+  const breadcrumbOverrides = useBreadcrumbLabels()
   const [searchOpen, setSearchOpen] = React.useState(false)
   const [searchSeed, setSearchSeed] = React.useState("")
 
@@ -88,7 +90,9 @@ export function AppHeader() {
       index === 0 && groupOverviewRoutes[segment]
         ? groupOverviewRoutes[segment]
         : `/${segments.slice(0, index + 1).join("/")}`
+    const fullHref = `/${segments.slice(0, index + 1).join("/")}`
     const label =
+      breadcrumbOverrides[fullHref] ??
       breadcrumbLabels[segment] ??
       segment.replace(/-/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
     return { href, label }

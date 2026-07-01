@@ -67,6 +67,7 @@ const pageAccessGroups: PageAccessGroup[] = [
     options: [
       { label: "Overview", value: "/sales/overview" },
       { label: "Leads", value: "/sales/leads" },
+      { label: "Deals", value: "/sales/deals" },
       { label: "Appointments", value: "/sales/appointments" },
       { label: "Analytics", value: "/sales/analytics" },
     ],
