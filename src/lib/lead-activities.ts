@@ -60,6 +60,7 @@ export type ActivityInput = {
   meetingOutcome: string | null
   locationType: string | null
   location: string | null
+  dealId: string | null
 }
 
 export type NormalizedActivity = {
@@ -71,6 +72,7 @@ export type NormalizedActivity = {
   meetingOutcome: MeetingOutcome | null
   locationType: LocationType | null
   location: string | null
+  dealId: string | null
 }
 
 /**
@@ -98,6 +100,8 @@ export function validateActivityInput(
     meetingOutcome: null,
     locationType: null,
     location: null,
+    // The link is optional; the route verifies the deal belongs to this lead.
+    dealId: input.dealId ? input.dealId : null,
   }
 
   if (activityType === "Call") {
@@ -134,6 +138,8 @@ export function validateActivityInput(
 export type ActivityRow = RowDataPacket & {
   id: string
   lead_id: string
+  deal_id: string | null
+  deal_name: string | null
   activity_type: ActivityType
   activity_date: string | null
   remarks: string | null
@@ -152,6 +158,8 @@ export const activitySelectSql = `
   SELECT
     lead_activities.id,
     lead_activities.lead_id,
+    lead_activities.deal_id,
+    deals.deal_name AS deal_name,
     lead_activities.activity_type,
     lead_activities.activity_date,
     lead_activities.remarks,
@@ -167,11 +175,15 @@ export const activitySelectSql = `
   FROM lead_activities
   LEFT JOIN users AS created_by
     ON created_by.id = lead_activities.created_by_user_id
+  LEFT JOIN deals
+    ON deals.id = lead_activities.deal_id
 `
 
 export type MappedActivity = {
   id: string
   leadId: string
+  dealId: string | null
+  dealName: string | null
   activityType: ActivityType
   activityDate: string | null
   remarks: string | null
@@ -189,6 +201,8 @@ export function mapActivity(row: ActivityRow): MappedActivity {
   return {
     id: String(row.id),
     leadId: String(row.lead_id),
+    dealId: row.deal_id === null ? null : String(row.deal_id),
+    dealName: row.deal_name,
     activityType: row.activity_type,
     activityDate: row.activity_date,
     remarks: row.remarks,

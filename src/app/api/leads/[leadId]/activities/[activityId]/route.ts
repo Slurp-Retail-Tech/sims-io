@@ -14,6 +14,7 @@ import {
   cleanString,
   loadLeadAssignment,
   parseLeadId,
+  resolveActivityDealId,
   resolveLeadsUser,
 } from "../../../helpers"
 
@@ -73,6 +74,7 @@ type PatchActivityBody = {
   meetingOutcome?: unknown
   locationType?: unknown
   location?: unknown
+  dealId?: unknown
 }
 
 export async function PATCH(
@@ -106,22 +108,29 @@ export async function PATCH(
     meetingOutcome: cleanString(body.meetingOutcome),
     locationType: cleanString(body.locationType),
     location: cleanString(body.location),
+    dealId: cleanString(body.dealId),
   })
   if (!validated.ok) {
     return NextResponse.json({ error: validated.error }, { status: 400 })
   }
   const v = validated.values
 
+  const dealLink = await resolveActivityDealId(v.dealId, leadId)
+  if ("error" in dealLink) {
+    return NextResponse.json({ error: dealLink.error }, { status: 400 })
+  }
+
   const pool = getPool()
   await pool.query<ResultSetHeader>(
     `
       UPDATE lead_activities
-      SET activity_type = ?, activity_date = ?, remarks = ?,
+      SET deal_id = ?, activity_type = ?, activity_date = ?, remarks = ?,
           call_outcome = ?, call_direction = ?, meeting_outcome = ?,
           location_type = ?, location = ?, updated_at = CURRENT_TIMESTAMP(3)
       WHERE id = ? AND lead_id = ?
     `,
     [
+      dealLink.dealId,
       v.activityType,
       v.activityDate ? v.activityDate.slice(0, 23).replace("T", " ") : null,
       v.remarks,

@@ -26,11 +26,14 @@ import { ACTIVITY_TYPES, type MappedActivity } from "@/lib/lead-activities"
 import { DealDialog } from "../deal-dialog"
 import { ActivityDialog } from "../activity-dialog"
 import { LeadEditDialog } from "../lead-edit-dialog"
+import type { AssignableUser } from "../types"
 
 type LeadNavigation = {
   previousLeadId: string | null
   nextLeadId: string | null
 }
+
+const UNASSIGNED_VALUE = "__unassigned__"
 
 export function LeadDetailView({ leadId }: { leadId: string }) {
   const { showToast } = useToast()
@@ -48,6 +51,8 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
   })
   const [archiveConfirmOpen, setArchiveConfirmOpen] = React.useState(false)
   const [archiving, setArchiving] = React.useState(false)
+  const [assignableUsers, setAssignableUsers] = React.useState<AssignableUser[]>([])
+  const [assigning, setAssigning] = React.useState(false)
 
   // Show the lead name (not the raw id) in the global breadcrumb.
   useSetBreadcrumbLabel(`/sales/leads/${leadId}`, lead?.name ?? null)
@@ -149,6 +154,64 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
   React.useEffect(() => {
     void loadActivities()
   }, [loadActivities])
+
+  // Managers can reassign inline; load the option list once.
+  React.useEffect(() => {
+    if (!isManager) {
+      return
+    }
+    const loadUsers = async () => {
+      try {
+        const response = await fetch("/api/users/sales-agents")
+        if (!response.ok) {
+          return
+        }
+        const data = (await response.json()) as { users: AssignableUser[] }
+        setAssignableUsers(data.users ?? [])
+      } catch {
+        // Inline reassignment degrades gracefully if options fail to load.
+      }
+    }
+    void loadUsers()
+  }, [isManager])
+
+  const handleAssign = async (value: string) => {
+    if (!lead) {
+      return
+    }
+    const nextUserId = value === UNASSIGNED_VALUE ? null : value
+    if (nextUserId === (lead.assignedUserId ?? null)) {
+      return
+    }
+    const previous = lead
+    const nextName =
+      nextUserId === null
+        ? null
+        : (assignableUsers.find((user) => user.id === nextUserId)?.name ?? null)
+    // Optimistic update.
+    setLead({ ...lead, assignedUserId: nextUserId, assignedUserName: nextName })
+    setAssigning(true)
+    try {
+      const response = await fetch(`/api/leads/${leadId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ assignedUserId: nextUserId }),
+      })
+      const data = (await response.json()) as { lead?: MappedLead; error?: string }
+      if (!response.ok || !data.lead) {
+        throw new Error(data.error || "Unable to update lead.")
+      }
+      setLead(data.lead) // server truth
+    } catch (error) {
+      setLead(previous) // revert
+      showToast(
+        error instanceof Error ? error.message : "Unable to update lead.",
+        "error"
+      )
+    } finally {
+      setAssigning(false)
+    }
+  }
 
   const handleDealSaved = (saved: MappedDeal) => {
     setDeals((current) => {
@@ -353,7 +416,34 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
             <DetailRow label="Business type" value={lead.businessType} />
             <DetailRow label="Business location" value={lead.businessLocation} />
             <DetailRow label="Source" value={lead.source ?? "--"} capitalize />
-            <DetailRow label="Assigned to" value={lead.assignedUserName ?? "Unassigned"} />
+            <div className="flex flex-col gap-1">
+              <dt className="text-muted-foreground text-xs uppercase tracking-wide">
+                Assigned to
+              </dt>
+              <dd>
+                {isManager ? (
+                  <Select
+                    value={lead.assignedUserId ?? UNASSIGNED_VALUE}
+                    disabled={assigning}
+                    onValueChange={(value) => void handleAssign(value)}
+                  >
+                    <SelectTrigger className="h-8 w-[200px] text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
+                      {assignableUsers.map((user) => (
+                        <SelectItem key={user.id} value={user.id}>
+                          {user.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  (lead.assignedUserName ?? "Unassigned")
+                )}
+              </dd>
+            </div>
             <DetailRow label="Created" value={formatDateTime(lead.createdAt)} />
           </dl>
         </CardContent>
@@ -426,6 +516,11 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
                       </div>
                     </div>
                     <ActivityMeta activity={activity} />
+                    {activity.dealName ? (
+                      <p className="text-muted-foreground mt-1 text-xs">
+                        Deal: {activity.dealName}
+                      </p>
+                    ) : null}
                     {activity.remarks ? (
                       <p className="text-muted-foreground mt-1">{activity.remarks}</p>
                     ) : null}
@@ -476,7 +571,7 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
                       <th className="px-4 py-3">Stage</th>
                       <th className="px-4 py-3">Amount</th>
                       <th className="px-4 py-3">Closed date</th>
-                      {canEdit ? <th className="px-4 py-3" /> : null}
+                      <th className="px-4 py-3" />
                     </tr>
                   </thead>
                   <tbody>
@@ -488,31 +583,36 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
                         <td className="px-4 py-3 text-muted-foreground">
                           {deal.closedDate ? formatDate(deal.closedDate) : "--"}
                         </td>
-                        {canEdit ? (
-                          <td className="px-4 py-3 text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => {
-                                  setEditingDeal(deal)
-                                  setDealDialogOpen(true)
-                                }}
-                              >
-                                Edit
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-destructive hover:text-destructive"
-                                disabled={deletingDealId === deal.id}
-                                onClick={() => setDeletingDeal(deal)}
-                              >
-                                {deletingDealId === deal.id ? "Deleting..." : "Delete"}
-                              </Button>
-                            </div>
-                          </td>
-                        ) : null}
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button size="sm" variant="ghost" asChild>
+                              <Link href={`/sales/deals/${deal.id}`}>View</Link>
+                            </Button>
+                            {canEdit ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => {
+                                    setEditingDeal(deal)
+                                    setDealDialogOpen(true)
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="text-destructive hover:text-destructive"
+                                  disabled={deletingDealId === deal.id}
+                                  onClick={() => setDeletingDeal(deal)}
+                                >
+                                  {deletingDealId === deal.id ? "Deleting..." : "Delete"}
+                                </Button>
+                              </>
+                            ) : null}
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -543,6 +643,7 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
       <ActivityDialog
         leadId={leadId}
         activity={editingActivity}
+        deals={deals}
         open={activityDialogOpen}
         onClose={() => setActivityDialogOpen(false)}
         onSaved={handleActivitySaved}

@@ -462,6 +462,7 @@ CREATE TABLE IF NOT EXISTS deal_activities (
 CREATE TABLE IF NOT EXISTS lead_activities (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   lead_id BIGINT UNSIGNED NOT NULL,
+  deal_id BIGINT UNSIGNED DEFAULT NULL,
   activity_type ENUM(
     'Note',
     'Email',
@@ -495,9 +496,12 @@ CREATE TABLE IF NOT EXISTS lead_activities (
   updated_at DATETIME(3) DEFAULT NULL,
   CONSTRAINT fk_lead_activities_lead_id
     FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
+  CONSTRAINT fk_lead_activities_deal_id
+    FOREIGN KEY (deal_id) REFERENCES deals(id) ON DELETE SET NULL,
   CONSTRAINT fk_lead_activities_created_by
     FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
   INDEX lead_activities_lead_idx (lead_id, created_at),
+  INDEX lead_activities_deal_idx (deal_id),
   INDEX lead_activities_type_idx (lead_id, activity_type, created_at)
 );
 

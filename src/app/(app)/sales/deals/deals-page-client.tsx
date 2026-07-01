@@ -1,12 +1,18 @@
 "use client"
 
 import * as React from "react"
-import { LayoutGrid, List } from "lucide-react"
+import { LayoutGrid, List, SlidersHorizontal } from "lucide-react"
 
 import { getSessionUser } from "@/lib/session"
 import { useToast } from "@/components/toast-provider"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/components/ui/confirm-dialog"
+import { DateTimePicker } from "@/components/ui/date-time-picker"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Select,
   SelectContent,
@@ -33,6 +39,13 @@ import {
   writeDealsViewCookie,
   type DealsView,
 } from "./view-state"
+import {
+  countActiveDateFilters,
+  EMPTY_DEALS_DATE_FILTER,
+  readDealsDateFilterCookie,
+  writeDealsDateFilterCookie,
+  type DealsDateFilter,
+} from "./date-filter-state"
 
 const ALL_VALUE = "__all__"
 const UNASSIGNED_VALUE = "__unassigned__"
@@ -51,6 +64,10 @@ export function DealsPageClient() {
   const [deletingDealId, setDeletingDealId] = React.useState<string | null>(null)
   const [assignedFilter, setAssignedFilter] = React.useState<string>(ALL_VALUE)
   const [assignableUsers, setAssignableUsers] = React.useState<AssignableUser[]>([])
+  const [dateFilter, setDateFilter] = React.useState<DealsDateFilter>(() =>
+    readDealsDateFilterCookie()
+  )
+  const activeDateFilters = countActiveDateFilters(dateFilter)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -64,6 +81,12 @@ export function DealsPageClient() {
           assignedFilter === UNASSIGNED_VALUE ? "unassigned" : assignedFilter
         )
       }
+      // Date-range filters: empty fields are simply omitted.
+      for (const [key, value] of Object.entries(dateFilter)) {
+        if (value) {
+          params.set(key, value)
+        }
+      }
       const query = params.toString()
       const response = await fetch(`/api/deals${query ? `?${query}` : ""}`)
       if (!response.ok) {
@@ -76,7 +99,7 @@ export function DealsPageClient() {
     } finally {
       setLoading(false)
     }
-  }, [isManager, assignedFilter])
+  }, [isManager, assignedFilter, dateFilter])
 
   React.useEffect(() => {
     void load()
@@ -106,6 +129,19 @@ export function DealsPageClient() {
     const value: DealsView = next === "list" ? "list" : "kanban"
     setView(value)
     writeDealsViewCookie(value)
+  }
+
+  const updateDateFilter = (patch: Partial<DealsDateFilter>) => {
+    setDateFilter((current) => {
+      const next = { ...current, ...patch }
+      writeDealsDateFilterCookie(next)
+      return next
+    })
+  }
+
+  const clearDateFilters = () => {
+    setDateFilter({ ...EMPTY_DEALS_DATE_FILTER })
+    writeDealsDateFilterCookie({ ...EMPTY_DEALS_DATE_FILTER })
   }
 
   const commitStageChange = React.useCallback(
@@ -249,6 +285,56 @@ export function DealsPageClient() {
               </SelectContent>
             </Select>
           ) : null}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9">
+                <SlidersHorizontal className="mr-1.5 size-4" />
+                Date filters
+                {activeDateFilters > 0 ? (
+                  <span className="bg-primary text-primary-foreground ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-xs">
+                    {activeDateFilters}
+                  </span>
+                ) : null}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-80">
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium">Filter by date</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    disabled={activeDateFilters === 0}
+                    onClick={clearDateFilters}
+                  >
+                    Clear
+                  </Button>
+                </div>
+                <DateRangeField
+                  label="Create date"
+                  from={dateFilter.createdFrom}
+                  to={dateFilter.createdTo}
+                  onFromChange={(value) => updateDateFilter({ createdFrom: value })}
+                  onToChange={(value) => updateDateFilter({ createdTo: value })}
+                />
+                <DateRangeField
+                  label="Last activity date"
+                  from={dateFilter.activityFrom}
+                  to={dateFilter.activityTo}
+                  onFromChange={(value) => updateDateFilter({ activityFrom: value })}
+                  onToChange={(value) => updateDateFilter({ activityTo: value })}
+                />
+                <DateRangeField
+                  label="Close date"
+                  from={dateFilter.closedFrom}
+                  to={dateFilter.closedTo}
+                  onFromChange={(value) => updateDateFilter({ closedFrom: value })}
+                  onToChange={(value) => updateDateFilter({ closedTo: value })}
+                />
+              </div>
+            </PopoverContent>
+          </Popover>
           <Tabs value={view} onValueChange={handleViewChange}>
             <TabsList>
               <TabsTrigger value="kanban">
@@ -311,6 +397,42 @@ export function DealsPageClient() {
           }
         }}
       />
+    </div>
+  )
+}
+
+function DateRangeField({
+  label,
+  from,
+  to,
+  onFromChange,
+  onToChange,
+}: {
+  label: string
+  from: string
+  to: string
+  onFromChange: (value: string) => void
+  onToChange: (value: string) => void
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+        {label}
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <DateTimePicker
+          mode="date"
+          value={from}
+          onChange={onFromChange}
+          placeholder="From"
+        />
+        <DateTimePicker
+          mode="date"
+          value={to}
+          onChange={onToChange}
+          placeholder="To"
+        />
+      </div>
     </div>
   )
 }

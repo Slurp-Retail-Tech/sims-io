@@ -76,6 +76,35 @@ export function parseOptionalUserId(value: unknown): number | null {
 export const TELEPHONE_PATTERN = /^\d{8,15}$/
 
 /**
+ * Resolves an optional `dealId` from an activity payload, ensuring the deal
+ * exists and belongs to the given lead. Returns:
+ *  - `{ dealId: null }` when no link was requested,
+ *  - `{ dealId: <id-string> }` when the link is valid,
+ *  - `{ error }` when the id is malformed or the deal is not on this lead.
+ */
+export async function resolveActivityDealId(
+  rawDealId: unknown,
+  leadId: number
+): Promise<{ dealId: string | null } | { error: string }> {
+  const parsed = parseOptionalUserId(rawDealId)
+  if (rawDealId !== null && rawDealId !== undefined && rawDealId !== "" && parsed === null) {
+    return { error: "Invalid deal id." }
+  }
+  if (parsed === null) {
+    return { dealId: null }
+  }
+  const { default: getPool } = await import("@/lib/db")
+  const [rows] = await getPool().query(
+    `SELECT id FROM deals WHERE id = ? AND lead_id = ? LIMIT 1`,
+    [parsed, leadId]
+  )
+  if (!(rows as Array<{ id: string }>)[0]) {
+    return { error: "Deal not found on this lead." }
+  }
+  return { dealId: String(parsed) }
+}
+
+/**
  * Loads the minimal lead row needed for deal/activity authorisation.
  * Returns null if the lead does not exist.
  */
