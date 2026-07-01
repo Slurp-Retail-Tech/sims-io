@@ -1,6 +1,7 @@
 import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise"
 
 import type { DealStage } from "@/lib/deals"
+import type { MappedActivity } from "@/lib/lead-activities"
 
 export const DEAL_ACTIVITY_TYPES = ["created", "stage_changed"] as const
 export type DealActivityType = (typeof DEAL_ACTIVITY_TYPES)[number]
@@ -51,6 +52,53 @@ export function mapDealActivity(row: DealActivityRow): MappedDealActivity {
     createdByName: row.created_by_name,
     createdAt: row.created_at,
   }
+}
+
+/**
+ * A single entry in a deal's activity timeline. The log combines two sources:
+ *  - `deal` entries are lifecycle events from `deal_activities`
+ *    (deal created, stage changed), ordered by their `createdAt`.
+ *  - `lead` entries are lead activities (notes, calls, meetings, etc.) that
+ *    were linked to this deal via `lead_activities.deal_id`, ordered by the
+ *    activity's own date when set, falling back to when it was logged.
+ */
+export type DealTimelineEntry =
+  | { kind: "deal"; id: string; sortAt: string; activity: MappedDealActivity }
+  | { kind: "lead"; id: string; sortAt: string; activity: MappedActivity }
+
+/**
+ * Merges deal lifecycle activities with the lead activities linked to the deal
+ * into a single timeline, sorted most-recent first.
+ */
+export function buildDealTimeline(
+  dealActivities: MappedDealActivity[],
+  leadActivities: MappedActivity[]
+): DealTimelineEntry[] {
+  const entries: DealTimelineEntry[] = [
+    ...dealActivities.map(
+      (activity): DealTimelineEntry => ({
+        kind: "deal",
+        id: activity.id,
+        sortAt: activity.createdAt,
+        activity,
+      })
+    ),
+    ...leadActivities.map(
+      (activity): DealTimelineEntry => ({
+        kind: "lead",
+        id: activity.id,
+        sortAt: activity.activityDate ?? activity.createdAt,
+        activity,
+      })
+    ),
+  ]
+  // sortAt values are same-format DATETIME(3) strings, so a lexicographic
+  // comparison orders them chronologically. Descending = newest first.
+  entries.sort((a, b) => {
+    if (a.sortAt === b.sortAt) return 0
+    return a.sortAt < b.sortAt ? 1 : -1
+  })
+  return entries
 }
 
 /**

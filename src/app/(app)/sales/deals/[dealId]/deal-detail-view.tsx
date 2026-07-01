@@ -15,7 +15,8 @@ import {
   type DealStage,
   type MappedGlobalDeal,
 } from "@/lib/deals"
-import type { MappedDealActivity } from "@/lib/deal-activities"
+import type { DealTimelineEntry, MappedDealActivity } from "@/lib/deal-activities"
+import type { MappedActivity } from "@/lib/lead-activities"
 
 const STAGE_BADGE_CLASS: Record<DealStage, string> = {
   "To Qualify": "bg-muted text-muted-foreground",
@@ -43,7 +44,7 @@ export function DealDetailView({ dealId }: { dealId: string }) {
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
-  const [activities, setActivities] = React.useState<MappedDealActivity[]>([])
+  const [activities, setActivities] = React.useState<DealTimelineEntry[]>([])
   const [activitiesLoading, setActivitiesLoading] = React.useState(true)
 
   useSetBreadcrumbLabel(`/sales/deals/${dealId}`, deal?.dealName ?? null)
@@ -77,7 +78,7 @@ export function DealDetailView({ dealId }: { dealId: string }) {
       if (!response.ok) {
         throw new Error("Unable to load activity.")
       }
-      const data = (await response.json()) as { activities: MappedDealActivity[] }
+      const data = (await response.json()) as { activities: DealTimelineEntry[] }
       setActivities(data.activities ?? [])
     } catch {
       setActivities([])
@@ -176,16 +177,19 @@ export function DealDetailView({ dealId }: { dealId: string }) {
             <div className="text-muted-foreground text-sm">Loading activity...</div>
           ) : activities.length ? (
             <ul className="flex flex-col gap-4">
-              {activities.map((activity) => (
-                <li key={activity.id} className="flex gap-3 text-sm">
-                  <span className="bg-primary/60 mt-1.5 size-2 shrink-0 rounded-full" />
-                  <div className="flex flex-col gap-0.5">
-                    <ActivityDescription activity={activity} />
-                    <span className="text-muted-foreground text-xs">
-                      {formatDateTime(activity.createdAt)}
-                      {activity.createdByName ? ` · ${activity.createdByName}` : null}
-                    </span>
-                  </div>
+              {activities.map((entry) => (
+                <li key={`${entry.kind}-${entry.id}`} className="flex gap-3 text-sm">
+                  <span
+                    className={cn(
+                      "mt-1.5 size-2 shrink-0 rounded-full",
+                      entry.kind === "deal" ? "bg-primary/60" : "bg-blue-500/60"
+                    )}
+                  />
+                  {entry.kind === "deal" ? (
+                    <DealActivityItem activity={entry.activity} />
+                  ) : (
+                    <LeadActivityItem activity={entry.activity} />
+                  )}
                 </li>
               ))}
             </ul>
@@ -203,6 +207,18 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     <div className="flex flex-col gap-1">
       <dt className="text-muted-foreground text-xs uppercase tracking-wide">{label}</dt>
       <dd>{value}</dd>
+    </div>
+  )
+}
+
+function DealActivityItem({ activity }: { activity: MappedDealActivity }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <ActivityDescription activity={activity} />
+      <span className="text-muted-foreground text-xs">
+        {formatDateTime(activity.createdAt)}
+        {activity.createdByName ? ` · ${activity.createdByName}` : null}
+      </span>
     </div>
   )
 }
@@ -238,4 +254,38 @@ function ActivityDescription({ activity }: { activity: MappedDealActivity }) {
       ) : null}
     </span>
   )
+}
+
+function LeadActivityItem({ activity }: { activity: MappedActivity }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span>
+        <span className="font-medium">{activity.activityType}</span>
+        {activity.updatedAt ? (
+          <span className="text-muted-foreground"> · edited</span>
+        ) : null}
+      </span>
+      <LeadActivityMeta activity={activity} />
+      {activity.remarks ? (
+        <p className="text-muted-foreground">{activity.remarks}</p>
+      ) : null}
+      <span className="text-muted-foreground text-xs">
+        {formatDateTime(activity.activityDate ?? activity.createdAt)}
+        {activity.createdByName ? ` · ${activity.createdByName}` : null}
+      </span>
+    </div>
+  )
+}
+
+function LeadActivityMeta({ activity }: { activity: MappedActivity }) {
+  const parts: string[] = []
+  if (activity.callOutcome) parts.push(`Outcome: ${activity.callOutcome}`)
+  if (activity.callDirection) parts.push(`Direction: ${activity.callDirection}`)
+  if (activity.meetingOutcome) parts.push(`Outcome: ${activity.meetingOutcome}`)
+  if (activity.locationType) parts.push(activity.locationType)
+  if (activity.location) parts.push(activity.location)
+  if (parts.length === 0) {
+    return null
+  }
+  return <p className="text-muted-foreground text-xs">{parts.join(" · ")}</p>
 }

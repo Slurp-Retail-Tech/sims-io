@@ -3,10 +3,16 @@ import { NextRequest, NextResponse } from "next/server"
 import getPool from "@/lib/db"
 import { canViewLead } from "@/lib/leads"
 import {
+  buildDealTimeline,
   dealActivitySelectSql,
   mapDealActivity,
   type DealActivityRow,
 } from "@/lib/deal-activities"
+import {
+  activitySelectSql,
+  mapActivity,
+  type ActivityRow,
+} from "@/lib/lead-activities"
 import { parseDealId, resolveDealsUser } from "../../helpers"
 
 export async function GET(
@@ -41,11 +47,21 @@ export async function GET(
     return NextResponse.json({ error: "Deal not found." }, { status: 404 })
   }
 
-  const [rows] = await pool.query(
-    `${dealActivitySelectSql} WHERE deal_activities.deal_id = ? ORDER BY deal_activities.created_at DESC, deal_activities.id DESC`,
-    [parsedDealId]
-  )
+  const [dealRows, leadRows] = await Promise.all([
+    pool.query(
+      `${dealActivitySelectSql} WHERE deal_activities.deal_id = ? ORDER BY deal_activities.created_at DESC, deal_activities.id DESC`,
+      [parsedDealId]
+    ),
+    pool.query(
+      `${activitySelectSql} WHERE lead_activities.deal_id = ? ORDER BY lead_activities.created_at DESC, lead_activities.id DESC`,
+      [parsedDealId]
+    ),
+  ])
+
+  const dealActivities = (dealRows[0] as DealActivityRow[]).map(mapDealActivity)
+  const leadActivities = (leadRows[0] as ActivityRow[]).map(mapActivity)
+
   return NextResponse.json({
-    activities: (rows as DealActivityRow[]).map(mapDealActivity),
+    activities: buildDealTimeline(dealActivities, leadActivities),
   })
 }
