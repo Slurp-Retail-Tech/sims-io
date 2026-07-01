@@ -164,6 +164,43 @@ export function DealDetailView({ dealId }: { dealId: string }) {
               <DetailRow label="Close lost reason" value={deal.closeLostReason} />
             ) : null}
             <DetailRow label="Assigned to" value={deal.assignedUserName ?? "Unassigned"} />
+            {deal.closeLostRemarks ? (
+              <div className="flex flex-col gap-1 sm:col-span-2">
+                <dt className="text-muted-foreground text-xs uppercase tracking-wide">
+                  Close lost remarks
+                </dt>
+                <dd className="whitespace-pre-wrap">{deal.closeLostRemarks}</dd>
+              </div>
+            ) : null}
+          </dl>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
+          <CardTitle className="text-base">Lead</CardTitle>
+          <Button size="sm" variant="outline" asChild>
+            <Link href={`/sales/leads/${deal.leadId}`}>View lead</Link>
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <dt className="text-muted-foreground text-xs uppercase tracking-wide">Name</dt>
+              <dd>
+                <Link
+                  href={`/sales/leads/${deal.leadId}`}
+                  className="font-medium hover:underline"
+                >
+                  {deal.leadName}
+                </Link>
+              </dd>
+            </div>
+            <DetailRow label="Telephone" value={deal.leadTelephone} />
+            <DetailRow label="Email" value={deal.leadEmail ?? "--"} />
+            <DetailRow label="Business name" value={deal.leadBusinessName ?? "--"} />
+            <DetailRow label="Business type" value={deal.leadBusinessType} />
+            <DetailRow label="Business location" value={deal.leadBusinessLocation} />
           </dl>
         </CardContent>
       </Card>

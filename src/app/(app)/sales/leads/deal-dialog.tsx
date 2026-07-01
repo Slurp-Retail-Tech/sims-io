@@ -15,6 +15,7 @@ import {
 import { DateTimePicker } from "@/components/ui/date-time-picker"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
   SelectContent,
@@ -48,6 +49,7 @@ export function DealDialog({ leadId, deal, open, onClose, onSaved }: DealDialogP
   const [amount, setAmount] = React.useState("")
   const [closedDate, setClosedDate] = React.useState("")
   const [closeLostReason, setCloseLostReason] = React.useState("")
+  const [closeLostRemarks, setCloseLostRemarks] = React.useState("")
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
 
@@ -61,6 +63,7 @@ export function DealDialog({ leadId, deal, open, onClose, onSaved }: DealDialogP
     setAmount(deal ? String(deal.amount) : "")
     setClosedDate(deal?.closedDate ?? "")
     setCloseLostReason(deal?.closeLostReason ?? "")
+    setCloseLostRemarks(deal?.closeLostRemarks ?? "")
     setErrors({})
   }, [open, deal])
 
@@ -75,6 +78,7 @@ export function DealDialog({ leadId, deal, open, onClose, onSaved }: DealDialogP
     }
     if (next !== "Closed Lost") {
       setCloseLostReason("")
+      setCloseLostRemarks("")
     }
   }
 
@@ -113,6 +117,10 @@ export function DealDialog({ leadId, deal, open, onClose, onSaved }: DealDialogP
           amount: amountValue,
           closedDate: terminal && closedDate ? closedDate : null,
           closeLostReason: showCloseLostReason ? closeLostReason : null,
+          closeLostRemarks:
+            showCloseLostReason && closeLostRemarks.trim()
+              ? closeLostRemarks.trim()
+              : null,
         }),
       })
       const data = (await response.json()) as { deal?: MappedDeal; error?: string }
@@ -209,6 +217,18 @@ export function DealDialog({ leadId, deal, open, onClose, onSaved }: DealDialogP
               </Select>
               <FieldError
                 errors={errors.closeLostReason ? [{ message: errors.closeLostReason }] : undefined}
+              />
+            </Field>
+          ) : null}
+
+          {showCloseLostReason ? (
+            <Field>
+              <FieldLabel htmlFor="deal-close-lost-remarks">Remarks (optional)</FieldLabel>
+              <Textarea
+                id="deal-close-lost-remarks"
+                value={closeLostRemarks}
+                onChange={(event) => setCloseLostRemarks(event.target.value)}
+                placeholder="Add any extra context for why this deal was lost"
               />
             </Field>
           ) : null}
