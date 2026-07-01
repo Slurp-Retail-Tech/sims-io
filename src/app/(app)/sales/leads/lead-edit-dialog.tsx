@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import type { MappedLead } from "@/lib/leads"
+import { LEAD_STATUSES, type LeadStatus, type MappedLead } from "@/lib/leads"
 import type { AssignableUser } from "./types"
 
 const UNASSIGNED_VALUE = "__unassigned__"
@@ -33,6 +33,7 @@ type EditDraft = {
   businessName: string
   businessType: string
   businessLocation: string
+  status: LeadStatus
   assignedUserId: string
 }
 
@@ -44,6 +45,7 @@ function draftFromLead(lead: MappedLead): EditDraft {
     businessName: lead.businessName ?? "",
     businessType: lead.businessType,
     businessLocation: lead.businessLocation,
+    status: lead.status,
     assignedUserId: lead.assignedUserId ?? UNASSIGNED_VALUE,
   }
 }
@@ -122,6 +124,7 @@ export function LeadEditDialog({
         businessName: draft.businessName.trim() || null,
         businessType: draft.businessType.trim(),
         businessLocation: draft.businessLocation.trim(),
+        status: draft.status,
       }
       // Only managers can change assignment.
       if (isManager) {
@@ -217,6 +220,26 @@ export function LeadEditDialog({
                   : undefined
               }
             />
+          </Field>
+          <Field>
+            <FieldLabel>Status</FieldLabel>
+            <Select
+              value={draft.status}
+              onValueChange={(value) =>
+                setDraft({ ...draft, status: value as LeadStatus })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LEAD_STATUSES.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {status}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </Field>
           {/* Source is read-only */}
           <Field>

@@ -379,6 +379,7 @@ CREATE TABLE IF NOT EXISTS leads (
   business_type VARCHAR(255) NOT NULL,
   business_location VARCHAR(255) NOT NULL,
   source VARCHAR(255) DEFAULT NULL,
+  status ENUM('Unworked', 'Worked') NOT NULL DEFAULT 'Unworked',
   assigned_user_id BIGINT UNSIGNED DEFAULT NULL,
   referrer VARCHAR(1024) DEFAULT NULL,
   hubspot_contact_id VARCHAR(64) DEFAULT NULL,
@@ -392,6 +393,7 @@ CREATE TABLE IF NOT EXISTS leads (
     FOREIGN KEY (assigned_user_id) REFERENCES users(id) ON DELETE SET NULL,
   INDEX leads_created_idx (created_at),
   INDEX leads_email_idx (email),
+  INDEX leads_status_idx (status),
   INDEX leads_assigned_user_idx (assigned_user_id, created_at)
 );
 

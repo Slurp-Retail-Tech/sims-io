@@ -7,6 +7,13 @@ export function isLeadSource(value: string): value is LeadSource {
   return (LEAD_SOURCES as readonly string[]).includes(value)
 }
 
+export const LEAD_STATUSES = ["Unworked", "Worked"] as const
+export type LeadStatus = (typeof LEAD_STATUSES)[number]
+
+export function isLeadStatus(value: string): value is LeadStatus {
+  return (LEAD_STATUSES as readonly string[]).includes(value)
+}
+
 /**
  * Minimal shape of the authenticated user needed for lead authorisation.
  * Mirrors the `AuthUser` used by the sales-appointments helpers.
@@ -68,6 +75,7 @@ export type LeadRow = RowDataPacket & {
   business_type: string
   business_location: string
   source: string | null
+  status: LeadStatus
   assigned_user_id: string | null
   archived: number
   created_at: string
@@ -85,6 +93,7 @@ export const leadSelectSql = `
     leads.business_type,
     leads.business_location,
     leads.source,
+    leads.status,
     leads.assigned_user_id,
     leads.archived,
     leads.created_at,
@@ -104,6 +113,7 @@ export type MappedLead = {
   businessType: string
   businessLocation: string
   source: string | null
+  status: LeadStatus
   assignedUserId: string | null
   assignedUserName: string | null
   archived: boolean
@@ -121,6 +131,7 @@ export function mapLead(row: LeadRow): MappedLead {
     businessType: row.business_type,
     businessLocation: row.business_location,
     source: row.source,
+    status: row.status,
     assignedUserId: row.assigned_user_id ? String(row.assigned_user_id) : null,
     assignedUserName: row.assigned_user_name,
     archived: Boolean(row.archived),
