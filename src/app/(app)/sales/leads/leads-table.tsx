@@ -29,6 +29,8 @@ import {
 } from "@/components/ui/pagination"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { LEAD_STATUSES, type LeadStatus } from "@/lib/leads"
+import { LeadStatusBadge } from "./lead-status-badge"
 import type { AssignableUser } from "./types"
 
 type LeadRow = {
@@ -38,6 +40,7 @@ type LeadRow = {
   businessType: string
   businessLocation: string
   source: string | null
+  status: LeadStatus
   createdAt: string
   archived: boolean
   assignedUserId: string | null
@@ -90,6 +93,7 @@ export default function LeadsTable() {
   // Filters.
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("active")
   const [businessTypeFilter, setBusinessTypeFilter] = React.useState<string>(ALL_VALUE)
+  const [workStatusFilter, setWorkStatusFilter] = React.useState<string>(ALL_VALUE)
   const [assignedFilter, setAssignedFilter] = React.useState<string>(ALL_VALUE)
   const [businessTypes, setBusinessTypes] = React.useState<string[]>([])
   const [assignableUsers, setAssignableUsers] = React.useState<AssignableUser[]>([])
@@ -120,7 +124,7 @@ export default function LeadsTable() {
 
   React.useEffect(() => {
     setPage(1)
-  }, [searchQuery, perPage, statusFilter, businessTypeFilter, assignedFilter])
+  }, [searchQuery, perPage, statusFilter, businessTypeFilter, workStatusFilter, assignedFilter])
 
   const loadLeads = React.useCallback(async () => {
     const user = getSessionUser()
@@ -144,6 +148,9 @@ export default function LeadsTable() {
       if (businessTypeFilter !== ALL_VALUE) {
         params.set("business_type", businessTypeFilter)
       }
+      if (workStatusFilter !== ALL_VALUE) {
+        params.set("status", workStatusFilter)
+      }
       if (assignedFilter === UNASSIGNED_VALUE) {
         params.set("assigned", "unassigned")
       } else if (assignedFilter !== ALL_VALUE) {
@@ -165,7 +172,7 @@ export default function LeadsTable() {
     } finally {
       setLoading(false)
     }
-  }, [page, perPage, searchQuery, statusFilter, businessTypeFilter, assignedFilter])
+  }, [page, perPage, searchQuery, statusFilter, businessTypeFilter, workStatusFilter, assignedFilter])
 
   React.useEffect(() => {
     void loadLeads()
@@ -378,6 +385,19 @@ export default function LeadsTable() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={workStatusFilter} onValueChange={setWorkStatusFilter}>
+              <SelectTrigger className="h-9 w-full text-xs sm:w-[160px]">
+                <SelectValue placeholder="Lead status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_VALUE}>All statuses</SelectItem>
+                {LEAD_STATUSES.map((status) => (
+                  <SelectItem key={status} value={status}>
+                    {status}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={assignedFilter} onValueChange={setAssignedFilter}>
               <SelectTrigger className="h-9 w-full text-xs sm:w-[180px]">
                 <SelectValue placeholder="Assigned user" />
@@ -412,6 +432,7 @@ export default function LeadsTable() {
                       <th className="px-4 py-3">Contacts</th>
                       <th className="px-4 py-3">Business</th>
                       <th className="px-4 py-3">Source</th>
+                      <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Created</th>
                       <th className="px-4 py-3">Assigned</th>
                       <th className="px-4 py-3">Actions</th>
@@ -455,6 +476,9 @@ export default function LeadsTable() {
                         </td>
                         <td className="px-4 py-3 text-xs capitalize">
                           {lead.source || "--"}
+                        </td>
+                        <td className="px-4 py-3 text-xs">
+                          <LeadStatusBadge status={lead.status} />
                         </td>
                         <td className="px-4 py-3 text-xs text-muted-foreground">
                           {formatDateTime(lead.createdAt)}

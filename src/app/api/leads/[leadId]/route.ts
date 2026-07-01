@@ -6,6 +6,7 @@ import {
   canEditLead,
   canViewLead,
   isLeadManager,
+  isLeadStatus,
   leadScopeClause,
   leadSelectSql,
   mapLead,
@@ -101,6 +102,7 @@ type EditBody = {
   businessName?: unknown
   businessType?: unknown
   businessLocation?: unknown
+  status?: unknown
   assignedUserId?: unknown
 }
 
@@ -204,6 +206,14 @@ export async function PATCH(
 
   if (edit.businessName !== undefined) {
     assign("business_name", cleanString(edit.businessName))
+  }
+
+  if (edit.status !== undefined) {
+    const status = cleanString(edit.status)
+    if (!status || !isLeadStatus(status)) {
+      return NextResponse.json({ error: "Invalid lead status." }, { status: 400 })
+    }
+    assign("status", status)
   }
 
   if (edit.assignedUserId !== undefined) {
