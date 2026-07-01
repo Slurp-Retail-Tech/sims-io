@@ -3,6 +3,7 @@ import type { ResultSetHeader } from "mysql2/promise"
 
 import getPool from "@/lib/db"
 import { isLeadManager, leadSelectSql, mapLead, type LeadRow } from "@/lib/leads"
+import { sendLeadAssignmentEmail } from "@/lib/lead-assignment-notification"
 import {
   cleanString,
   parseOptionalUserId,
@@ -68,16 +69,22 @@ export async function POST(request: NextRequest) {
 
   const pool = getPool()
 
+  // Notify the assignee unless the creator assigned the lead to themselves.
+  let assignee: { name: string; email: string } | null = null
   if (assignedUserId !== null) {
     const [assigneeRows] = await pool.query(
-      `SELECT id FROM users WHERE id = ? LIMIT 1`,
+      `SELECT id, name, email FROM users WHERE id = ? LIMIT 1`,
       [assignedUserId]
     )
-    if ((assigneeRows as unknown[]).length === 0) {
+    const row = (assigneeRows as Array<{ name: string; email: string }>)[0]
+    if (!row) {
       return NextResponse.json(
         { error: "Assigned user not found." },
         { status: 400 }
       )
+    }
+    if (String(assignedUserId) !== user.id) {
+      assignee = { name: row.name, email: row.email }
     }
   }
 
@@ -112,6 +119,25 @@ export async function POST(request: NextRequest) {
     [leadId]
   )
   const lead = (rows as LeadRow[])[0]
+
+  // Best-effort assignment notification; a mail failure must not fail creation.
+  if (assignee) {
+    try {
+      await sendLeadAssignmentEmail({
+        recipient: assignee,
+        lead: {
+          id: String(lead.id),
+          name: lead.name,
+          telephone: lead.telephone,
+          businessType: lead.business_type,
+          businessLocation: lead.business_location,
+        },
+        origin: request.headers.get("origin") ?? new URL(request.url).origin,
+      })
+    } catch (error) {
+      console.error("Failed to send lead assignment email", error)
+    }
+  }
 
   return NextResponse.json({ lead: mapLead(lead) }, { status: 201 })
 }

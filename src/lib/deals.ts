@@ -49,8 +49,14 @@ export function reconcileDealFields(input: {
   amount: number
   closedDate: string | null
   closeLostReason: CloseLostReason | null
+  closeLostRemarks?: string | null
 }):
-  | { ok: true; closedDate: string | null; closeLostReason: CloseLostReason | null }
+  | {
+      ok: true
+      closedDate: string | null
+      closeLostReason: CloseLostReason | null
+      closeLostRemarks: string | null
+    }
   | { ok: false; error: string } {
   if (!Number.isFinite(input.amount) || input.amount < 0) {
     return { ok: false, error: "Amount must be a non-negative number." }
@@ -61,6 +67,9 @@ export function reconcileDealFields(input: {
   const closedDate = terminal ? input.closedDate : null
   const closeLostReason =
     input.stage === "Closed Lost" ? input.closeLostReason : null
+  // Remarks are free-text and optional, but only kept for a Closed Lost deal.
+  const closeLostRemarks =
+    input.stage === "Closed Lost" ? (input.closeLostRemarks ?? null) : null
 
   if (terminal && !closedDate) {
     return { ok: false, error: "Closed date is required for closed deals." }
@@ -70,7 +79,7 @@ export function reconcileDealFields(input: {
     return { ok: false, error: "Close lost reason is required for closed lost deals." }
   }
 
-  return { ok: true, closedDate, closeLostReason }
+  return { ok: true, closedDate, closeLostReason, closeLostRemarks }
 }
 
 export type DealRow = RowDataPacket & {
@@ -81,6 +90,7 @@ export type DealRow = RowDataPacket & {
   amount: string
   closed_date: string | null
   close_lost_reason: CloseLostReason | null
+  close_lost_remarks: string | null
   created_by_user_id: string | null
   created_at: string
   updated_at: string
@@ -88,6 +98,11 @@ export type DealRow = RowDataPacket & {
 
 export type DealGlobalRow = DealRow & {
   lead_name: string
+  lead_telephone: string
+  lead_email: string | null
+  lead_business_name: string | null
+  lead_business_type: string
+  lead_business_location: string
   assigned_user_name: string | null
   last_activity_at: string
 }
@@ -100,6 +115,7 @@ const dealColumns = `
     deals.amount,
     deals.closed_date,
     deals.close_lost_reason,
+    deals.close_lost_remarks,
     deals.created_by_user_id,
     deals.created_at,
     deals.updated_at
@@ -118,6 +134,11 @@ export const dealGlobalSelectSql = `
   SELECT
 ${dealColumns},
     leads.name AS lead_name,
+    leads.telephone AS lead_telephone,
+    leads.email AS lead_email,
+    leads.business_name AS lead_business_name,
+    leads.business_type AS lead_business_type,
+    leads.business_location AS lead_business_location,
     assigned_user.name AS assigned_user_name,
     GREATEST(
       COALESCE(
@@ -151,12 +172,18 @@ export type MappedDeal = {
   amount: number
   closedDate: string | null
   closeLostReason: CloseLostReason | null
+  closeLostRemarks: string | null
   createdAt: string
   updatedAt: string
 }
 
 export type MappedGlobalDeal = MappedDeal & {
   leadName: string
+  leadTelephone: string
+  leadEmail: string | null
+  leadBusinessName: string | null
+  leadBusinessType: string
+  leadBusinessLocation: string
   assignedUserName: string | null
   lastActivityAt: string
 }
@@ -170,6 +197,7 @@ export function mapDeal(row: DealRow): MappedDeal {
     amount: Number(row.amount),
     closedDate: row.closed_date,
     closeLostReason: row.close_lost_reason,
+    closeLostRemarks: row.close_lost_remarks,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -179,6 +207,11 @@ export function mapGlobalDeal(row: DealGlobalRow): MappedGlobalDeal {
   return {
     ...mapDeal(row),
     leadName: row.lead_name,
+    leadTelephone: row.lead_telephone,
+    leadEmail: row.lead_email,
+    leadBusinessName: row.lead_business_name,
+    leadBusinessType: row.lead_business_type,
+    leadBusinessLocation: row.lead_business_location,
     assignedUserName: row.assigned_user_name,
     lastActivityAt: row.last_activity_at,
   }
