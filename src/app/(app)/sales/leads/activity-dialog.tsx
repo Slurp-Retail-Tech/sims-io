@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select"
 import { TimeSelect } from "@/components/ui/time-select"
 import { parseDate } from "@/lib/dates"
+import type { MappedDeal } from "@/lib/deals"
 import {
   ACTIVITY_TYPES,
   CALL_DIRECTIONS,
@@ -36,9 +37,12 @@ import {
   type MappedActivity,
 } from "@/lib/lead-activities"
 
+const NO_DEAL_VALUE = "__none__"
+
 type ActivityDialogProps = {
   leadId: string
   activity?: MappedActivity | null
+  deals: MappedDeal[]
   open: boolean
   onClose: () => void
   onSaved: (activity: MappedActivity) => void
@@ -67,6 +71,7 @@ function toUtcIso(dateValue: string, timeValue: string): string | null {
 export function ActivityDialog({
   leadId,
   activity,
+  deals,
   open,
   onClose,
   onSaved,
@@ -75,6 +80,7 @@ export function ActivityDialog({
   const [activityType, setActivityType] = React.useState<ActivityType>("Note")
   const [activityDate, setActivityDate] = React.useState("")
   const [activityTime, setActivityTime] = React.useState("")
+  const [dealId, setDealId] = React.useState<string>(NO_DEAL_VALUE)
   const [remarks, setRemarks] = React.useState("")
   const [callOutcome, setCallOutcome] = React.useState("")
   const [callDirection, setCallDirection] = React.useState("")
@@ -92,6 +98,7 @@ export function ActivityDialog({
     setActivityType(activity?.activityType ?? "Note")
     setActivityDate(date)
     setActivityTime(time)
+    setDealId(activity?.dealId ?? NO_DEAL_VALUE)
     setRemarks(activity?.remarks ?? "")
     setCallOutcome(activity?.callOutcome ?? "")
     setCallDirection(activity?.callDirection ?? "")
@@ -162,6 +169,7 @@ export function ActivityDialog({
           meetingOutcome: showMeeting ? meetingOutcome : null,
           locationType: showMeeting ? locationType : null,
           location: showLocation ? location.trim() : null,
+          dealId: dealId === NO_DEAL_VALUE ? null : dealId,
         }),
       })
       const data = (await response.json()) as {
@@ -210,6 +218,25 @@ export function ActivityDialog({
               </SelectContent>
             </Select>
           </Field>
+
+          {deals.length ? (
+            <Field>
+              <FieldLabel>Linked deal (optional)</FieldLabel>
+              <Select value={dealId} onValueChange={setDealId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_DEAL_VALUE}>No linked deal</SelectItem>
+                  {deals.map((deal) => (
+                    <SelectItem key={deal.id} value={deal.id}>
+                      {deal.dealName}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          ) : null}
 
           {showDate ? (
             <div className="grid grid-cols-2 gap-4">

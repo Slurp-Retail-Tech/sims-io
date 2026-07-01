@@ -89,6 +89,7 @@ export type DealRow = RowDataPacket & {
 export type DealGlobalRow = DealRow & {
   lead_name: string
   assigned_user_name: string | null
+  last_activity_at: string
 }
 
 const dealColumns = `
@@ -110,11 +111,32 @@ ${dealColumns}
   FROM deals
 `
 
+// last_activity_at: the newest of (a) any lead activity linked to this deal and
+// (b) the deal's stage-history log. Each subquery is COALESCE-d to the deal's own
+// created_at so GREATEST never collapses to NULL when one source has no rows.
 export const dealGlobalSelectSql = `
   SELECT
 ${dealColumns},
     leads.name AS lead_name,
-    assigned_user.name AS assigned_user_name
+    assigned_user.name AS assigned_user_name,
+    GREATEST(
+      COALESCE(
+        (
+          SELECT MAX(COALESCE(la.activity_date, la.created_at))
+          FROM lead_activities AS la
+          WHERE la.deal_id = deals.id
+        ),
+        deals.created_at
+      ),
+      COALESCE(
+        (
+          SELECT MAX(da.created_at)
+          FROM deal_activities AS da
+          WHERE da.deal_id = deals.id
+        ),
+        deals.created_at
+      )
+    ) AS last_activity_at
   FROM deals
   INNER JOIN leads ON leads.id = deals.lead_id
   LEFT JOIN users AS assigned_user
@@ -136,6 +158,7 @@ export type MappedDeal = {
 export type MappedGlobalDeal = MappedDeal & {
   leadName: string
   assignedUserName: string | null
+  lastActivityAt: string
 }
 
 export function mapDeal(row: DealRow): MappedDeal {
@@ -157,5 +180,6 @@ export function mapGlobalDeal(row: DealGlobalRow): MappedGlobalDeal {
     ...mapDeal(row),
     leadName: row.lead_name,
     assignedUserName: row.assigned_user_name,
+    lastActivityAt: row.last_activity_at,
   }
 }

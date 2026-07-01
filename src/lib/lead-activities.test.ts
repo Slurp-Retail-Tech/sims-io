@@ -11,6 +11,7 @@ const base = {
   meetingOutcome: null,
   locationType: null,
   location: null,
+  dealId: null,
 }
 
 test("Note does not require an activity date and date is nulled", () => {
@@ -66,6 +67,20 @@ test("Meeting onsite requires a location; online does not and clears it", () => 
   assert.equal(online.ok, true)
   if (online.ok) {
     assert.equal(online.values.location, null)
+  }
+})
+
+test("dealId passes through; empty string normalizes to null", () => {
+  const linked = validateActivityInput({ ...base, activityType: "Note", dealId: "42" })
+  assert.equal(linked.ok, true)
+  if (linked.ok) {
+    assert.equal(linked.values.dealId, "42")
+  }
+
+  const empty = validateActivityInput({ ...base, activityType: "Note", dealId: "" })
+  assert.equal(empty.ok, true)
+  if (empty.ok) {
+    assert.equal(empty.values.dealId, null)
   }
 })
 

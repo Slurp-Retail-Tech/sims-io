@@ -14,6 +14,7 @@ import {
   cleanString,
   loadLeadAssignment,
   parseLeadId,
+  resolveActivityDealId,
   resolveLeadsUser,
 } from "../../helpers"
 
@@ -75,6 +76,7 @@ type CreateActivityBody = {
   meetingOutcome?: unknown
   locationType?: unknown
   location?: unknown
+  dealId?: unknown
 }
 
 export async function POST(
@@ -122,24 +124,31 @@ export async function POST(
     meetingOutcome: cleanString(body.meetingOutcome),
     locationType: cleanString(body.locationType),
     location: cleanString(body.location),
+    dealId: cleanString(body.dealId),
   })
   if (!validated.ok) {
     return NextResponse.json({ error: validated.error }, { status: 400 })
   }
   const v = validated.values
 
+  const dealLink = await resolveActivityDealId(v.dealId, parsedLeadId)
+  if ("error" in dealLink) {
+    return NextResponse.json({ error: dealLink.error }, { status: 400 })
+  }
+
   const pool = getPool()
   const [insertResult] = await pool.query<ResultSetHeader>(
     `
       INSERT INTO lead_activities (
-        lead_id, activity_type, activity_date, remarks,
+        lead_id, deal_id, activity_type, activity_date, remarks,
         call_outcome, call_direction, meeting_outcome, location_type, location,
         created_by_user_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       parsedLeadId,
+      dealLink.dealId,
       v.activityType,
       v.activityDate ? v.activityDate.slice(0, 23).replace("T", " ") : null,
       v.remarks,
