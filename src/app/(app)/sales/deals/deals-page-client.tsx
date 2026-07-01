@@ -151,6 +151,7 @@ export function DealsPageClient() {
         dealStage: DealStage
         closedDate?: string | null
         closeLostReason?: CloseLostReason | null
+        closeLostRemarks?: string | null
       }
     ) => {
       const previous = deals
@@ -167,6 +168,10 @@ export function DealsPageClient() {
                 closeLostReason:
                   patch.dealStage === "Closed Lost"
                     ? (patch.closeLostReason ?? item.closeLostReason)
+                    : null,
+                closeLostRemarks:
+                  patch.dealStage === "Closed Lost"
+                    ? (patch.closeLostRemarks ?? item.closeLostRemarks)
                     : null,
               }
             : item
@@ -244,6 +249,7 @@ export function DealsPageClient() {
   const handlePromptConfirm = (input: {
     closedDate: string
     closeLostReason: string | null
+    closeLostRemarks: string | null
   }) => {
     if (!prompt) {
       return
@@ -254,6 +260,7 @@ export function DealsPageClient() {
         dealStage: prompt.targetStage,
         closedDate: input.closedDate,
         closeLostReason: input.closeLostReason as CloseLostReason | null,
+        closeLostRemarks: input.closeLostRemarks,
       })
     }
     setPrompt(null)

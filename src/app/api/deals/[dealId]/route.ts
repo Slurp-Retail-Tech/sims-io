@@ -22,6 +22,7 @@ type DealAuthRow = {
   amount: string
   closed_date: string | null
   close_lost_reason: string | null
+  close_lost_remarks: string | null
   assigned_user_id: string | null
 }
 
@@ -31,6 +32,7 @@ type PatchDealBody = {
   amount?: unknown
   closedDate?: unknown
   closeLostReason?: unknown
+  closeLostRemarks?: unknown
 }
 
 export async function GET(
@@ -94,7 +96,7 @@ export async function PATCH(
     `
       SELECT
         deals.id, deals.deal_name, deals.deal_stage, deals.amount,
-        deals.closed_date, deals.close_lost_reason,
+        deals.closed_date, deals.close_lost_reason, deals.close_lost_remarks,
         leads.assigned_user_id
       FROM deals
       INNER JOIN leads ON leads.id = deals.lead_id
@@ -153,11 +155,19 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid close lost reason." }, { status: 400 })
   }
 
+  const closeLostRemarks =
+    body.closeLostRemarks === undefined
+      ? existing.close_lost_remarks
+      : typeof body.closeLostRemarks === "string" && body.closeLostRemarks.trim()
+        ? body.closeLostRemarks.trim()
+        : null
+
   const reconciled = reconcileDealFields({
     stage: stageRaw,
     amount,
     closedDate,
     closeLostReason: closeLostReason as never,
+    closeLostRemarks,
   })
   if (!reconciled.ok) {
     return NextResponse.json({ error: reconciled.error }, { status: 400 })
@@ -167,7 +177,7 @@ export async function PATCH(
     `
       UPDATE deals
       SET deal_name = ?, deal_stage = ?, amount = ?, closed_date = ?, close_lost_reason = ?,
-          updated_at = CURRENT_TIMESTAMP(3)
+          close_lost_remarks = ?, updated_at = CURRENT_TIMESTAMP(3)
       WHERE id = ?
     `,
     [
@@ -176,6 +186,7 @@ export async function PATCH(
       amount,
       reconciled.closedDate,
       reconciled.closeLostReason,
+      reconciled.closeLostRemarks,
       parsedDealId,
     ]
   )

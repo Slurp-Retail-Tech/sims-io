@@ -34,6 +34,7 @@ type PatchDealBody = {
   amount?: unknown
   closedDate?: unknown
   closeLostReason?: unknown
+  closeLostRemarks?: unknown
 }
 
 export async function PATCH(
@@ -94,6 +95,10 @@ export async function PATCH(
   if (closeLostReasonRaw && !isCloseLostReason(closeLostReasonRaw)) {
     return NextResponse.json({ error: "Invalid close lost reason." }, { status: 400 })
   }
+  const closeLostRemarks =
+    body.closeLostRemarks === undefined
+      ? existing.close_lost_remarks
+      : cleanString(body.closeLostRemarks)
 
   const reconciled = reconcileDealFields({
     stage: stageRaw,
@@ -103,6 +108,7 @@ export async function PATCH(
       closeLostReasonRaw && isCloseLostReason(closeLostReasonRaw)
         ? closeLostReasonRaw
         : null,
+    closeLostRemarks,
   })
   if (!reconciled.ok) {
     return NextResponse.json({ error: reconciled.error }, { status: 400 })
@@ -112,7 +118,7 @@ export async function PATCH(
     `
       UPDATE deals
       SET deal_name = ?, deal_stage = ?, amount = ?, closed_date = ?, close_lost_reason = ?,
-          updated_at = CURRENT_TIMESTAMP(3)
+          close_lost_remarks = ?, updated_at = CURRENT_TIMESTAMP(3)
       WHERE id = ? AND lead_id = ?
     `,
     [
@@ -121,6 +127,7 @@ export async function PATCH(
       amount,
       reconciled.closedDate,
       reconciled.closeLostReason,
+      reconciled.closeLostRemarks,
       parsedDealId,
       parsedLeadId,
     ]

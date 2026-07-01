@@ -161,6 +161,13 @@ export async function POST(
     ]
   )
 
+  // Logging any activity means the lead has now been worked. Flip the status
+  // on its first activity; the guard keeps this a no-op once already Worked.
+  await pool.query<ResultSetHeader>(
+    `UPDATE leads SET status = 'Worked', updated_at = CURRENT_TIMESTAMP(3) WHERE id = ? AND status = 'Unworked'`,
+    [parsedLeadId]
+  )
+
   const [rows] = await pool.query(
     `${activitySelectSql} WHERE lead_activities.id = ? LIMIT 1`,
     [insertResult.insertId]

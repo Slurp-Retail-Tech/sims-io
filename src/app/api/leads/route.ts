@@ -5,6 +5,7 @@ import getPool from "@/lib/db"
 import { sendLeadNotificationEmail } from "@/lib/lead-notification"
 import { checkRateLimit, getRateLimitIp } from "@/lib/rate-limit"
 import {
+  isLeadStatus,
   leadScopeClause,
   leadSelectSql,
   mapLead,
@@ -106,6 +107,7 @@ export async function GET(request: NextRequest) {
   const assignedRaw = searchParams.get("assigned")?.trim() ?? ""
   const assignedParam = parseOptionalUserId(assignedRaw)
   const businessTypeParam = searchParams.get("business_type")?.trim() ?? ""
+  const statusParam = searchParams.get("status")?.trim() ?? ""
   const pageParam = Number(searchParams.get("page") ?? "1")
   const perPageParam = Number(searchParams.get("per_page") ?? "25")
 
@@ -151,6 +153,11 @@ export async function GET(request: NextRequest) {
   if (businessTypeParam) {
     whereClauses.push("leads.business_type = ?")
     values.push(businessTypeParam)
+  }
+
+  if (statusParam && isLeadStatus(statusParam)) {
+    whereClauses.push("leads.status = ?")
+    values.push(statusParam)
   }
 
   // Role scoping: non-managers only see leads assigned to them.

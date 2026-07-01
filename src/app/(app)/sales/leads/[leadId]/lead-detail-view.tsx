@@ -26,6 +26,7 @@ import { ACTIVITY_TYPES, type MappedActivity } from "@/lib/lead-activities"
 import { DealDialog } from "../deal-dialog"
 import { ActivityDialog } from "../activity-dialog"
 import { LeadEditDialog } from "../lead-edit-dialog"
+import { LeadStatusBadge } from "../lead-status-badge"
 import type { AssignableUser } from "../types"
 
 type LeadNavigation = {
@@ -416,6 +417,14 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
             <DetailRow label="Business type" value={lead.businessType} />
             <DetailRow label="Business location" value={lead.businessLocation} />
             <DetailRow label="Source" value={lead.source ?? "--"} capitalize />
+            <div className="flex flex-col gap-1">
+              <dt className="text-muted-foreground text-xs uppercase tracking-wide">
+                Status
+              </dt>
+              <dd>
+                <LeadStatusBadge status={lead.status} />
+              </dd>
+            </div>
             <div className="flex flex-col gap-1">
               <dt className="text-muted-foreground text-xs uppercase tracking-wide">
                 Assigned to

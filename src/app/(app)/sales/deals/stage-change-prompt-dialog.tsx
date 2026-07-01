@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { DateTimePicker } from "@/components/ui/date-time-picker"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
   SelectContent,
@@ -31,7 +32,11 @@ export type StagePrompt = {
 
 type StageChangePromptDialogProps = {
   prompt: StagePrompt | null
-  onConfirm: (input: { closedDate: string; closeLostReason: string | null }) => void
+  onConfirm: (input: {
+    closedDate: string
+    closeLostReason: string | null
+    closeLostRemarks: string | null
+  }) => void
   onCancel: () => void
 }
 
@@ -42,6 +47,7 @@ export function StageChangePromptDialog({
 }: StageChangePromptDialogProps) {
   const [closedDate, setClosedDate] = React.useState("")
   const [closeLostReason, setCloseLostReason] = React.useState("")
+  const [closeLostRemarks, setCloseLostRemarks] = React.useState("")
   const [errors, setErrors] = React.useState<Record<string, string>>({})
 
   React.useEffect(() => {
@@ -50,6 +56,7 @@ export function StageChangePromptDialog({
     }
     setClosedDate(prompt.initialClosedDate ? prompt.initialClosedDate.slice(0, 10) : "")
     setCloseLostReason("")
+    setCloseLostRemarks("")
     setErrors({})
   }, [prompt])
 
@@ -67,7 +74,11 @@ export function StageChangePromptDialog({
     if (Object.keys(nextErrors).length > 0) {
       return
     }
-    onConfirm({ closedDate, closeLostReason: isLost ? closeLostReason : null })
+    onConfirm({
+      closedDate,
+      closeLostReason: isLost ? closeLostReason : null,
+      closeLostRemarks: isLost && closeLostRemarks.trim() ? closeLostRemarks.trim() : null,
+    })
   }
 
   return (
@@ -115,6 +126,17 @@ export function StageChangePromptDialog({
               </Select>
               <FieldError
                 errors={errors.closeLostReason ? [{ message: errors.closeLostReason }] : undefined}
+              />
+            </Field>
+          ) : null}
+          {isLost ? (
+            <Field>
+              <FieldLabel htmlFor="prompt-close-lost-remarks">Remarks (optional)</FieldLabel>
+              <Textarea
+                id="prompt-close-lost-remarks"
+                value={closeLostRemarks}
+                onChange={(event) => setCloseLostRemarks(event.target.value)}
+                placeholder="Add any extra context for why this deal was lost"
               />
             </Field>
           ) : null}

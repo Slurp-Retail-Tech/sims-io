@@ -54,6 +54,7 @@ type CreateDealBody = {
   amount?: unknown
   closedDate?: unknown
   closeLostReason?: unknown
+  closeLostRemarks?: unknown
 }
 
 export async function POST(
@@ -103,6 +104,7 @@ export async function POST(
   if (closeLostReasonRaw && !isCloseLostReason(closeLostReasonRaw)) {
     return NextResponse.json({ error: "Invalid close lost reason." }, { status: 400 })
   }
+  const closeLostRemarks = cleanString(body.closeLostRemarks)
 
   const reconciled = reconcileDealFields({
     stage: stageRaw,
@@ -112,6 +114,7 @@ export async function POST(
       closeLostReasonRaw && isCloseLostReason(closeLostReasonRaw)
         ? closeLostReasonRaw
         : null,
+    closeLostRemarks,
   })
   if (!reconciled.ok) {
     return NextResponse.json({ error: reconciled.error }, { status: 400 })
@@ -121,9 +124,10 @@ export async function POST(
   const [insertResult] = await pool.query<ResultSetHeader>(
     `
       INSERT INTO deals (
-        lead_id, deal_name, deal_stage, amount, closed_date, close_lost_reason, created_by_user_id
+        lead_id, deal_name, deal_stage, amount, closed_date, close_lost_reason,
+        close_lost_remarks, created_by_user_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       parsedLeadId,
@@ -132,6 +136,7 @@ export async function POST(
       amount,
       reconciled.closedDate,
       reconciled.closeLostReason,
+      reconciled.closeLostRemarks,
       user.id,
     ]
   )

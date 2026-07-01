@@ -6,12 +6,14 @@ import {
   canEditLead,
   canViewLead,
   isLeadManager,
+  isLeadStatus,
   leadScopeClause,
   leadSelectSql,
   mapLead,
   type LeadAuthUser,
   type LeadRow,
 } from "@/lib/leads"
+import { sendLeadAssignmentEmail } from "@/lib/lead-assignment-notification"
 import {
   cleanString,
   parseLeadId,
@@ -101,6 +103,7 @@ type EditBody = {
   businessName?: unknown
   businessType?: unknown
   businessLocation?: unknown
+  status?: unknown
   assignedUserId?: unknown
 }
 
@@ -206,6 +209,18 @@ export async function PATCH(
     assign("business_name", cleanString(edit.businessName))
   }
 
+  if (edit.status !== undefined) {
+    const status = cleanString(edit.status)
+    if (!status || !isLeadStatus(status)) {
+      return NextResponse.json({ error: "Invalid lead status." }, { status: 400 })
+    }
+    assign("status", status)
+  }
+
+  // When the assignee changes to a new user, we notify them by email after the
+  // update commits. Captured here so we know the recipient without a re-query.
+  let newlyAssigned: { name: string; email: string } | null = null
+
   if (edit.assignedUserId !== undefined) {
     const requestedAssignee = parseOptionalUserId(edit.assignedUserId)
     // Only managers can (re)assign leads to other users.
@@ -222,14 +237,21 @@ export async function PATCH(
     }
     if (requestedAssignee !== null) {
       const [assigneeRows] = await pool.query(
-        `SELECT id FROM users WHERE id = ? LIMIT 1`,
+        `SELECT id, name, email FROM users WHERE id = ? LIMIT 1`,
         [requestedAssignee]
       )
-      if ((assigneeRows as unknown[]).length === 0) {
+      const assignee = (assigneeRows as Array<{ name: string; email: string }>)[0]
+      if (!assignee) {
         return NextResponse.json(
           { error: "Assigned user not found." },
           { status: 400 }
         )
+      }
+      // Only a genuine change of assignee is worth an email.
+      const previousAssignee =
+        lead.assigned_user_id === null ? null : String(lead.assigned_user_id)
+      if (String(requestedAssignee) !== previousAssignee) {
+        newlyAssigned = { name: assignee.name, email: assignee.email }
       }
     }
     assign("assigned_user_id", requestedAssignee)
@@ -248,5 +270,26 @@ export async function PATCH(
   )
 
   const updated = await loadLead(parsedLeadId)
+
+  // Best-effort assignment notification. Never let a mail failure (e.g. SMTP
+  // not configured locally) fail the assignment itself.
+  if (newlyAssigned && updated) {
+    try {
+      await sendLeadAssignmentEmail({
+        recipient: newlyAssigned,
+        lead: {
+          id: String(updated.id),
+          name: updated.name,
+          telephone: updated.telephone,
+          businessType: updated.business_type,
+          businessLocation: updated.business_location,
+        },
+        origin: request.headers.get("origin") ?? new URL(request.url).origin,
+      })
+    } catch (error) {
+      console.error("Failed to send lead assignment email", error)
+    }
+  }
+
   return NextResponse.json({ lead: updated ? mapLead(updated) : null })
 }
