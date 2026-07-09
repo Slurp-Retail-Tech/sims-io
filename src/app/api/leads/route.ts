@@ -3,6 +3,7 @@ import type { ResultSetHeader } from "mysql2/promise"
 
 import getPool from "@/lib/db"
 import { sendLeadNotificationEmail } from "@/lib/lead-notification"
+import { sendLeadConversion } from "@/lib/meta-capi"
 import { checkRateLimit, getRateLimitIp } from "@/lib/rate-limit"
 import {
   deriveLeadOrigin,
@@ -242,6 +243,9 @@ export async function POST(request: NextRequest) {
   const gclid = normalizeText(formData.get("gclid"))
   const fbclid = normalizeText(formData.get("fbclid"))
   const origin = deriveLeadOrigin({ utmSource, gclid, fbclid })
+  // Shared dedup id + language for the Meta Conversions API (server-side pixel).
+  const eventId = normalizeText(formData.get("event_id"))
+  const language = normalizeText(formData.get("language"))
 
   if (!name || !telephone || !businessType || !businessLocation) {
     return NextResponse.json({ error: "Missing required fields." }, { status: 400 })
@@ -335,6 +339,29 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error("Failed to send lead notification email", error)
+  }
+
+  // Server-side Meta pixel (Conversions API). Fires alongside the browser pixel
+  // and is deduplicated by the shared event_id, so conversions still land when
+  // an ad blocker blocks the browser beacon. Best-effort: sendLeadConversion
+  // never throws, but guard anyway so a failure never affects the response.
+  try {
+    await sendLeadConversion({
+      eventId,
+      eventSourceUrl: request.headers.get("referer"),
+      clientIpAddress: getRateLimitIp(request),
+      clientUserAgent: request.headers.get("user-agent"),
+      telephone,
+      name,
+      fbc: request.cookies.get("_fbc")?.value ?? null,
+      fbp: request.cookies.get("_fbp")?.value ?? null,
+      fbclid,
+      source,
+      businessType,
+      language,
+    })
+  } catch (error) {
+    console.error("Failed to send Meta CAPI Lead event", error)
   }
 
   const whatsappBaseUrl = getWhatsappBaseUrl()

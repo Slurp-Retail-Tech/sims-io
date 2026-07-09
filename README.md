@@ -167,6 +167,12 @@ NEXT_PUBLIC_GTM_ID=
 # configure a Lead tag in GTM (double-counting). Numeric Pixel ID. Baked into
 # the JS bundle at build time. Leave blank to disable.
 NEXT_PUBLIC_META_PIXEL_ID=
+# Conversions API (server-side pixel). When this token is set, the Lead
+# conversion is also sent server-side so it survives ad blockers; deduplicated
+# with the browser pixel via a shared event_id. Server-only secret — do NOT
+# prefix with NEXT_PUBLIC. META_CAPI_TEST_EVENT_CODE is optional, for Test Events.
+META_CAPI_ACCESS_TOKEN=
+META_CAPI_TEST_EVENT_CODE=
 
 # ── Lead WhatsApp button ──────────────────────────────────────────────────────
 # Default country code for the "Open in WhatsApp" button in the lead-assigned
