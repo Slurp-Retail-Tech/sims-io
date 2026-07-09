@@ -7,6 +7,40 @@ export function isLeadSource(value: string): value is LeadSource {
   return (LEAD_SOURCES as readonly string[]).includes(value)
 }
 
+/**
+ * Normalized marketing origin shown in the leads table and notification emails.
+ * Derived from the attribution params captured on the demoform landing URL.
+ */
+export type LeadAttributionParams = {
+  utmSource: string | null
+  gclid: string | null
+  fbclid: string | null
+}
+
+const FACEBOOK_SOURCES = new Set(["facebook", "fb", "meta", "instagram", "ig"])
+const GOOGLE_SOURCES = new Set(["google", "adwords"])
+
+/**
+ * Maps raw attribution params to a friendly origin label. Facebook click id or a
+ * Facebook-family utm_source wins first, then Google, then any other explicit
+ * utm_source (title-cased), otherwise organic/direct. Returns null only when
+ * there is nothing to attribute (so callers can store NULL).
+ */
+export function deriveLeadOrigin(params: LeadAttributionParams): string | null {
+  const source = params.utmSource?.trim().toLowerCase() ?? ""
+
+  if (params.fbclid || FACEBOOK_SOURCES.has(source)) {
+    return "Facebook Ads"
+  }
+  if (params.gclid || GOOGLE_SOURCES.has(source)) {
+    return "Google Ads"
+  }
+  if (source) {
+    return source.charAt(0).toUpperCase() + source.slice(1)
+  }
+  return "Organic / Direct"
+}
+
 export const LEAD_STATUSES = ["Unworked", "Worked"] as const
 export type LeadStatus = (typeof LEAD_STATUSES)[number]
 
@@ -75,6 +109,11 @@ export type LeadRow = RowDataPacket & {
   business_type: string
   business_location: string
   source: string | null
+  origin: string | null
+  utm_source: string | null
+  utm_campaign: string | null
+  gclid: string | null
+  fbclid: string | null
   status: LeadStatus
   assigned_user_id: string | null
   archived: number
@@ -93,6 +132,11 @@ export const leadSelectSql = `
     leads.business_type,
     leads.business_location,
     leads.source,
+    leads.origin,
+    leads.utm_source,
+    leads.utm_campaign,
+    leads.gclid,
+    leads.fbclid,
     leads.status,
     leads.assigned_user_id,
     leads.archived,
@@ -113,6 +157,11 @@ export type MappedLead = {
   businessType: string
   businessLocation: string
   source: string | null
+  origin: string | null
+  utmSource: string | null
+  utmCampaign: string | null
+  gclid: string | null
+  fbclid: string | null
   status: LeadStatus
   assignedUserId: string | null
   assignedUserName: string | null
@@ -131,6 +180,11 @@ export function mapLead(row: LeadRow): MappedLead {
     businessType: row.business_type,
     businessLocation: row.business_location,
     source: row.source,
+    origin: row.origin,
+    utmSource: row.utm_source,
+    utmCampaign: row.utm_campaign,
+    gclid: row.gclid,
+    fbclid: row.fbclid,
     status: row.status,
     assignedUserId: row.assigned_user_id ? String(row.assigned_user_id) : null,
     assignedUserName: row.assigned_user_name,

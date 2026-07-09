@@ -139,6 +139,21 @@ type FormAlert = {
   variant: "success" | "error" | null
 }
 
+// Ad-attribution params captured from the landing URL. Ads link directly to the
+// demoform, so reading window.location.search once on mount is sufficient — no
+// cross-page persistence is needed. Submitted as hidden inputs so the existing
+// FormData submit picks them up; the server derives the display origin.
+const ATTRIBUTION_PARAMS = [
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "gclid",
+  "fbclid",
+] as const
+
+type AttributionParam = (typeof ATTRIBUTION_PARAMS)[number]
+type Attribution = Partial<Record<AttributionParam, string>>
+
 export default function DemoForm({ variant }: { variant: DemoFormVariant }) {
   const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY
   const recaptchaEnabled = Boolean(recaptchaSiteKey && recaptchaSiteKey.trim())
@@ -147,6 +162,19 @@ export default function DemoForm({ variant }: { variant: DemoFormVariant }) {
   const [submitting, setSubmitting] = React.useState(false)
   const [alert, setAlert] = React.useState<FormAlert>({ message: "", variant: null })
   const [language, setLanguage] = React.useState<keyof typeof copy>("bm")
+  const [attribution, setAttribution] = React.useState<Attribution>({})
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const captured: Attribution = {}
+    for (const key of ATTRIBUTION_PARAMS) {
+      const value = params.get(key)?.trim()
+      if (value) {
+        captured[key] = value
+      }
+    }
+    setAttribution(captured)
+  }, [])
 
   const t = copy[language]
   const v = t.variants[variant]
@@ -343,6 +371,9 @@ export default function DemoForm({ variant }: { variant: DemoFormVariant }) {
           ) : null}
           <form id="demo-form" className={styles.form} onSubmit={onSubmit}>
             <input type="hidden" name="source" value={sourceByVariant[variant]} />
+            {ATTRIBUTION_PARAMS.map((key) => (
+              <input key={key} type="hidden" name={key} value={attribution[key] ?? ""} />
+            ))}
             <div className={styles.honeypot} aria-hidden="true">
               <label htmlFor="company_site">Company Site</label>
               <input id="company_site" name="company_site" tabIndex={-1} autoComplete="off" />

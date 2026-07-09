@@ -40,6 +40,7 @@ type LeadRow = {
   businessType: string
   businessLocation: string
   source: string | null
+  origin: string | null
   status: LeadStatus
   createdAt: string
   archived: boolean
@@ -432,6 +433,7 @@ export default function LeadsTable() {
                       <th className="px-4 py-3">Contacts</th>
                       <th className="px-4 py-3">Business</th>
                       <th className="px-4 py-3">Source</th>
+                      <th className="px-4 py-3">Origin</th>
                       <th className="px-4 py-3">Status</th>
                       <th className="px-4 py-3">Created</th>
                       <th className="px-4 py-3">Assigned</th>
@@ -476,6 +478,9 @@ export default function LeadsTable() {
                         </td>
                         <td className="px-4 py-3 text-xs capitalize">
                           {lead.source || "--"}
+                        </td>
+                        <td className="px-4 py-3 text-xs">
+                          {lead.origin || "--"}
                         </td>
                         <td className="px-4 py-3 text-xs">
                           <LeadStatusBadge status={lead.status} />
