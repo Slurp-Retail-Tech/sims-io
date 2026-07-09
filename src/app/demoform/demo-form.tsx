@@ -223,6 +223,16 @@ export default function DemoForm({ variant }: { variant: DemoFormVariant }) {
       const form = event.currentTarget
       const formData = new FormData(form)
 
+      // Shared dedup id for the Meta pixel: the same id is sent to the browser
+      // pixel (fbq eventID) and to the server-side Conversions API, so Meta
+      // counts the Lead once even though both fire.
+      const eventId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+      formData.set("event_id", eventId)
+      formData.set("language", language)
+
       if (recaptchaEnabled) {
         const token = await getRecaptchaToken()
         if (!token) {
@@ -260,15 +270,35 @@ export default function DemoForm({ variant }: { variant: DemoFormVariant }) {
         throw new Error(responseText.trim() || "Submission failed")
       }
 
+      const businessType = String(formData.get("business_type") ?? "")
+
       const dataLayer = ((window as Window & { dataLayer?: Record<string, unknown>[] }).dataLayer ??=
         [])
       dataLayer.push({
         event: "demo_form_submit",
         form_id: "demo-form",
         source: sourceByVariant[variant],
-        business_type: String(formData.get("business_type") ?? ""),
+        business_type: businessType,
         language,
       })
+
+      // Meta Pixel conversion. The base pixel is loaded site-wide in the root
+      // layout (gated on NEXT_PUBLIC_META_PIXEL_ID); fbq is a no-op when the
+      // pixel is not configured. This is the single source of the Lead event —
+      // do not also fire Lead from GTM or Facebook will double-count.
+      const fbq = (window as Window & { fbq?: (...args: unknown[]) => void }).fbq
+      if (typeof fbq === "function") {
+        fbq(
+          "track",
+          "Lead",
+          {
+            source: sourceByVariant[variant],
+            business_type: businessType,
+            language,
+          },
+          { eventID: eventId }
+        )
+      }
 
       setAlert({ message: v.success, variant: "success" })
       form.reset()

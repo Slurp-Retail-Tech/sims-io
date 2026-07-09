@@ -1,12 +1,12 @@
 {
   "name": "sims",
-  "version": "2.18.0",
+  "version": "2.20.0",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/app-timezone.test.ts src/lib/csat-insights-metrics.test.ts src/lib/ticket-history-actor.test.ts src/lib/google-calendar.spec.ts src/lib/google-places.spec.ts src/lib/merchant-lookup.test.ts src/lib/onboarding-appointment-notification.spec.ts src/lib/deals.test.ts src/lib/lead-activities.test.ts src/lib/leads.test.ts src/lib/whatsapp.test.ts src/app/api/onboarding-appointments/helpers.spec.ts src/app/supportform/page.spec.ts",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test src/lib/app-timezone.test.ts src/lib/csat-insights-metrics.test.ts src/lib/ticket-history-actor.test.ts src/lib/google-calendar.spec.ts src/lib/google-places.spec.ts src/lib/merchant-lookup.test.ts src/lib/onboarding-appointment-notification.spec.ts src/lib/deals.test.ts src/lib/lead-activities.test.ts src/lib/leads.test.ts src/lib/whatsapp.test.ts src/lib/meta-capi.test.ts src/app/api/onboarding-appointments/helpers.spec.ts src/app/supportform/page.spec.ts",
     "lint": "eslint"
   },
   "dependencies": {
