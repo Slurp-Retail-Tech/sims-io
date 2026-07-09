@@ -1,7 +1,13 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { canEditLead, canViewLead, leadScopeClause, type LeadAuthUser } from "./leads.ts"
+import {
+  canEditLead,
+  canViewLead,
+  deriveLeadOrigin,
+  leadScopeClause,
+  type LeadAuthUser,
+} from "./leads.ts"
 
 const manager: LeadAuthUser = {
   id: "1",
@@ -44,4 +50,51 @@ test("users can only view/edit leads assigned to them", () => {
   assert.equal(canViewLead(agent, { assigned_user_id: "7" }), true)
   assert.equal(canViewLead(agent, { assigned_user_id: "8" }), false)
   assert.equal(canViewLead(agent, { assigned_user_id: null }), false)
+})
+
+test("deriveLeadOrigin maps Facebook click id and sources to Facebook Ads", () => {
+  assert.equal(
+    deriveLeadOrigin({ utmSource: null, gclid: null, fbclid: "abc123" }),
+    "Facebook Ads"
+  )
+  assert.equal(
+    deriveLeadOrigin({ utmSource: "Facebook", gclid: null, fbclid: null }),
+    "Facebook Ads"
+  )
+  assert.equal(
+    deriveLeadOrigin({ utmSource: "instagram", gclid: null, fbclid: null }),
+    "Facebook Ads"
+  )
+})
+
+test("deriveLeadOrigin maps Google click id and sources to Google Ads", () => {
+  assert.equal(
+    deriveLeadOrigin({ utmSource: null, gclid: "xyz789", fbclid: null }),
+    "Google Ads"
+  )
+  assert.equal(
+    deriveLeadOrigin({ utmSource: "google", gclid: null, fbclid: null }),
+    "Google Ads"
+  )
+})
+
+test("deriveLeadOrigin title-cases other explicit sources", () => {
+  assert.equal(
+    deriveLeadOrigin({ utmSource: "tiktok", gclid: null, fbclid: null }),
+    "Tiktok"
+  )
+})
+
+test("deriveLeadOrigin falls back to Organic / Direct with no params", () => {
+  assert.equal(
+    deriveLeadOrigin({ utmSource: null, gclid: null, fbclid: null }),
+    "Organic / Direct"
+  )
+})
+
+test("deriveLeadOrigin prefers Facebook over Google when both click ids present", () => {
+  assert.equal(
+    deriveLeadOrigin({ utmSource: null, gclid: "g", fbclid: "f" }),
+    "Facebook Ads"
+  )
 })

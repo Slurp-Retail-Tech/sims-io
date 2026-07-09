@@ -19,6 +19,7 @@ export type LeadNotificationLead = {
   telephone: string
   businessType: string
   businessLocation: string
+  origin: string | null
   createdAt: string
 }
 
@@ -133,6 +134,7 @@ function buildLeadNotificationHtml(lead: LeadNotificationLead) {
     ["Submitted", formatLeadSubmittedAt(lead.createdAt)],
     ["Type", lead.businessType],
     ["Location", lead.businessLocation],
+    ["Origin", lead.origin ? escapeHtml(lead.origin) : "--"],
     ["Telephone", `<a href="tel:${encodeURI(lead.telephone)}" style="color:#0f766e;text-decoration:none;">${escapeHtml(lead.telephone)}</a>`],
     ["Lead ID", escapeHtml(lead.id)],
   ]
@@ -173,6 +175,7 @@ function buildLeadNotificationText(lead: LeadNotificationLead) {
     `New demo lead: ${lead.name}`,
     `Type: ${lead.businessType}`,
     `Location: ${lead.businessLocation}`,
+    `Origin: ${lead.origin ?? "--"}`,
     `Telephone: ${lead.telephone}`,
     `Lead ID: ${lead.id}`,
   ]

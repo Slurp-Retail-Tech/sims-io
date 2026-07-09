@@ -1,5 +1,6 @@
 import { resolveAppBaseUrl } from "@/lib/auth"
 import { sendMail } from "@/lib/mail"
+import { buildLeadWhatsappUrl } from "@/lib/whatsapp"
 
 /**
  * Notifies a sales agent by email when a lead is assigned to them. Fired from
@@ -18,6 +19,7 @@ export type LeadAssignmentLead = {
   telephone: string
   businessType: string
   businessLocation: string
+  origin: string | null
 }
 
 function escapeHtml(value: string) {
@@ -36,12 +38,14 @@ function buildLeadUrl(leadId: string, origin?: string) {
 function buildAssignmentHtml(
   recipient: LeadAssignmentRecipient,
   lead: LeadAssignmentLead,
-  leadUrl: string
+  leadUrl: string,
+  whatsappUrl: string | null
 ) {
   const rows = [
     ["Lead name", escapeHtml(lead.name)],
     ["Type", escapeHtml(lead.businessType)],
     ["Location", escapeHtml(lead.businessLocation)],
+    ["Origin", lead.origin ? escapeHtml(lead.origin) : "--"],
     [
       "Telephone",
       `<a href="tel:${encodeURI(lead.telephone)}" style="color:#0f766e;text-decoration:none;">${escapeHtml(lead.telephone)}</a>`,
@@ -74,6 +78,11 @@ function buildAssignmentHtml(
           </table>
           <div style="margin-top:24px;">
             <a href="${escapeHtml(leadUrl)}" style="display:inline-block;padding:10px 18px;background:#0f766e;color:#ffffff;border-radius:8px;text-decoration:none;font-weight:600;">View lead</a>
+            ${
+              whatsappUrl
+                ? `<a href="${escapeHtml(whatsappUrl)}" style="display:inline-block;margin-left:12px;padding:10px 18px;background:#25D366;color:#ffffff;border-radius:8px;text-decoration:none;font-weight:600;">Open in WhatsApp</a>`
+                : ""
+            }
           </div>
         </div>
         <div style="padding:16px 24px;background:#f9fafb;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;">
@@ -87,7 +96,8 @@ function buildAssignmentHtml(
 function buildAssignmentText(
   recipient: LeadAssignmentRecipient,
   lead: LeadAssignmentLead,
-  leadUrl: string
+  leadUrl: string,
+  whatsappUrl: string | null
 ) {
   return [
     `Hi ${recipient.name}, a new lead has been assigned to you.`,
@@ -95,10 +105,12 @@ function buildAssignmentText(
     `Lead name: ${lead.name}`,
     `Type: ${lead.businessType}`,
     `Location: ${lead.businessLocation}`,
+    `Origin: ${lead.origin ?? "--"}`,
     `Telephone: ${lead.telephone}`,
     `Lead ID: ${lead.id}`,
     "",
     `View lead: ${leadUrl}`,
+    ...(whatsappUrl ? [`Open in WhatsApp: ${whatsappUrl}`] : []),
   ].join("\n")
 }
 
@@ -113,12 +125,13 @@ export async function sendLeadAssignmentEmail(input: {
   }
 
   const leadUrl = buildLeadUrl(lead.id, origin)
+  const whatsappUrl = buildLeadWhatsappUrl(lead.telephone)
 
   await sendMail({
     to: recipient.email,
     subject: `Lead assigned to you - ${lead.name}`,
-    html: buildAssignmentHtml(recipient, lead, leadUrl),
-    text: buildAssignmentText(recipient, lead, leadUrl),
+    html: buildAssignmentHtml(recipient, lead, leadUrl, whatsappUrl),
+    text: buildAssignmentText(recipient, lead, leadUrl, whatsappUrl),
   })
 
   return { sent: true }

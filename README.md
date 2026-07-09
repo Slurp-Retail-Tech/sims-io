@@ -161,6 +161,12 @@ RECAPTCHA_SECRET_KEY=
 # `demo_form_submit` event to the dataLayer on success. Leave blank to disable.
 NEXT_PUBLIC_GTM_ID=
 
+# ── Lead WhatsApp button ──────────────────────────────────────────────────────
+# Default country code for the "Open in WhatsApp" button in the lead-assigned
+# email. Numbers starting with 0 are treated as local and the leading 0 is
+# replaced with this code. Defaults to 60 (Malaysia) when unset.
+LEAD_WHATSAPP_COUNTRY_CODE=60
+
 # ── Mapbox ────────────────────────────────────────────────────────────────────
 # Required for the /maps page. Baked into the client bundle at build time.
 NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=
