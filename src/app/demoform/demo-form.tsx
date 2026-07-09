@@ -223,6 +223,16 @@ export default function DemoForm({ variant }: { variant: DemoFormVariant }) {
       const form = event.currentTarget
       const formData = new FormData(form)
 
+      // Shared dedup id for the Meta pixel: the same id is sent to the browser
+      // pixel (fbq eventID) and to the server-side Conversions API, so Meta
+      // counts the Lead once even though both fire.
+      const eventId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.round(Math.random() * 1e9)}`
+      formData.set("event_id", eventId)
+      formData.set("language", language)
+
       if (recaptchaEnabled) {
         const token = await getRecaptchaToken()
         if (!token) {
@@ -278,11 +288,16 @@ export default function DemoForm({ variant }: { variant: DemoFormVariant }) {
       // do not also fire Lead from GTM or Facebook will double-count.
       const fbq = (window as Window & { fbq?: (...args: unknown[]) => void }).fbq
       if (typeof fbq === "function") {
-        fbq("track", "Lead", {
-          source: sourceByVariant[variant],
-          business_type: businessType,
-          language,
-        })
+        fbq(
+          "track",
+          "Lead",
+          {
+            source: sourceByVariant[variant],
+            business_type: businessType,
+            language,
+          },
+          { eventID: eventId }
+        )
       }
 
       setAlert({ message: v.success, variant: "success" })
