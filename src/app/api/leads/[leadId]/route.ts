@@ -283,6 +283,7 @@ export async function PATCH(
           telephone: updated.telephone,
           businessType: updated.business_type,
           businessLocation: updated.business_location,
+          origin: updated.origin,
         },
         origin: request.headers.get("origin") ?? new URL(request.url).origin,
       })

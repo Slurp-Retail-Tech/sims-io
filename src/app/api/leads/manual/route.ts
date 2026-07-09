@@ -131,6 +131,7 @@ export async function POST(request: NextRequest) {
           telephone: lead.telephone,
           businessType: lead.business_type,
           businessLocation: lead.business_location,
+          origin: lead.origin,
         },
         origin: request.headers.get("origin") ?? new URL(request.url).origin,
       })

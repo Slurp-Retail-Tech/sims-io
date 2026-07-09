@@ -5,6 +5,7 @@ import getPool from "@/lib/db"
 import { sendLeadNotificationEmail } from "@/lib/lead-notification"
 import { checkRateLimit, getRateLimitIp } from "@/lib/rate-limit"
 import {
+  deriveLeadOrigin,
   isLeadStatus,
   leadScopeClause,
   leadSelectSql,
@@ -235,6 +236,13 @@ export async function POST(request: NextRequest) {
     rawSource === "mobile" ? "mobile" : rawSource === "manual" ? "manual" : "web"
   const recaptchaToken = normalizeText(formData.get("g-recaptcha-response"))
 
+  // Ad-attribution params captured from the landing URL by the demoform.
+  const utmSource = normalizeText(formData.get("utm_source"))
+  const utmCampaign = normalizeText(formData.get("utm_campaign"))
+  const gclid = normalizeText(formData.get("gclid"))
+  const fbclid = normalizeText(formData.get("fbclid"))
+  const origin = deriveLeadOrigin({ utmSource, gclid, fbclid })
+
   if (!name || !telephone || !businessType || !businessLocation) {
     return NextResponse.json({ error: "Missing required fields." }, { status: 400 })
   }
@@ -278,9 +286,14 @@ export async function POST(request: NextRequest) {
         business_type,
         business_location,
         source,
-        referrer
+        referrer,
+        origin,
+        utm_source,
+        utm_campaign,
+        gclid,
+        fbclid
       )
-      VALUES (?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       name,
@@ -289,6 +302,11 @@ export async function POST(request: NextRequest) {
       businessLocation,
       source,
       request.headers.get("referer"),
+      origin,
+      utmSource,
+      utmCampaign,
+      gclid,
+      fbclid,
     ]
   )
 
@@ -312,6 +330,7 @@ export async function POST(request: NextRequest) {
       telephone,
       businessType,
       businessLocation,
+      origin,
       createdAt: insertedLead?.created_at ?? new Date().toISOString(),
     })
   } catch (error) {
