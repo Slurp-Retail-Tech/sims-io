@@ -3,10 +3,26 @@ import test from "node:test"
 
 import {
   buildGoogleCalendarEventPayload,
+  buildSalesGoogleCalendarEventPayload,
   getGoogleCalendarAccessToken,
   getGoogleCalendarConfig,
   syncOnboardingAppointmentToGoogleCalendar,
+  syncSalesAppointmentToGoogleCalendar,
+  type SalesCalendarAppointment,
 } from "./google-calendar.ts"
+
+const baseSalesAppointment: SalesCalendarAppointment = {
+  id: "7",
+  customerName: "Amir",
+  businessName: "Acme Cafe",
+  businessType: "F&B",
+  businessLocation: "Bangsar, Kuala Lumpur",
+  meetingLocation: "Acme Cafe, Jalan Telawi",
+  appointmentType: "Physical",
+  scheduledAt: "2026-07-20 02:00:00.000",
+  status: "Pending",
+  createdByName: "Hafiz",
+}
 
 test("builds onboarding event payload with the SIMS title format and explicit end time", () => {
   const payload = buildGoogleCalendarEventPayload({
@@ -60,6 +76,152 @@ test("adds selected Google Maps location to the Calendar event", () => {
     "Suria KLCC, Kuala Lumpur City Centre, 50088 Kuala Lumpur"
   )
   assert.match(payload.description, /Google Maps: https:\/\/maps\.google\.com\/\?cid=123/)
+})
+
+test("builds sales event payload with a 60-minute duration and sales property key", () => {
+  const payload = buildSalesGoogleCalendarEventPayload(baseSalesAppointment)
+
+  assert.equal(payload.summary, "Sales Physical: Acme Cafe")
+  assert.deepEqual(payload.start, {
+    dateTime: "2026-07-20T02:00:00.000Z",
+    timeZone: "Asia/Kuala_Lumpur",
+  })
+  assert.deepEqual(payload.end, {
+    dateTime: "2026-07-20T03:00:00.000Z",
+    timeZone: "Asia/Kuala_Lumpur",
+  })
+  assert.equal(payload.location, "Acme Cafe, Jalan Telawi")
+  assert.equal(payload.extendedProperties.private.simsSalesAppointmentId, "7")
+  assert.equal(payload.extendedProperties.private.simsAppointmentId, undefined)
+  assert.match(payload.description, /SIMS sales appointment: 7/)
+  assert.match(payload.description, /Status: Pending/)
+  assert.match(payload.description, /Customer: Amir/)
+  assert.match(payload.description, /Business type: F&B/)
+  assert.match(payload.description, /Created by: Hafiz/)
+})
+
+test("omits the event location for online sales appointments", () => {
+  const payload = buildSalesGoogleCalendarEventPayload({
+    ...baseSalesAppointment,
+    appointmentType: "Online",
+    meetingLocation: null,
+  })
+
+  assert.equal(payload.summary, "Sales Online: Acme Cafe")
+  assert.equal(payload.location, undefined)
+})
+
+test("includes cancel reason in the canceled sales event description", () => {
+  const payload = buildSalesGoogleCalendarEventPayload({
+    ...baseSalesAppointment,
+    status: "Canceled",
+    cancelReason: "Merchant asked to postpone",
+  })
+
+  assert.match(payload.description, /Status: Canceled/)
+  assert.match(payload.description, /Cancel reason: Merchant asked to postpone/)
+})
+
+test("uses the sales calendar id when configured and falls back to the shared one", () => {
+  const originalEnabled = process.env.GOOGLE_CALENDAR_ENABLED
+  const originalCalendarId = process.env.GOOGLE_CALENDAR_ID
+  const originalSalesCalendarId = process.env.GOOGLE_CALENDAR_SALES_ID
+  const originalToken = process.env.GOOGLE_CALENDAR_ACCESS_TOKEN
+
+  try {
+    process.env.GOOGLE_CALENDAR_ENABLED = "true"
+    process.env.GOOGLE_CALENDAR_ID = "merchant-success@example.com"
+    process.env.GOOGLE_CALENDAR_ACCESS_TOKEN = "access-token"
+    process.env.GOOGLE_CALENDAR_SALES_ID = "sales@example.com"
+
+    const salesConfig = getGoogleCalendarConfig("sales")
+    assert.ok(salesConfig.enabled)
+    assert.equal(salesConfig.calendarId, "sales@example.com")
+
+    const onboardingConfig = getGoogleCalendarConfig()
+    assert.ok(onboardingConfig.enabled)
+    assert.equal(onboardingConfig.calendarId, "merchant-success@example.com")
+
+    delete process.env.GOOGLE_CALENDAR_SALES_ID
+    const fallbackConfig = getGoogleCalendarConfig("sales")
+    assert.ok(fallbackConfig.enabled)
+    assert.equal(fallbackConfig.calendarId, "merchant-success@example.com")
+  } finally {
+    if (originalEnabled === undefined) delete process.env.GOOGLE_CALENDAR_ENABLED
+    else process.env.GOOGLE_CALENDAR_ENABLED = originalEnabled
+
+    if (originalCalendarId === undefined) delete process.env.GOOGLE_CALENDAR_ID
+    else process.env.GOOGLE_CALENDAR_ID = originalCalendarId
+
+    if (originalSalesCalendarId === undefined)
+      delete process.env.GOOGLE_CALENDAR_SALES_ID
+    else process.env.GOOGLE_CALENDAR_SALES_ID = originalSalesCalendarId
+
+    if (originalToken === undefined) delete process.env.GOOGLE_CALENDAR_ACCESS_TOKEN
+    else process.env.GOOGLE_CALENDAR_ACCESS_TOKEN = originalToken
+  }
+})
+
+test("records failed sales sync status against sales_appointments without throwing", async () => {
+  const originalEnabled = process.env.GOOGLE_CALENDAR_ENABLED
+  const originalCalendarId = process.env.GOOGLE_CALENDAR_ID
+  const originalSalesCalendarId = process.env.GOOGLE_CALENDAR_SALES_ID
+  const originalToken = process.env.GOOGLE_CALENDAR_ACCESS_TOKEN
+  const originalFetch = globalThis.fetch
+  const queries: Array<{ sql: string; params: unknown[] }> = []
+
+  try {
+    process.env.GOOGLE_CALENDAR_ENABLED = "true"
+    process.env.GOOGLE_CALENDAR_ID = "merchant-success@example.com"
+    process.env.GOOGLE_CALENDAR_SALES_ID = "sales@example.com"
+    process.env.GOOGLE_CALENDAR_ACCESS_TOKEN = "access-token"
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({ error: { message: "Calendar write denied" } }),
+        {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        }
+      )
+
+    const result = await syncSalesAppointmentToGoogleCalendar(
+      {
+        query: async (sql: string, params: unknown[]) => {
+          queries.push({ sql, params })
+          return [[], []]
+        },
+      } as never,
+      baseSalesAppointment
+    )
+
+    assert.deepEqual(result, {
+      status: "failed",
+      error: "Calendar write denied",
+    })
+    assert.equal(queries.length, 1)
+    assert.match(queries[0].sql, /UPDATE sales_appointments/)
+    assert.match(queries[0].sql, /google_sync_status = 'failed'/)
+    assert.deepEqual(queries[0].params, [
+      "sales@example.com",
+      "Calendar write denied",
+      "7",
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+
+    if (originalEnabled === undefined) delete process.env.GOOGLE_CALENDAR_ENABLED
+    else process.env.GOOGLE_CALENDAR_ENABLED = originalEnabled
+
+    if (originalCalendarId === undefined) delete process.env.GOOGLE_CALENDAR_ID
+    else process.env.GOOGLE_CALENDAR_ID = originalCalendarId
+
+    if (originalSalesCalendarId === undefined)
+      delete process.env.GOOGLE_CALENDAR_SALES_ID
+    else process.env.GOOGLE_CALENDAR_SALES_ID = originalSalesCalendarId
+
+    if (originalToken === undefined) delete process.env.GOOGLE_CALENDAR_ACCESS_TOKEN
+    else process.env.GOOGLE_CALENDAR_ACCESS_TOKEN = originalToken
+  }
 })
 
 test("treats Google Calendar sync as disabled unless all required config is present", () => {

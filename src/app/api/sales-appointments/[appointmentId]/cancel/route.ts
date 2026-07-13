@@ -2,6 +2,7 @@ import type { RowDataPacket } from "mysql2/promise"
 import { NextRequest, NextResponse } from "next/server"
 
 import getPool from "@/lib/db"
+import { syncSalesAppointmentToGoogleCalendar } from "@/lib/google-calendar"
 
 import {
   type AppointmentRow,
@@ -99,7 +100,9 @@ export async function POST(
     return NextResponse.json({ error: "Appointment not found." }, { status: 404 })
   }
 
-  return NextResponse.json({
-    appointment: mapAppointment(appointment, auth.user),
-  })
+  const mappedAppointment = mapAppointment(appointment, auth.user)
+
+  await syncSalesAppointmentToGoogleCalendar(pool, mappedAppointment)
+
+  return NextResponse.json({ appointment: mappedAppointment })
 }

@@ -41,6 +41,8 @@ export type AppointmentRow = RowDataPacket & {
   canceled_by_user_id: string | null
   canceled_at: string | null
   cancel_reason: string | null
+  google_calendar_id: string | null
+  google_event_id: string | null
   created_at: string
   updated_at: string
   created_by_name: string | null
@@ -67,6 +69,8 @@ export const appointmentSelectSql = `
     appointments.canceled_by_user_id,
     appointments.canceled_at,
     appointments.cancel_reason,
+    appointments.google_calendar_id,
+    appointments.google_event_id,
     appointments.created_at,
     appointments.updated_at,
     created_by.name AS created_by_name,
@@ -200,6 +204,8 @@ export function mapAppointment(row: AppointmentRow, currentUser: AuthUser) {
     canceledByName: row.canceled_by_name,
     canceledAt: row.canceled_at,
     cancelReason: row.cancel_reason,
+    googleCalendarId: row.google_calendar_id,
+    googleEventId: row.google_event_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     canEdit: canEditAppointment(currentUser, row),
@@ -208,6 +214,4 @@ export function mapAppointment(row: AppointmentRow, currentUser: AuthUser) {
   }
 }
 
-export function toSqlDateTime(value: Date) {
-  return value.toISOString().slice(0, 23).replace("T", " ")
-}
+export { toSqlDateTime } from "@/lib/sales-appointments"

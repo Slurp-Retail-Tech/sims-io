@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import type { ResultSetHeader } from "mysql2/promise"
 
 import getPool from "@/lib/db"
 import { parseDate } from "@/lib/dates"
+import { createSalesAppointment } from "@/lib/sales-appointments"
 
 import {
   appointmentSelectSql,
@@ -164,35 +164,17 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const [insertResult] = await pool.query<ResultSetHeader>(
-    `
-      INSERT INTO sales_appointments (
-        lead_id,
-        customer_name,
-        business_name,
-        business_type,
-        business_location,
-        meeting_location,
-        appointment_type,
-        scheduled_at,
-        created_by_user_id
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      leadId,
-      customerName,
-      businessName,
-      businessType,
-      businessLocation,
-      appointmentType === "Physical" ? meetingLocation : null,
-      appointmentType,
-      toSqlDateTime(scheduledAt),
-      auth.user.id,
-    ]
-  )
-
-  const appointmentId = Number(insertResult.insertId)
+  const { appointmentId } = await createSalesAppointment(pool, {
+    leadId,
+    customerName,
+    businessName,
+    businessType,
+    businessLocation,
+    appointmentType,
+    meetingLocation,
+    scheduledAt,
+    createdByUserId: auth.user.id,
+  })
   const [rows] = await pool.query(
     `
     ${appointmentSelectSql}

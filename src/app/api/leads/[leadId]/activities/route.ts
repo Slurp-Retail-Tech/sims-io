@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from "next/server"
 import type { ResultSetHeader } from "mysql2/promise"
 
 import getPool from "@/lib/db"
+import { parseDate } from "@/lib/dates"
 import { canEditLead, canViewLead } from "@/lib/leads"
+import {
+  createSalesAppointment,
+  type CreateSalesAppointmentInput,
+} from "@/lib/sales-appointments"
 import {
   activitySelectSql,
   isActivityType,
@@ -77,6 +82,14 @@ type CreateActivityBody = {
   locationType?: unknown
   location?: unknown
   dealId?: unknown
+  createAppointment?: unknown
+}
+
+type LeadDetailsRow = {
+  name: string
+  business_name: string | null
+  business_type: string
+  business_location: string
 }
 
 export async function POST(
@@ -137,6 +150,49 @@ export async function POST(
   }
 
   const pool = getPool()
+
+  // Optionally create a sales appointment from a Meeting activity. Derive and
+  // validate the appointment input up-front so a bad form fails before the
+  // activity row is inserted.
+  const wantsAppointment =
+    v.activityType === "Meeting" && body.createAppointment === true
+  let appointmentInput: CreateSalesAppointmentInput | null = null
+  if (wantsAppointment) {
+    const scheduledAt = v.activityDate ? parseDate(v.activityDate) : null
+    if (!scheduledAt) {
+      return NextResponse.json(
+        { error: "Invalid meeting date for the sales appointment." },
+        { status: 400 }
+      )
+    }
+
+    const [leadRows] = await pool.query(
+      `
+      SELECT name, business_name, business_type, business_location
+      FROM leads
+      WHERE id = ?
+      LIMIT 1
+    `,
+      [parsedLeadId]
+    )
+    const leadDetails = (leadRows as LeadDetailsRow[])[0]
+    if (!leadDetails) {
+      return NextResponse.json({ error: "Lead not found." }, { status: 404 })
+    }
+
+    appointmentInput = {
+      leadId: parsedLeadId,
+      customerName: leadDetails.name,
+      businessName: leadDetails.business_name?.trim() || leadDetails.name,
+      businessType: leadDetails.business_type,
+      businessLocation: leadDetails.business_location,
+      appointmentType: v.locationType === "Onsite" ? "Physical" : "Online",
+      meetingLocation: v.location,
+      scheduledAt,
+      createdByUserId: user.id,
+    }
+  }
+
   const [insertResult] = await pool.query<ResultSetHeader>(
     `
       INSERT INTO lead_activities (
@@ -168,12 +224,32 @@ export async function POST(
     [parsedLeadId]
   )
 
+  // Fail-open: the activity is already saved, so an appointment failure is
+  // reported alongside the created activity rather than failing the request.
+  let appointmentId: string | null = null
+  let appointmentError: string | null = null
+  if (appointmentInput) {
+    try {
+      const created = await createSalesAppointment(pool, appointmentInput)
+      appointmentId = String(created.appointmentId)
+    } catch (error) {
+      console.error(
+        "Unable to create sales appointment from meeting activity",
+        error
+      )
+      appointmentError = "Unable to create the sales appointment."
+    }
+  }
+
   const [rows] = await pool.query(
     `${activitySelectSql} WHERE lead_activities.id = ? LIMIT 1`,
     [insertResult.insertId]
   )
   return NextResponse.json(
-    { activity: mapActivity((rows as ActivityRow[])[0]) },
+    {
+      activity: mapActivity((rows as ActivityRow[])[0]),
+      ...(appointmentInput ? { appointmentId, appointmentError } : {}),
+    },
     { status: 201 }
   )
 }

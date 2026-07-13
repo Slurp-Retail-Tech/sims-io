@@ -94,9 +94,11 @@ GOOGLE_REDIRECT_URI=
 # Comma-separated list of allowed Google Workspace domains for SSO
 GOOGLE_WORKSPACE_DOMAINS=
 
-# ── Google Calendar sync (onboarding schedule) ────────────────────────────────
+# ── Google Calendar sync (onboarding schedule & sales appointments) ──────────
 GOOGLE_CALENDAR_ENABLED=false
 GOOGLE_CALENDAR_ID=
+# Optional dedicated calendar for sales appointments; falls back to GOOGLE_CALENDAR_ID.
+GOOGLE_CALENDAR_SALES_ID=
 GOOGLE_CALENDAR_CLIENT_ID=
 GOOGLE_CALENDAR_CLIENT_SECRET=
 GOOGLE_CALENDAR_REDIRECT_URI=
@@ -198,6 +200,7 @@ Notes:
 - `APP_BASE_URL` — used in activation emails, password reset emails, and Google OAuth callbacks; must match the registered OAuth redirect URI exactly
 - `GOOGLE_WORKSPACE_DOMAINS` — comma-separated allowlist of Google Workspace domains permitted for SSO login
 - `GOOGLE_CALENDAR_ENABLED=true` syncs onboarding appointments to `GOOGLE_CALENDAR_ID`; configure `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET`, and `GOOGLE_CALENDAR_REFRESH_TOKEN` so SIMS can refresh Calendar access tokens automatically
+- Sales appointments sync to `GOOGLE_CALENDAR_SALES_ID` when set, falling back to `GOOGLE_CALENDAR_ID`; events are one hour long and are updated (not deleted) when an appointment is edited, canceled, or completed
 - `GOOGLE_CALENDAR_REDIRECT_URI` is optional; it defaults to `${APP_BASE_URL}/api/google-calendar/oauth/callback` for the one-time refresh-token helper flow
 - `GOOGLE_CALENDAR_ACCESS_TOKEN` is a local fallback; access tokens expire, so do not use it as the production setup
 - `GOOGLE_PLACES_ENABLED=true` enables server-side Google Places lookup for onboarding locations; restrict `GOOGLE_PLACES_API_KEY` in Google Cloud and use `GOOGLE_PLACES_REGION_CODES` to bias supported countries

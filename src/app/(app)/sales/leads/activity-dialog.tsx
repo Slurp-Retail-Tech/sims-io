@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog"
 import { format } from "date-fns"
 
+import { Checkbox } from "@/components/ui/checkbox"
 import { DateTimePicker } from "@/components/ui/date-time-picker"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -87,6 +88,8 @@ export function ActivityDialog({
   const [meetingOutcome, setMeetingOutcome] = React.useState("")
   const [locationType, setLocationType] = React.useState("")
   const [location, setLocation] = React.useState("")
+  const [createAppointment, setCreateAppointment] = React.useState(false)
+  const createAppointmentTouched = React.useRef(false)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
 
@@ -105,6 +108,8 @@ export function ActivityDialog({
     setMeetingOutcome(activity?.meetingOutcome ?? "")
     setLocationType(activity?.locationType ?? "")
     setLocation(activity?.location ?? "")
+    setCreateAppointment(false)
+    createAppointmentTouched.current = false
     setErrors({})
   }, [open, activity])
 
@@ -116,12 +121,26 @@ export function ActivityDialog({
     setMeetingOutcome("")
     setLocationType("")
     setLocation("")
+    setCreateAppointment(false)
+    createAppointmentTouched.current = false
+  }
+
+  const handleMeetingOutcomeChange = (next: string) => {
+    setMeetingOutcome(next)
+    // Default the appointment toggle to on for scheduled meetings, but keep
+    // any explicit choice the user has already made.
+    if (!createAppointmentTouched.current) {
+      setCreateAppointment(next === "Scheduled")
+    }
   }
 
   const showDate = activityType !== "Note"
   const showCall = activityType === "Call"
   const showMeeting = activityType === "Meeting"
   const showLocation = showMeeting && locationType === "Onsite"
+  // Appointments are only created alongside a new Meeting activity; edits
+  // never touch sales appointments.
+  const showCreateAppointment = showMeeting && !activity
 
   const handleSubmit = async () => {
     const nextErrors: Record<string, string> = {}
@@ -170,17 +189,26 @@ export function ActivityDialog({
           locationType: showMeeting ? locationType : null,
           location: showLocation ? location.trim() : null,
           dealId: dealId === NO_DEAL_VALUE ? null : dealId,
+          createAppointment: showCreateAppointment ? createAppointment : false,
         }),
       })
       const data = (await response.json()) as {
         activity?: MappedActivity
+        appointmentId?: string | null
+        appointmentError?: string | null
         error?: string
       }
       if (!response.ok || !data.activity) {
         throw new Error(data.error || "Unable to save activity.")
       }
       onSaved(data.activity)
-      showToast(activity ? "Activity updated." : "Activity logged.")
+      if (data.appointmentError) {
+        showToast(data.appointmentError, "error")
+      } else if (data.appointmentId) {
+        showToast("Activity logged and sales appointment created.")
+      } else {
+        showToast(activity ? "Activity updated." : "Activity logged.")
+      }
       onClose()
     } catch (error) {
       showToast(
@@ -313,7 +341,7 @@ export function ActivityDialog({
             <>
               <Field>
                 <FieldLabel>Meeting outcome</FieldLabel>
-                <Select value={meetingOutcome} onValueChange={setMeetingOutcome}>
+                <Select value={meetingOutcome} onValueChange={handleMeetingOutcomeChange}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select an outcome" />
                   </SelectTrigger>
@@ -367,6 +395,27 @@ export function ActivityDialog({
                     errors={errors.location ? [{ message: errors.location }] : undefined}
                   />
                 </Field>
+              ) : null}
+              {showCreateAppointment ? (
+                <div className="flex items-start gap-2">
+                  <Checkbox
+                    id="activity-create-appointment"
+                    checked={createAppointment}
+                    onCheckedChange={(checked) => {
+                      createAppointmentTouched.current = true
+                      setCreateAppointment(checked === true)
+                    }}
+                  />
+                  <div className="flex flex-col gap-1">
+                    <FieldLabel htmlFor="activity-create-appointment">
+                      Create sales appointment
+                    </FieldLabel>
+                    <p className="text-muted-foreground text-xs">
+                      Adds this meeting to the Sales Appointment page using the
+                      lead&apos;s details.
+                    </p>
+                  </div>
+                </div>
               ) : null}
             </>
           ) : null}
