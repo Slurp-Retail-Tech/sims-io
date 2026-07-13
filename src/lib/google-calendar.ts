@@ -44,6 +44,23 @@ export type OnboardingCalendarAppointment = {
   googleEventId?: string | null
 }
 
+export type SalesCalendarAppointment = {
+  id: string
+  customerName: string
+  businessName: string
+  businessType: string
+  businessLocation: string
+  meetingLocation: string | null
+  appointmentType: string
+  scheduledAt: string
+  status: string
+  createdByName: string | null
+  cancelReason?: string | null
+  completionNote?: string | null
+  googleCalendarId?: string | null
+  googleEventId?: string | null
+}
+
 export type GoogleCalendarEventPayload = {
   summary: string
   description: string
@@ -57,11 +74,31 @@ export type GoogleCalendarEventPayload = {
   }
   location?: string
   extendedProperties: {
-    private: {
-      simsAppointmentId: string
-    }
+    private: Record<string, string>
   }
 }
+
+export type GoogleCalendarSyncResult =
+  | { status: "disabled" }
+  | { status: "synced"; eventId: string }
+  | { status: "failed"; error: string }
+
+export type GoogleCalendarFeature = "onboarding" | "sales"
+
+type CalendarSyncTable = "onboarding_appointments" | "sales_appointments"
+
+type CalendarEventInput = {
+  appointmentId: string
+  summary: string
+  descriptionLines: string[]
+  scheduledAt: string
+  scheduledEndAt: string
+  location: string | null
+  existingEventId: string | null
+  privateProperties: Record<string, string>
+}
+
+export const SALES_APPOINTMENT_EVENT_DURATION_MINUTES = 60
 
 type GoogleCalendarEventResponse = {
   id?: string
@@ -99,9 +136,15 @@ function parseCalendarDate(value: string) {
   return Number.isNaN(date.valueOf()) ? null : date
 }
 
-export function getGoogleCalendarConfig(): GoogleCalendarConfig {
+export function getGoogleCalendarConfig(
+  feature: GoogleCalendarFeature = "onboarding"
+): GoogleCalendarConfig {
   const enabled = process.env.GOOGLE_CALENDAR_ENABLED?.trim().toLowerCase()
-  const calendarId = process.env.GOOGLE_CALENDAR_ID?.trim()
+  const calendarId =
+    feature === "sales"
+      ? process.env.GOOGLE_CALENDAR_SALES_ID?.trim() ||
+        process.env.GOOGLE_CALENDAR_ID?.trim()
+      : process.env.GOOGLE_CALENDAR_ID?.trim()
   const accessToken = process.env.GOOGLE_CALENDAR_ACCESS_TOKEN?.trim()
   const clientId = process.env.GOOGLE_CALENDAR_CLIENT_ID?.trim()
   const clientSecret = process.env.GOOGLE_CALENDAR_CLIENT_SECRET?.trim()
@@ -228,18 +271,40 @@ export async function getGoogleCalendarAccessToken(
   return tokenPayload.access_token
 }
 
-export function buildGoogleCalendarEventPayload(
-  appointment: OnboardingCalendarAppointment
+function buildCalendarEventPayloadFromInput(
+  input: CalendarEventInput
 ): GoogleCalendarEventPayload {
-  const start = parseCalendarDate(appointment.scheduledAt)
+  const start = parseCalendarDate(input.scheduledAt)
   if (!start) {
     throw new Error("Appointment has an invalid schedule date")
   }
 
-  const end = parseCalendarDate(appointment.scheduledEndAt)
+  const end = parseCalendarDate(input.scheduledEndAt)
   if (!end || end <= start) {
     throw new Error("Appointment has an invalid schedule end date")
   }
+
+  return {
+    summary: input.summary,
+    description: input.descriptionLines.join("\n"),
+    start: {
+      dateTime: start.toISOString(),
+      timeZone: APP_TIME_ZONE,
+    },
+    end: {
+      dateTime: end.toISOString(),
+      timeZone: APP_TIME_ZONE,
+    },
+    ...(input.location ? { location: input.location } : {}),
+    extendedProperties: {
+      private: input.privateProperties,
+    },
+  }
+}
+
+function mapOnboardingCalendarEventInput(
+  appointment: OnboardingCalendarAppointment
+): CalendarEventInput {
   const descriptionLines = [
     `SIMS appointment: ${appointment.id}`,
     `Status: ${appointment.status}`,
@@ -261,26 +326,74 @@ export function buildGoogleCalendarEventPayload(
     descriptionLines.push(`Google Maps: ${appointment.googleMapsUri}`)
   }
 
-  const location = formatCalendarEventLocation(appointment)
+  return {
+    appointmentId: appointment.id,
+    summary: `${appointment.installationType}: ${appointment.outletName}`,
+    descriptionLines,
+    scheduledAt: appointment.scheduledAt,
+    scheduledEndAt: appointment.scheduledEndAt,
+    location: formatCalendarEventLocation(appointment),
+    existingEventId: appointment.googleEventId?.trim() || null,
+    privateProperties: { simsAppointmentId: appointment.id },
+  }
+}
+
+function mapSalesCalendarEventInput(
+  appointment: SalesCalendarAppointment
+): CalendarEventInput {
+  const start = parseCalendarDate(appointment.scheduledAt)
+  if (!start) {
+    throw new Error("Appointment has an invalid schedule date")
+  }
+  const end = new Date(
+    start.getTime() + SALES_APPOINTMENT_EVENT_DURATION_MINUTES * 60 * 1000
+  )
+
+  const descriptionLines = [
+    `SIMS sales appointment: ${appointment.id}`,
+    `Status: ${appointment.status}`,
+    `Customer: ${appointment.customerName}`,
+    `Business type: ${appointment.businessType}`,
+    `Business location: ${appointment.businessLocation}`,
+    `Created by: ${appointment.createdByName ?? "Unknown"}`,
+  ]
+
+  if (appointment.cancelReason) {
+    descriptionLines.push(`Cancel reason: ${appointment.cancelReason}`)
+  }
+  if (appointment.completionNote) {
+    descriptionLines.push(`Completion note: ${appointment.completionNote}`)
+  }
 
   return {
-    summary: `${appointment.installationType}: ${appointment.outletName}`,
-    description: descriptionLines.join("\n"),
-    start: {
-      dateTime: start.toISOString(),
-      timeZone: APP_TIME_ZONE,
-    },
-    end: {
-      dateTime: end.toISOString(),
-      timeZone: APP_TIME_ZONE,
-    },
-    ...(location ? { location } : {}),
-    extendedProperties: {
-      private: {
-        simsAppointmentId: appointment.id,
-      },
-    },
+    appointmentId: appointment.id,
+    summary: `Sales ${appointment.appointmentType}: ${appointment.businessName}`,
+    descriptionLines,
+    scheduledAt: appointment.scheduledAt,
+    scheduledEndAt: end.toISOString(),
+    location:
+      appointment.appointmentType === "Physical"
+        ? appointment.meetingLocation?.trim() || null
+        : null,
+    existingEventId: appointment.googleEventId?.trim() || null,
+    privateProperties: { simsSalesAppointmentId: appointment.id },
   }
+}
+
+export function buildGoogleCalendarEventPayload(
+  appointment: OnboardingCalendarAppointment
+): GoogleCalendarEventPayload {
+  return buildCalendarEventPayloadFromInput(
+    mapOnboardingCalendarEventInput(appointment)
+  )
+}
+
+export function buildSalesGoogleCalendarEventPayload(
+  appointment: SalesCalendarAppointment
+): GoogleCalendarEventPayload {
+  return buildCalendarEventPayloadFromInput(
+    mapSalesCalendarEventInput(appointment)
+  )
 }
 
 function formatCalendarEventLocation(appointment: OnboardingCalendarAppointment) {
@@ -325,6 +438,7 @@ function truncateSyncError(message: string) {
 
 async function recordGoogleCalendarSyncStatus(
   pool: Pool,
+  table: CalendarSyncTable,
   appointmentId: string,
   input:
     | {
@@ -338,7 +452,7 @@ async function recordGoogleCalendarSyncStatus(
   if (input.status === "synced") {
     await pool.query(
       `
-      UPDATE onboarding_appointments
+      UPDATE ${table}
       SET
         google_calendar_id = ?,
         google_event_id = ?,
@@ -356,7 +470,7 @@ async function recordGoogleCalendarSyncStatus(
 
   await pool.query(
     `
-    UPDATE onboarding_appointments
+    UPDATE ${table}
     SET
       google_calendar_id = COALESCE(?, google_calendar_id),
       google_sync_status = 'failed',
@@ -370,29 +484,31 @@ async function recordGoogleCalendarSyncStatus(
 
 async function tryRecordGoogleCalendarSyncStatus(
   pool: Pool,
+  table: CalendarSyncTable,
   appointmentId: string,
-  input: Parameters<typeof recordGoogleCalendarSyncStatus>[2]
+  input: Parameters<typeof recordGoogleCalendarSyncStatus>[3]
 ) {
   try {
-    await recordGoogleCalendarSyncStatus(pool, appointmentId, input)
+    await recordGoogleCalendarSyncStatus(pool, table, appointmentId, input)
   } catch (error) {
     console.error("Unable to record Google Calendar sync status", error)
   }
 }
 
-export async function syncOnboardingAppointmentToGoogleCalendar(
+async function syncAppointmentToGoogleCalendar(
   pool: Pool,
-  appointment: OnboardingCalendarAppointment
-) {
-  const config = getGoogleCalendarConfig()
+  table: CalendarSyncTable,
+  config: GoogleCalendarConfig,
+  input: CalendarEventInput
+): Promise<GoogleCalendarSyncResult> {
   if (!config.enabled) {
-    return { status: "disabled" as const }
+    return { status: "disabled" }
   }
 
   try {
-    const payload = buildGoogleCalendarEventPayload(appointment)
+    const payload = buildCalendarEventPayloadFromInput(input)
     const accessToken = await getGoogleCalendarAccessToken(config)
-    const existingEventId = appointment.googleEventId?.trim()
+    const existingEventId = input.existingEventId ?? undefined
     const method = existingEventId ? "PATCH" : "POST"
     const endpoint = existingEventId
       ? `${GOOGLE_CALENDAR_API_BASE_URL}/${encodeURIComponent(
@@ -415,12 +531,12 @@ export async function syncOnboardingAppointmentToGoogleCalendar(
       const message =
         getGoogleCalendarErrorMessage(responsePayload) ||
         `Google Calendar sync failed (${response.status})`
-      await tryRecordGoogleCalendarSyncStatus(pool, appointment.id, {
+      await tryRecordGoogleCalendarSyncStatus(pool, table, input.appointmentId, {
         status: "failed",
         calendarId: config.calendarId,
         error: message,
       })
-      return { status: "failed" as const, error: message }
+      return { status: "failed", error: message }
     }
 
     const event = responsePayload as GoogleCalendarEventResponse | null
@@ -429,21 +545,67 @@ export async function syncOnboardingAppointmentToGoogleCalendar(
       throw new Error("Google Calendar response did not include an event id")
     }
 
-    await tryRecordGoogleCalendarSyncStatus(pool, appointment.id, {
+    await tryRecordGoogleCalendarSyncStatus(pool, table, input.appointmentId, {
       status: "synced",
       calendarId: config.calendarId,
       eventId,
       eventEtag: event?.etag ?? null,
     })
-    return { status: "synced" as const, eventId }
+    return { status: "synced", eventId }
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Google Calendar sync failed"
-    await tryRecordGoogleCalendarSyncStatus(pool, appointment.id, {
+    await tryRecordGoogleCalendarSyncStatus(pool, table, input.appointmentId, {
       status: "failed",
       calendarId: config.calendarId,
       error: message,
     })
-    return { status: "failed" as const, error: message }
+    return { status: "failed", error: message }
   }
+}
+
+export async function syncOnboardingAppointmentToGoogleCalendar(
+  pool: Pool,
+  appointment: OnboardingCalendarAppointment
+): Promise<GoogleCalendarSyncResult> {
+  const config = getGoogleCalendarConfig("onboarding")
+  if (!config.enabled) {
+    return { status: "disabled" }
+  }
+  return syncAppointmentToGoogleCalendar(
+    pool,
+    "onboarding_appointments",
+    config,
+    mapOnboardingCalendarEventInput(appointment)
+  )
+}
+
+export async function syncSalesAppointmentToGoogleCalendar(
+  pool: Pool,
+  appointment: SalesCalendarAppointment
+): Promise<GoogleCalendarSyncResult> {
+  const config = getGoogleCalendarConfig("sales")
+  if (!config.enabled) {
+    return { status: "disabled" }
+  }
+  let input: CalendarEventInput
+  try {
+    input = mapSalesCalendarEventInput(appointment)
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Google Calendar sync failed"
+    await tryRecordGoogleCalendarSyncStatus(
+      pool,
+      "sales_appointments",
+      appointment.id,
+      { status: "failed", calendarId: config.calendarId, error: message }
+    )
+    return { status: "failed", error: message }
+  }
+  return syncAppointmentToGoogleCalendar(
+    pool,
+    "sales_appointments",
+    config,
+    input
+  )
 }

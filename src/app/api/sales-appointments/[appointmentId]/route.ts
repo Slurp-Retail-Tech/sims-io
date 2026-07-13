@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import getPool from "@/lib/db"
 import { parseDate } from "@/lib/dates"
+import { syncSalesAppointmentToGoogleCalendar } from "@/lib/google-calendar"
 
 import {
   appointmentSelectSql,
@@ -241,7 +242,9 @@ export async function PATCH(
     return NextResponse.json({ error: "Appointment not found." }, { status: 404 })
   }
 
-  return NextResponse.json({
-    appointment: mapAppointment(refreshed, auth.user),
-  })
+  const mappedAppointment = mapAppointment(refreshed, auth.user)
+
+  await syncSalesAppointmentToGoogleCalendar(pool, mappedAppointment)
+
+  return NextResponse.json({ appointment: mappedAppointment })
 }

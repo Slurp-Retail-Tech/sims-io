@@ -269,12 +269,19 @@ CREATE TABLE IF NOT EXISTS sales_appointments (
   canceled_by_user_id BIGINT UNSIGNED DEFAULT NULL,
   canceled_at DATETIME(3) DEFAULT NULL,
   cancel_reason TEXT DEFAULT NULL,
+  google_calendar_id VARCHAR(255) DEFAULT NULL,
+  google_event_id VARCHAR(255) DEFAULT NULL,
+  google_event_etag VARCHAR(255) DEFAULT NULL,
+  google_synced_at DATETIME(3) DEFAULT NULL,
+  google_sync_status ENUM('pending', 'synced', 'failed') DEFAULT NULL,
+  google_sync_error VARCHAR(500) DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   INDEX sales_appointments_scheduled_idx (scheduled_at),
   INDEX sales_appointments_status_created_idx (status, created_at),
   INDEX sales_appointments_created_by_idx (created_by_user_id, created_at),
-  INDEX sales_appointments_lead_idx (lead_id, created_at)
+  INDEX sales_appointments_lead_idx (lead_id, created_at),
+  INDEX sales_appointments_google_event_idx (google_calendar_id, google_event_id)
 );
 
 CREATE TABLE IF NOT EXISTS support_form_settings (
