@@ -28,10 +28,13 @@ import {
   MapPin,
   Search,
   UserCheck2,
-  X,
 } from "lucide-react"
 
 import Calendar04 from "@/components/calendar-04"
+import {
+  GooglePlacePicker,
+  type GooglePlaceLocation,
+} from "@/components/google-place-picker"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -132,13 +135,6 @@ type MsUser = {
   email: string
 }
 
-type PlacePrediction = {
-  placeId: string
-  text: string
-  mainText: string
-  secondaryText: string | null
-}
-
 type FormState = {
   outletName: string
   installationType: "Online" | "On-site" | "Support"
@@ -234,10 +230,6 @@ function normalizeTimeOption(value: string) {
   return timeOptions.find((option) => option.value === value)?.value ?? timeOptions[0].value
 }
 
-function createPlacesSessionToken() {
-  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
-}
-
 function replaceAppointment(current: Appointment[], nextAppointment: Appointment) {
   const next = current.filter((item) => item.id !== nextAppointment.id)
   next.push(nextAppointment)
@@ -296,11 +288,6 @@ export default function OnboardingSchedulePage() {
   const [outletLoading, setOutletLoading] = React.useState(false)
 
   const [locationQuery, setLocationQuery] = React.useState("")
-  const deferredLocationQuery = React.useDeferredValue(locationQuery)
-  const [locationSessionToken, setLocationSessionToken] = React.useState(createPlacesSessionToken)
-  const [locationPredictions, setLocationPredictions] = React.useState<PlacePrediction[]>([])
-  const [locationLoading, setLocationLoading] = React.useState(false)
-  const [locationDetailsLoading, setLocationDetailsLoading] = React.useState(false)
   const [placesEnabled, setPlacesEnabled] = React.useState(true)
 
   const [reviewOpen, setReviewOpen] = React.useState(false)
@@ -371,28 +358,6 @@ export default function OnboardingSchedulePage() {
 
   React.useEffect(() => {
     if (!formOpen || !sessionUser) return
-    const controller = new AbortController()
-    void (async () => {
-      try {
-        const response = await fetch("/api/google-places/autocomplete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ input: "", sessionToken: locationSessionToken }),
-          signal: controller.signal,
-        })
-        const payload = (await response.json()) as { enabled?: boolean }
-        if (response.ok && !controller.signal.aborted) {
-          setPlacesEnabled(payload.enabled !== false)
-        }
-      } catch {
-        if (!controller.signal.aborted) setPlacesEnabled(false)
-      }
-    })()
-    return () => controller.abort()
-  }, [sessionUser, formOpen, locationSessionToken])
-
-  React.useEffect(() => {
-    if (!formOpen || !sessionUser) return
     const query = deferredMerchantQuery.trim()
     if (query.length < 2) {
       setMerchantResults([])
@@ -440,44 +405,6 @@ export default function OnboardingSchedulePage() {
       }
     })()
   }, [sessionUser, formOpen, selectedMerchantId, showToast])
-
-  React.useEffect(() => {
-    if (!formOpen || !sessionUser) return
-    const query = deferredLocationQuery.trim()
-    if (query.length < 2 || formState.googlePlaceId) {
-      setLocationPredictions([])
-      return
-    }
-
-    const controller = new AbortController()
-    void (async () => {
-      setLocationLoading(true)
-      try {
-        const response = await fetch("/api/google-places/autocomplete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ input: query, sessionToken: locationSessionToken }),
-          signal: controller.signal,
-        })
-        const payload = (await response.json()) as {
-          enabled?: boolean
-          predictions?: PlacePrediction[]
-          error?: string
-        }
-        if (!response.ok) throw new Error(payload.error ?? "Unable to search Google Maps.")
-        setPlacesEnabled(payload.enabled !== false)
-        setLocationPredictions(payload.predictions ?? [])
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          showToast(error instanceof Error ? error.message : "Unable to search Google Maps.", "error")
-        }
-      } finally {
-        if (!controller.signal.aborted) setLocationLoading(false)
-      }
-    })()
-
-    return () => controller.abort()
-  }, [sessionUser, deferredLocationQuery, formOpen, formState.googlePlaceId, locationSessionToken, showToast])
 
   const calendarDays = React.useMemo(() => getMonthGridDays(month), [month])
 
@@ -531,9 +458,6 @@ export default function OnboardingSchedulePage() {
     setSelectedOutletId("")
     setOutletOptions([])
     setLocationQuery("")
-    setLocationPredictions([])
-    setLocationSessionToken(createPlacesSessionToken())
-    setPlacesEnabled(true)
   }, [])
 
   const openEditDialog = React.useCallback((appointment: Appointment) => {
@@ -564,64 +488,25 @@ export default function OnboardingSchedulePage() {
         ? `${appointment.locationName}, ${appointment.locationAddress}`
         : appointment.locationAddress ?? appointment.locationName ?? ""
     )
-    setLocationPredictions([])
-    setLocationSessionToken(createPlacesSessionToken())
-    setPlacesEnabled(true)
     setFormOpen(true)
   }, [])
 
-  const handleLocationPredictionSelect = React.useCallback(async (prediction: PlacePrediction) => {
-    setLocationDetailsLoading(true)
-    try {
-      const response = await fetch("/api/google-places/details", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          placeId: prediction.placeId,
-          sessionToken: locationSessionToken,
-        }),
-      })
-      const payload = (await response.json()) as {
-        enabled?: boolean
-        location?: {
-          googlePlaceId: string
-          locationName: string
-          locationAddress: string
-          googleMapsUri: string | null
-          locationLat: number | null
-          locationLng: number | null
-        } | null
-        error?: string
-      }
-      if (!response.ok) throw new Error(payload.error ?? "Unable to load Google Maps location.")
-      if (!payload.location) {
-        setPlacesEnabled(payload.enabled !== false)
-        throw new Error("Google Maps location details are unavailable.")
-      }
-
+  const handleLocationSelect = React.useCallback(
+    (location: GooglePlaceLocation) => {
       setFormState((current) => ({
         ...current,
-        locationName: payload.location!.locationName,
-        locationAddress: payload.location!.locationAddress,
-        googlePlaceId: payload.location!.googlePlaceId,
-        googleMapsUri: payload.location!.googleMapsUri ?? "",
-        locationLat: payload.location!.locationLat,
-        locationLng: payload.location!.locationLng,
+        locationName: location.locationName,
+        locationAddress: location.locationAddress,
+        googlePlaceId: location.googlePlaceId,
+        googleMapsUri: location.googleMapsUri ?? "",
+        locationLat: location.locationLat,
+        locationLng: location.locationLng,
       }))
-      setLocationQuery(`${payload.location.locationName}, ${payload.location.locationAddress}`)
-      setLocationPredictions([])
-      setLocationSessionToken(createPlacesSessionToken())
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Unable to load Google Maps location.", "error")
-    } finally {
-      setLocationDetailsLoading(false)
-    }
-  }, [locationSessionToken, showToast])
+    },
+    []
+  )
 
   const clearLocation = React.useCallback(() => {
-    setLocationQuery("")
-    setLocationPredictions([])
-    setLocationSessionToken(createPlacesSessionToken())
     setFormState((current) => ({
       ...current,
       locationName: "",
@@ -632,6 +517,21 @@ export default function OnboardingSchedulePage() {
       locationLng: null,
     }))
   }, [])
+
+  const selectedPlaceLocation = React.useMemo<GooglePlaceLocation | null>(
+    () =>
+      formState.googlePlaceId
+        ? {
+            googlePlaceId: formState.googlePlaceId,
+            locationName: formState.locationName,
+            locationAddress: formState.locationAddress,
+            googleMapsUri: formState.googleMapsUri || null,
+            locationLat: formState.locationLat,
+            locationLng: formState.locationLng,
+          }
+        : null,
+    [formState]
+  )
 
   const handleSubmit = React.useCallback(async () => {
     if (!sessionUser) return
@@ -1149,70 +1049,20 @@ export default function OnboardingSchedulePage() {
 
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="appointment-location">Google Maps location</Label>
-                <div className="relative">
-                  <MapPin className="text-muted-foreground absolute left-3 top-1/2 size-4 -translate-y-1/2" />
-                  <Input
-                    id="appointment-location"
-                    value={locationQuery}
-                    onChange={(event) => {
-                      setLocationQuery(event.target.value)
-                      setFormState((current) => ({
-                        ...current,
-                        locationName: "",
-                        locationAddress: "",
-                        googlePlaceId: "",
-                        googleMapsUri: "",
-                        locationLat: null,
-                        locationLng: null,
-                      }))
-                    }}
-                    className="pl-9 pr-9"
-                    placeholder="Search Google Maps location"
-                    disabled={!placesEnabled}
-                  />
-                  {locationQuery || formState.googlePlaceId ? (
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="ghost"
-                      className="absolute right-1 top-1/2 size-7 -translate-y-1/2"
-                      onClick={clearLocation}
-                      aria-label="Clear location"
-                    >
-                      <X className="size-4" />
-                    </Button>
-                  ) : null}
-                </div>
-                {!placesEnabled ? (
-                  <div className="text-muted-foreground text-xs">Google Places lookup is disabled.</div>
-                ) : formState.installationType === "On-site" ? (
-                  <div className="text-muted-foreground text-xs">Required for on-site onboarding.</div>
-                ) : (
-                  <div className="text-muted-foreground text-xs">Optional for online and support appointments.</div>
-                )}
-                {locationLoading || locationDetailsLoading ? (
-                  <div className="text-muted-foreground flex items-center gap-2 text-sm"><Loader2 className="size-4 animate-spin" />Loading locations...</div>
-                ) : locationPredictions.length > 0 ? (
-                  <div className="overflow-hidden rounded-md border">
-                    {locationPredictions.map((prediction) => (
-                      <button
-                        key={prediction.placeId}
-                        type="button"
-                        className="hover:bg-muted flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm"
-                        onClick={() => void handleLocationPredictionSelect(prediction)}
-                      >
-                        <span className="font-medium">{prediction.mainText}</span>
-                        <span className="text-muted-foreground text-xs">{prediction.secondaryText ?? prediction.text}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                {formState.googlePlaceId ? (
-                  <div className="rounded-md border p-3 text-sm">
-                    <div className="font-medium">{formState.locationName}</div>
-                    <div className="text-muted-foreground mt-1">{formState.locationAddress}</div>
-                  </div>
-                ) : null}
+                <GooglePlacePicker
+                  id="appointment-location"
+                  value={selectedPlaceLocation}
+                  query={locationQuery}
+                  onQueryChange={setLocationQuery}
+                  onSelect={handleLocationSelect}
+                  onClear={clearLocation}
+                  onEnabledChange={setPlacesEnabled}
+                  helperText={
+                    formState.installationType === "On-site"
+                      ? "Required for on-site onboarding."
+                      : "Optional for online and support appointments."
+                  }
+                />
               </div>
 
               <div className="space-y-2">

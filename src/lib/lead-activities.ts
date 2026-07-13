@@ -60,6 +60,10 @@ export type ActivityInput = {
   meetingOutcome: string | null
   locationType: string | null
   location: string | null
+  googlePlaceId: string | null
+  googleMapsUri: string | null
+  locationLat: string | null
+  locationLng: string | null
   dealId: string | null
 }
 
@@ -72,7 +76,19 @@ export type NormalizedActivity = {
   meetingOutcome: MeetingOutcome | null
   locationType: LocationType | null
   location: string | null
+  googlePlaceId: string | null
+  googleMapsUri: string | null
+  locationLat: number | null
+  locationLng: number | null
   dealId: string | null
+}
+
+function parseCoordinate(value: string | null): number | null {
+  if (!value) {
+    return null
+  }
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) ? parsed : null
 }
 
 /**
@@ -100,6 +116,10 @@ export function validateActivityInput(
     meetingOutcome: null,
     locationType: null,
     location: null,
+    googlePlaceId: null,
+    googleMapsUri: null,
+    locationLat: null,
+    locationLng: null,
     // The link is optional; the route verifies the deal belongs to this lead.
     dealId: input.dealId ? input.dealId : null,
   }
@@ -129,6 +149,14 @@ export function validateActivityInput(
         return { ok: false, error: "Location is required for onsite meetings." }
       }
       base.location = input.location
+      // Place fields are all-or-nothing keyed on the place id, so a free-text
+      // overwrite never leaves stale coordinates behind.
+      if (input.googlePlaceId) {
+        base.googlePlaceId = input.googlePlaceId
+        base.googleMapsUri = input.googleMapsUri
+        base.locationLat = parseCoordinate(input.locationLat)
+        base.locationLng = parseCoordinate(input.locationLng)
+      }
     }
   }
 
@@ -140,6 +168,8 @@ export type ActivityRow = RowDataPacket & {
   lead_id: string
   deal_id: string | null
   deal_name: string | null
+  sales_appointment_id: string | null
+  sales_appointment_status: string | null
   activity_type: ActivityType
   activity_date: string | null
   remarks: string | null
@@ -148,6 +178,10 @@ export type ActivityRow = RowDataPacket & {
   meeting_outcome: MeetingOutcome | null
   location_type: LocationType | null
   location: string | null
+  google_place_id: string | null
+  google_maps_uri: string | null
+  location_lat: string | null
+  location_lng: string | null
   created_by_user_id: string | null
   created_at: string
   updated_at: string | null
@@ -160,6 +194,8 @@ export const activitySelectSql = `
     lead_activities.lead_id,
     lead_activities.deal_id,
     deals.deal_name AS deal_name,
+    lead_activities.sales_appointment_id,
+    linked_appointment.status AS sales_appointment_status,
     lead_activities.activity_type,
     lead_activities.activity_date,
     lead_activities.remarks,
@@ -168,6 +204,10 @@ export const activitySelectSql = `
     lead_activities.meeting_outcome,
     lead_activities.location_type,
     lead_activities.location,
+    lead_activities.google_place_id,
+    lead_activities.google_maps_uri,
+    lead_activities.location_lat,
+    lead_activities.location_lng,
     lead_activities.created_by_user_id,
     lead_activities.created_at,
     lead_activities.updated_at,
@@ -177,6 +217,8 @@ export const activitySelectSql = `
     ON created_by.id = lead_activities.created_by_user_id
   LEFT JOIN deals
     ON deals.id = lead_activities.deal_id
+  LEFT JOIN sales_appointments AS linked_appointment
+    ON linked_appointment.id = lead_activities.sales_appointment_id
 `
 
 export type MappedActivity = {
@@ -184,6 +226,8 @@ export type MappedActivity = {
   leadId: string
   dealId: string | null
   dealName: string | null
+  salesAppointmentId: string | null
+  salesAppointmentStatus: string | null
   activityType: ActivityType
   activityDate: string | null
   remarks: string | null
@@ -192,6 +236,10 @@ export type MappedActivity = {
   meetingOutcome: MeetingOutcome | null
   locationType: LocationType | null
   location: string | null
+  googlePlaceId: string | null
+  googleMapsUri: string | null
+  locationLat: number | null
+  locationLng: number | null
   createdByName: string | null
   createdAt: string
   updatedAt: string | null
@@ -203,6 +251,9 @@ export function mapActivity(row: ActivityRow): MappedActivity {
     leadId: String(row.lead_id),
     dealId: row.deal_id === null ? null : String(row.deal_id),
     dealName: row.deal_name,
+    salesAppointmentId:
+      row.sales_appointment_id === null ? null : String(row.sales_appointment_id),
+    salesAppointmentStatus: row.sales_appointment_status,
     activityType: row.activity_type,
     activityDate: row.activity_date,
     remarks: row.remarks,
@@ -211,6 +262,10 @@ export function mapActivity(row: ActivityRow): MappedActivity {
     meetingOutcome: row.meeting_outcome,
     locationType: row.location_type,
     location: row.location,
+    googlePlaceId: row.google_place_id,
+    googleMapsUri: row.google_maps_uri,
+    locationLat: parseCoordinate(row.location_lat),
+    locationLng: parseCoordinate(row.location_lng),
     createdByName: row.created_by_name,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

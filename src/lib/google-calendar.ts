@@ -55,6 +55,10 @@ export type SalesCalendarAppointment = {
   scheduledAt: string
   status: string
   createdByName: string | null
+  createdByEmail?: string | null
+  participantEmails?: string[]
+  googleMapsUri?: string | null
+  googleMeetLink?: string | null
   cancelReason?: string | null
   completionNote?: string | null
   googleCalendarId?: string | null
@@ -73,6 +77,13 @@ export type GoogleCalendarEventPayload = {
     timeZone: string
   }
   location?: string
+  attendees?: Array<{ email: string }>
+  conferenceData?: {
+    createRequest: {
+      requestId: string
+      conferenceSolutionKey: { type: "hangoutsMeet" }
+    }
+  }
   extendedProperties: {
     private: Record<string, string>
   }
@@ -96,6 +107,8 @@ type CalendarEventInput = {
   location: string | null
   existingEventId: string | null
   privateProperties: Record<string, string>
+  attendees?: Array<{ email: string }>
+  createMeetLink?: boolean
 }
 
 export const SALES_APPOINTMENT_EVENT_DURATION_MINUTES = 60
@@ -103,6 +116,7 @@ export const SALES_APPOINTMENT_EVENT_DURATION_MINUTES = 60
 type GoogleCalendarEventResponse = {
   id?: string
   etag?: string
+  hangoutLink?: string
 }
 
 const GOOGLE_CALENDAR_API_BASE_URL =
@@ -296,10 +310,41 @@ function buildCalendarEventPayloadFromInput(
       timeZone: APP_TIME_ZONE,
     },
     ...(input.location ? { location: input.location } : {}),
+    ...(input.attendees && input.attendees.length > 0
+      ? { attendees: input.attendees }
+      : {}),
+    ...(input.createMeetLink
+      ? {
+          conferenceData: {
+            createRequest: {
+              requestId: `sims-sales-${input.appointmentId}`,
+              conferenceSolutionKey: { type: "hangoutsMeet" as const },
+            },
+          },
+        }
+      : {}),
     extendedProperties: {
       private: input.privateProperties,
     },
   }
+}
+
+const ATTENDEE_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function normalizeAttendeeEmails(
+  emails: Array<string | null | undefined>
+): Array<{ email: string }> {
+  const seen = new Set<string>()
+  const attendees: Array<{ email: string }> = []
+  for (const raw of emails) {
+    const email = raw?.trim().toLowerCase()
+    if (!email || !ATTENDEE_EMAIL_PATTERN.test(email) || seen.has(email)) {
+      continue
+    }
+    seen.add(email)
+    attendees.push({ email })
+  }
+  return attendees
 }
 
 function mapOnboardingCalendarEventInput(
@@ -364,6 +409,15 @@ function mapSalesCalendarEventInput(
   if (appointment.completionNote) {
     descriptionLines.push(`Completion note: ${appointment.completionNote}`)
   }
+  if (appointment.googleMapsUri) {
+    descriptionLines.push(`Google Maps: ${appointment.googleMapsUri}`)
+  }
+
+  // Creator first, then any invited participants (Online meetings).
+  const attendees = normalizeAttendeeEmails([
+    appointment.createdByEmail,
+    ...(appointment.participantEmails ?? []),
+  ])
 
   return {
     appointmentId: appointment.id,
@@ -377,6 +431,10 @@ function mapSalesCalendarEventInput(
         : null,
     existingEventId: appointment.googleEventId?.trim() || null,
     privateProperties: { simsSalesAppointmentId: appointment.id },
+    attendees,
+    // Meet conferences are create-once; PATCHes preserve the existing one.
+    createMeetLink:
+      appointment.appointmentType === "Online" && !appointment.googleMeetLink,
   }
 }
 
@@ -446,10 +504,19 @@ async function recordGoogleCalendarSyncStatus(
         calendarId: string
         eventId: string
         eventEtag: string | null
+        meetLink?: string | null
       }
     | { status: "failed"; calendarId: string | null; error: string }
 ) {
   if (input.status === "synced") {
+    // google_meet_link only exists on sales_appointments; keep the onboarding
+    // UPDATE byte-identical.
+    const meetLinkColumn =
+      table === "sales_appointments"
+        ? "google_meet_link = COALESCE(?, google_meet_link),"
+        : ""
+    const meetLinkParams =
+      table === "sales_appointments" ? [input.meetLink ?? null] : []
     await pool.query(
       `
       UPDATE ${table}
@@ -457,13 +524,20 @@ async function recordGoogleCalendarSyncStatus(
         google_calendar_id = ?,
         google_event_id = ?,
         google_event_etag = ?,
+        ${meetLinkColumn}
         google_synced_at = CURRENT_TIMESTAMP(3),
         google_sync_status = 'synced',
         google_sync_error = NULL,
         updated_at = CURRENT_TIMESTAMP(3)
       WHERE id = ?
     `,
-      [input.calendarId, input.eventId, input.eventEtag, appointmentId]
+      [
+        input.calendarId,
+        input.eventId,
+        input.eventEtag,
+        ...meetLinkParams,
+        appointmentId,
+      ]
     )
     return
   }
@@ -510,11 +584,22 @@ async function syncAppointmentToGoogleCalendar(
     const accessToken = await getGoogleCalendarAccessToken(config)
     const existingEventId = input.existingEventId ?? undefined
     const method = existingEventId ? "PATCH" : "POST"
-    const endpoint = existingEventId
-      ? `${GOOGLE_CALENDAR_API_BASE_URL}/${encodeURIComponent(
-          config.calendarId
-        )}/events/${encodeURIComponent(existingEventId)}`
-      : `${GOOGLE_CALENDAR_API_BASE_URL}/${encodeURIComponent(config.calendarId)}/events`
+    // conferenceDataVersion=1 is required for Meet creation and harmless
+    // otherwise; sendUpdates=all (invite emails) only when attendees exist so
+    // onboarding events never start emailing.
+    const queryParams = new URLSearchParams({ conferenceDataVersion: "1" })
+    if (payload.attendees && payload.attendees.length > 0) {
+      queryParams.set("sendUpdates", "all")
+    }
+    const endpoint = `${
+      existingEventId
+        ? `${GOOGLE_CALENDAR_API_BASE_URL}/${encodeURIComponent(
+            config.calendarId
+          )}/events/${encodeURIComponent(existingEventId)}`
+        : `${GOOGLE_CALENDAR_API_BASE_URL}/${encodeURIComponent(
+            config.calendarId
+          )}/events`
+    }?${queryParams.toString()}`
 
     const response = await fetch(endpoint, {
       method,
@@ -550,6 +635,7 @@ async function syncAppointmentToGoogleCalendar(
       calendarId: config.calendarId,
       eventId,
       eventEtag: event?.etag ?? null,
+      meetLink: event?.hangoutLink ?? null,
     })
     return { status: "synced", eventId }
   } catch (error) {

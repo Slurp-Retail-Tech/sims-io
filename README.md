@@ -200,10 +200,10 @@ Notes:
 - `APP_BASE_URL` — used in activation emails, password reset emails, and Google OAuth callbacks; must match the registered OAuth redirect URI exactly
 - `GOOGLE_WORKSPACE_DOMAINS` — comma-separated allowlist of Google Workspace domains permitted for SSO login
 - `GOOGLE_CALENDAR_ENABLED=true` syncs onboarding appointments to `GOOGLE_CALENDAR_ID`; configure `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET`, and `GOOGLE_CALENDAR_REFRESH_TOKEN` so SIMS can refresh Calendar access tokens automatically
-- Sales appointments sync to `GOOGLE_CALENDAR_SALES_ID` when set, falling back to `GOOGLE_CALENDAR_ID`; events are one hour long and are updated (not deleted) when an appointment is edited, canceled, or completed
+- Sales appointments sync to `GOOGLE_CALENDAR_SALES_ID` when set, falling back to `GOOGLE_CALENDAR_ID`; events are one hour long and are updated (not deleted) when an appointment is edited, canceled, or completed. Sales events invite the appointment creator (and any participant emails for Online meetings) and auto-create a Google Meet link for Online meetings
 - `GOOGLE_CALENDAR_REDIRECT_URI` is optional; it defaults to `${APP_BASE_URL}/api/google-calendar/oauth/callback` for the one-time refresh-token helper flow
 - `GOOGLE_CALENDAR_ACCESS_TOKEN` is a local fallback; access tokens expire, so do not use it as the production setup
-- `GOOGLE_PLACES_ENABLED=true` enables server-side Google Places lookup for onboarding locations; restrict `GOOGLE_PLACES_API_KEY` in Google Cloud and use `GOOGLE_PLACES_REGION_CODES` to bias supported countries
+- `GOOGLE_PLACES_ENABLED=true` enables server-side Google Places lookup for onboarding locations and sales meeting locations (lead Meeting activities and sales appointments); restrict `GOOGLE_PLACES_API_KEY` in Google Cloud and use `GOOGLE_PLACES_REGION_CODES` to bias supported countries
 - `NEXT_PUBLIC_RECAPTCHA_SITE_KEY`, `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN`, `NEXT_PUBLIC_GTM_ID`, and `NEXT_PUBLIC_META_PIXEL_ID` are baked into the JS bundle at build time; changing them requires a full redeploy, not just a container restart
 - `RECAPTCHA_SECRET_KEY` — reCAPTCHA enforcement is fail-closed in production; the demo form POST returns 500 if this is missing
 - `CSAT_GOOGLE_REVIEW_URL` — company-wide Google review link for Slurp Retail Tech Sdn Bhd; shown after a CSAT submission only when the Support Service rating is Satisfied/Very Satisfied. Leave blank to disable the review prompt entirely

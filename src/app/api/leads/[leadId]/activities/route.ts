@@ -6,6 +6,7 @@ import { parseDate } from "@/lib/dates"
 import { canEditLead, canViewLead } from "@/lib/leads"
 import {
   createSalesAppointment,
+  parseParticipantEmails,
   type CreateSalesAppointmentInput,
 } from "@/lib/sales-appointments"
 import {
@@ -81,8 +82,13 @@ type CreateActivityBody = {
   meetingOutcome?: unknown
   locationType?: unknown
   location?: unknown
+  googlePlaceId?: unknown
+  googleMapsUri?: unknown
+  locationLat?: unknown
+  locationLng?: unknown
   dealId?: unknown
   createAppointment?: unknown
+  participantEmails?: unknown
 }
 
 type LeadDetailsRow = {
@@ -137,6 +143,10 @@ export async function POST(
     meetingOutcome: cleanString(body.meetingOutcome),
     locationType: cleanString(body.locationType),
     location: cleanString(body.location),
+    googlePlaceId: cleanString(body.googlePlaceId),
+    googleMapsUri: cleanString(body.googleMapsUri),
+    locationLat: cleanString(body.locationLat),
+    locationLng: cleanString(body.locationLng),
     dealId: cleanString(body.dealId),
   })
   if (!validated.ok) {
@@ -188,6 +198,11 @@ export async function POST(
       businessLocation: leadDetails.business_location,
       appointmentType: v.locationType === "Onsite" ? "Physical" : "Online",
       meetingLocation: v.location,
+      googlePlaceId: v.googlePlaceId,
+      googleMapsUri: v.googleMapsUri,
+      locationLat: v.locationLat,
+      locationLng: v.locationLng,
+      participantEmails: parseParticipantEmails(body.participantEmails),
       scheduledAt,
       createdByUserId: user.id,
     }
@@ -198,9 +213,10 @@ export async function POST(
       INSERT INTO lead_activities (
         lead_id, deal_id, activity_type, activity_date, remarks,
         call_outcome, call_direction, meeting_outcome, location_type, location,
+        google_place_id, google_maps_uri, location_lat, location_lng,
         created_by_user_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       parsedLeadId,
@@ -213,6 +229,10 @@ export async function POST(
       v.meetingOutcome,
       v.locationType,
       v.location,
+      v.googlePlaceId,
+      v.googleMapsUri,
+      v.locationLat,
+      v.locationLng,
       user.id,
     ]
   )
@@ -232,6 +252,12 @@ export async function POST(
     try {
       const created = await createSalesAppointment(pool, appointmentInput)
       appointmentId = String(created.appointmentId)
+      // Persist the back-link so later activity edits/deletes can cascade to
+      // the appointment.
+      await pool.query<ResultSetHeader>(
+        `UPDATE lead_activities SET sales_appointment_id = ? WHERE id = ?`,
+        [created.appointmentId, insertResult.insertId]
+      )
     } catch (error) {
       console.error(
         "Unable to create sales appointment from meeting activity",

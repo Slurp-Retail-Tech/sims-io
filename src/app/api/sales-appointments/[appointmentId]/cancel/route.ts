@@ -2,7 +2,7 @@ import type { RowDataPacket } from "mysql2/promise"
 import { NextRequest, NextResponse } from "next/server"
 
 import getPool from "@/lib/db"
-import { syncSalesAppointmentToGoogleCalendar } from "@/lib/google-calendar"
+import { cancelSalesAppointment } from "@/lib/sales-appointments"
 
 import {
   type AppointmentRow,
@@ -71,20 +71,12 @@ export async function POST(
     )
   }
 
-  await pool.query(
-    `
-    UPDATE sales_appointments
-    SET
-      status = 'Canceled',
-      canceled_by_user_id = ?,
-      canceled_at = CURRENT_TIMESTAMP(3),
-      cancel_reason = ?,
-      updated_at = CURRENT_TIMESTAMP(3)
-    WHERE id = ?
-      AND status = 'Pending'
-  `,
-    [auth.user.id, reason, appointmentId]
-  )
+  // Shared cancel path (also used by lead-activity cascades): guarded
+  // Pending-only UPDATE + calendar re-sync.
+  await cancelSalesAppointment(pool, appointmentId, {
+    canceledByUserId: auth.user.id,
+    reason,
+  })
 
   const [rows] = await pool.query(
     `
@@ -100,9 +92,7 @@ export async function POST(
     return NextResponse.json({ error: "Appointment not found." }, { status: 404 })
   }
 
-  const mappedAppointment = mapAppointment(appointment, auth.user)
-
-  await syncSalesAppointmentToGoogleCalendar(pool, mappedAppointment)
-
-  return NextResponse.json({ appointment: mappedAppointment })
+  return NextResponse.json({
+    appointment: mapAppointment(appointment, auth.user),
+  })
 }

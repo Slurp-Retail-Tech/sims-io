@@ -245,12 +245,19 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
         `/api/leads/${leadId}/activities/${activity.id}`,
         { method: "DELETE" }
       )
+      const data = (await response.json().catch(() => ({}))) as {
+        error?: string
+        appointmentCanceled?: boolean
+      }
       if (!response.ok) {
-        const data = (await response.json().catch(() => ({}))) as { error?: string }
         throw new Error(data.error || "Unable to delete activity.")
       }
       setActivities((current) => current.filter((item) => item.id !== activity.id))
-      showToast("Activity deleted.")
+      showToast(
+        data.appointmentCanceled
+          ? "Activity deleted and the linked sales appointment canceled."
+          : "Activity deleted."
+      )
     } catch (error) {
       showToast(
         error instanceof Error ? error.message : "Unable to delete activity.",
@@ -651,6 +658,7 @@ export function LeadDetailView({ leadId }: { leadId: string }) {
       />
       <ActivityDialog
         leadId={leadId}
+        leadEmail={lead.email}
         activity={editingActivity}
         deals={deals}
         open={activityDialogOpen}

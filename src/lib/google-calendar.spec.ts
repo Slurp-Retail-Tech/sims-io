@@ -111,6 +111,202 @@ test("omits the event location for online sales appointments", () => {
   assert.equal(payload.location, undefined)
 })
 
+test("adds the Google Maps link to the sales event description when present", () => {
+  const withUri = buildSalesGoogleCalendarEventPayload({
+    ...baseSalesAppointment,
+    googleMapsUri: "https://maps.google.com/?cid=987",
+  })
+  assert.match(withUri.description, /Google Maps: https:\/\/maps\.google\.com\/\?cid=987/)
+
+  const withoutUri = buildSalesGoogleCalendarEventPayload(baseSalesAppointment)
+  assert.doesNotMatch(withoutUri.description, /Google Maps:/)
+})
+
+test("includes creator and participant attendees on sales events, deduped and validated", () => {
+  const payload = buildSalesGoogleCalendarEventPayload({
+    ...baseSalesAppointment,
+    createdByEmail: "Hafiz@GetSlurp.com",
+    participantEmails: [
+      "customer@example.com",
+      "hafiz@getslurp.com",
+      "not-an-email",
+      "customer@example.com",
+    ],
+  })
+
+  assert.deepEqual(payload.attendees, [
+    { email: "hafiz@getslurp.com" },
+    { email: "customer@example.com" },
+  ])
+})
+
+test("requests a Meet conference only for online sales events without an existing link", () => {
+  const online = buildSalesGoogleCalendarEventPayload({
+    ...baseSalesAppointment,
+    appointmentType: "Online",
+    meetingLocation: null,
+  })
+  assert.deepEqual(online.conferenceData, {
+    createRequest: {
+      requestId: "sims-sales-7",
+      conferenceSolutionKey: { type: "hangoutsMeet" },
+    },
+  })
+
+  const alreadyLinked = buildSalesGoogleCalendarEventPayload({
+    ...baseSalesAppointment,
+    appointmentType: "Online",
+    meetingLocation: null,
+    googleMeetLink: "https://meet.google.com/abc-defg-hij",
+  })
+  assert.equal(alreadyLinked.conferenceData, undefined)
+
+  const physical = buildSalesGoogleCalendarEventPayload(baseSalesAppointment)
+  assert.equal(physical.conferenceData, undefined)
+})
+
+test("onboarding events still have no attendees or conference data", () => {
+  const payload = buildGoogleCalendarEventPayload({
+    id: "42",
+    outletName: "KLCC Outlet",
+    installationType: "On-site",
+    scheduledAt: "2026-05-14 01:30:00.000",
+    scheduledEndAt: "2026-05-14 06:00:00.000",
+    paymentStatus: "Paid",
+    status: "Approved",
+    createdByName: "Aina",
+    assignedMsUserName: "Mei",
+    decisionReason: null,
+  })
+
+  assert.equal(payload.attendees, undefined)
+  assert.equal(payload.conferenceData, undefined)
+})
+
+test("sends invite emails and conference version only as appropriate per feature", async () => {
+  const originalEnabled = process.env.GOOGLE_CALENDAR_ENABLED
+  const originalCalendarId = process.env.GOOGLE_CALENDAR_ID
+  const originalToken = process.env.GOOGLE_CALENDAR_ACCESS_TOKEN
+  const originalFetch = globalThis.fetch
+  const requestedUrls: string[] = []
+
+  try {
+    process.env.GOOGLE_CALENDAR_ENABLED = "true"
+    process.env.GOOGLE_CALENDAR_ID = "merchant-success@example.com"
+    process.env.GOOGLE_CALENDAR_ACCESS_TOKEN = "access-token"
+    globalThis.fetch = async (input) => {
+      requestedUrls.push(String(input))
+      return new Response(
+        JSON.stringify({
+          id: "event-1",
+          etag: '"etag-1"',
+          hangoutLink: "https://meet.google.com/abc-defg-hij",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    }
+
+    const noopPool = {
+      query: async () => [[], []],
+    } as never
+
+    await syncSalesAppointmentToGoogleCalendar(noopPool, {
+      ...baseSalesAppointment,
+      appointmentType: "Online",
+      meetingLocation: null,
+      createdByEmail: "hafiz@getslurp.com",
+      participantEmails: ["customer@example.com"],
+    })
+    assert.match(requestedUrls[0], /conferenceDataVersion=1/)
+    assert.match(requestedUrls[0], /sendUpdates=all/)
+
+    await syncOnboardingAppointmentToGoogleCalendar(noopPool, {
+      id: "42",
+      outletName: "KLCC Outlet",
+      installationType: "On-site",
+      scheduledAt: "2026-05-14 01:30:00.000",
+      scheduledEndAt: "2026-05-14 04:30:00.000",
+      paymentStatus: "Paid",
+      status: "Approved",
+      createdByName: "Aina",
+      assignedMsUserName: "Mei",
+      decisionReason: null,
+    })
+    assert.match(requestedUrls[1], /conferenceDataVersion=1/)
+    assert.doesNotMatch(requestedUrls[1], /sendUpdates/)
+  } finally {
+    globalThis.fetch = originalFetch
+
+    if (originalEnabled === undefined) delete process.env.GOOGLE_CALENDAR_ENABLED
+    else process.env.GOOGLE_CALENDAR_ENABLED = originalEnabled
+
+    if (originalCalendarId === undefined) delete process.env.GOOGLE_CALENDAR_ID
+    else process.env.GOOGLE_CALENDAR_ID = originalCalendarId
+
+    if (originalToken === undefined) delete process.env.GOOGLE_CALENDAR_ACCESS_TOKEN
+    else process.env.GOOGLE_CALENDAR_ACCESS_TOKEN = originalToken
+  }
+})
+
+test("persists the Meet link when recording a synced sales appointment", async () => {
+  const originalEnabled = process.env.GOOGLE_CALENDAR_ENABLED
+  const originalCalendarId = process.env.GOOGLE_CALENDAR_ID
+  const originalToken = process.env.GOOGLE_CALENDAR_ACCESS_TOKEN
+  const originalFetch = globalThis.fetch
+  const queries: Array<{ sql: string; params: unknown[] }> = []
+
+  try {
+    process.env.GOOGLE_CALENDAR_ENABLED = "true"
+    process.env.GOOGLE_CALENDAR_ID = "merchant-success@example.com"
+    process.env.GOOGLE_CALENDAR_ACCESS_TOKEN = "access-token"
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          id: "event-1",
+          etag: '"etag-1"',
+          hangoutLink: "https://meet.google.com/abc-defg-hij",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+
+    const result = await syncSalesAppointmentToGoogleCalendar(
+      {
+        query: async (sql: string, params: unknown[]) => {
+          queries.push({ sql, params })
+          return [[], []]
+        },
+      } as never,
+      {
+        ...baseSalesAppointment,
+        appointmentType: "Online",
+        meetingLocation: null,
+      }
+    )
+
+    assert.deepEqual(result, { status: "synced", eventId: "event-1" })
+    assert.equal(queries.length, 1)
+    assert.match(queries[0].sql, /google_meet_link = COALESCE\(\?, google_meet_link\)/)
+    assert.deepEqual(queries[0].params, [
+      "merchant-success@example.com",
+      "event-1",
+      '"etag-1"',
+      "https://meet.google.com/abc-defg-hij",
+      "7",
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+
+    if (originalEnabled === undefined) delete process.env.GOOGLE_CALENDAR_ENABLED
+    else process.env.GOOGLE_CALENDAR_ENABLED = originalEnabled
+
+    if (originalCalendarId === undefined) delete process.env.GOOGLE_CALENDAR_ID
+    else process.env.GOOGLE_CALENDAR_ID = originalCalendarId
+
+    if (originalToken === undefined) delete process.env.GOOGLE_CALENDAR_ACCESS_TOKEN
+    else process.env.GOOGLE_CALENDAR_ACCESS_TOKEN = originalToken
+  }
+})
+
 test("includes cancel reason in the canceled sales event description", () => {
   const payload = buildSalesGoogleCalendarEventPayload({
     ...baseSalesAppointment,

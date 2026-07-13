@@ -11,6 +11,10 @@ const base = {
   meetingOutcome: null,
   locationType: null,
   location: null,
+  googlePlaceId: null,
+  googleMapsUri: null,
+  locationLat: null,
+  locationLng: null,
   dealId: null,
 }
 
@@ -81,6 +85,57 @@ test("dealId passes through; empty string normalizes to null", () => {
   assert.equal(empty.ok, true)
   if (empty.ok) {
     assert.equal(empty.values.dealId, null)
+  }
+})
+
+test("Meeting onsite keeps place fields only when a place id is present", () => {
+  const withPlace = validateActivityInput({
+    ...base,
+    activityType: "Meeting",
+    meetingOutcome: "Scheduled",
+    locationType: "Onsite",
+    location: "Acme Cafe, Jalan Telawi",
+    googlePlaceId: "place-123",
+    googleMapsUri: "https://maps.google.com/?cid=1",
+    locationLat: "3.1319200",
+    locationLng: "101.6841000",
+  })
+  assert.equal(withPlace.ok, true)
+  if (withPlace.ok) {
+    assert.equal(withPlace.values.googlePlaceId, "place-123")
+    assert.equal(withPlace.values.googleMapsUri, "https://maps.google.com/?cid=1")
+    assert.equal(withPlace.values.locationLat, 3.13192)
+    assert.equal(withPlace.values.locationLng, 101.6841)
+  }
+
+  const freeText = validateActivityInput({
+    ...base,
+    activityType: "Meeting",
+    meetingOutcome: "Scheduled",
+    locationType: "Onsite",
+    location: "Somewhere typed by hand",
+    googleMapsUri: "https://maps.google.com/?cid=stale",
+    locationLat: "3.1",
+    locationLng: "101.6",
+  })
+  assert.equal(freeText.ok, true)
+  if (freeText.ok) {
+    assert.equal(freeText.values.googlePlaceId, null)
+    assert.equal(freeText.values.googleMapsUri, null)
+    assert.equal(freeText.values.locationLat, null)
+    assert.equal(freeText.values.locationLng, null)
+  }
+
+  const online = validateActivityInput({
+    ...base,
+    activityType: "Meeting",
+    meetingOutcome: "Scheduled",
+    locationType: "Online",
+    googlePlaceId: "place-123",
+  })
+  assert.equal(online.ok, true)
+  if (online.ok) {
+    assert.equal(online.values.googlePlaceId, null)
   }
 })
 

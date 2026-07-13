@@ -11,7 +11,9 @@ import {
   isAppointmentType,
   mapAppointment,
   parseAppointmentId,
+  parseOptionalCoordinate,
   parseOptionalId,
+  parseParticipantEmails,
   resolveAuthUser,
   toSqlDateTime,
 } from "../helpers"
@@ -90,6 +92,11 @@ export async function PATCH(
     businessType?: unknown
     businessLocation?: unknown
     meetingLocation?: unknown
+    googlePlaceId?: unknown
+    googleMapsUri?: unknown
+    locationLat?: unknown
+    locationLng?: unknown
+    participantEmails?: unknown
     appointmentType?: unknown
     scheduledAt?: unknown
   }
@@ -189,6 +196,34 @@ export async function PATCH(
     params.push(nextMeetingLocation)
   }
 
+  // Place fields travel as a group keyed on googlePlaceId presence in the
+  // body (the UI always sends all four together). Without a place id the
+  // group is nulled so a free-text overwrite never leaves stale coordinates.
+  if (Object.hasOwn(body, "googlePlaceId") && nextAppointmentType !== "Online") {
+    const googlePlaceId = cleanString(body.googlePlaceId)
+    const googleMapsUri = googlePlaceId ? cleanString(body.googleMapsUri) : null
+    const locationLat = googlePlaceId
+      ? parseOptionalCoordinate(body.locationLat, 90)
+      : null
+    const locationLng = googlePlaceId
+      ? parseOptionalCoordinate(body.locationLng, 180)
+      : null
+    updates.push(
+      "google_place_id = ?",
+      "google_maps_uri = ?",
+      "location_lat = ?",
+      "location_lng = ?"
+    )
+    params.push(googlePlaceId, googleMapsUri, locationLat, locationLng)
+  }
+
+  if (Object.hasOwn(body, "participantEmails")) {
+    if (nextAppointmentType === "Online") {
+      updates.push("participant_emails = ?")
+      params.push(parseParticipantEmails(body.participantEmails).join(",") || null)
+    }
+  }
+
   if (Object.hasOwn(body, "appointmentType")) {
     if (!nextAppointmentType || !isAppointmentType(nextAppointmentType)) {
       return NextResponse.json(
@@ -211,7 +246,21 @@ export async function PATCH(
     nextAppointmentType === "Online" &&
     (Object.hasOwn(body, "appointmentType") || Object.hasOwn(body, "meetingLocation"))
   ) {
-    updates.push("meeting_location = NULL")
+    updates.push(
+      "meeting_location = NULL",
+      "google_place_id = NULL",
+      "google_maps_uri = NULL",
+      "location_lat = NULL",
+      "location_lng = NULL"
+    )
+  }
+
+  // Participant invites only apply to Online meetings.
+  if (
+    nextAppointmentType === "Physical" &&
+    Object.hasOwn(body, "appointmentType")
+  ) {
+    updates.push("participant_emails = NULL")
   }
 
   if (Object.hasOwn(body, "scheduledAt")) {
