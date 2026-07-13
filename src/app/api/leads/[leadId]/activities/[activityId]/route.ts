@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import type { ResultSetHeader } from "mysql2/promise"
 
 import getPool from "@/lib/db"
+import { parseDate } from "@/lib/dates"
 import { canEditLead } from "@/lib/leads"
 import {
   activitySelectSql,
@@ -10,6 +11,10 @@ import {
   validateActivityInput,
   type ActivityRow,
 } from "@/lib/lead-activities"
+import {
+  cancelSalesAppointment,
+  updateSalesAppointmentFromActivity,
+} from "@/lib/sales-appointments"
 import {
   cleanString,
   loadLeadAssignment,
@@ -28,7 +33,12 @@ function parseActivityId(value: string): number | null {
 
 type LoadedActivity =
   | { response: NextResponse }
-  | { leadId: number; activityId: number; existing: ActivityRow }
+  | {
+      leadId: number
+      activityId: number
+      existing: ActivityRow
+      userId: string
+    }
 
 async function loadEditableActivity(
   request: NextRequest,
@@ -62,7 +72,12 @@ async function loadEditableActivity(
     return { response: NextResponse.json({ error: "Activity not found." }, { status: 404 }) }
   }
 
-  return { leadId: parsedLeadId, activityId: parsedActivityId, existing }
+  return {
+    leadId: parsedLeadId,
+    activityId: parsedActivityId,
+    existing,
+    userId: user.id,
+  }
 }
 
 type PatchActivityBody = {
@@ -74,6 +89,10 @@ type PatchActivityBody = {
   meetingOutcome?: unknown
   locationType?: unknown
   location?: unknown
+  googlePlaceId?: unknown
+  googleMapsUri?: unknown
+  locationLat?: unknown
+  locationLng?: unknown
   dealId?: unknown
 }
 
@@ -85,7 +104,7 @@ export async function PATCH(
   if ("response" in loaded) {
     return loaded.response
   }
-  const { leadId, activityId, existing } = loaded
+  const { leadId, activityId, existing, userId } = loaded
 
   let body: PatchActivityBody
   try {
@@ -108,6 +127,10 @@ export async function PATCH(
     meetingOutcome: cleanString(body.meetingOutcome),
     locationType: cleanString(body.locationType),
     location: cleanString(body.location),
+    googlePlaceId: cleanString(body.googlePlaceId),
+    googleMapsUri: cleanString(body.googleMapsUri),
+    locationLat: cleanString(body.locationLat),
+    locationLng: cleanString(body.locationLng),
     dealId: cleanString(body.dealId),
   })
   if (!validated.ok) {
@@ -126,7 +149,9 @@ export async function PATCH(
       UPDATE lead_activities
       SET deal_id = ?, activity_type = ?, activity_date = ?, remarks = ?,
           call_outcome = ?, call_direction = ?, meeting_outcome = ?,
-          location_type = ?, location = ?, updated_at = CURRENT_TIMESTAMP(3)
+          location_type = ?, location = ?,
+          google_place_id = ?, google_maps_uri = ?, location_lat = ?, location_lng = ?,
+          updated_at = CURRENT_TIMESTAMP(3)
       WHERE id = ? AND lead_id = ?
     `,
     [
@@ -139,16 +164,89 @@ export async function PATCH(
       v.meetingOutcome,
       v.locationType,
       v.location,
+      v.googlePlaceId,
+      v.googleMapsUri,
+      v.locationLat,
+      v.locationLng,
       activityId,
       leadId,
     ]
   )
 
+  // Cascade to the linked sales appointment (fail-open — the activity edit is
+  // already saved). Only still-Pending appointments are ever touched; the lib
+  // functions also re-check status inside the UPDATE itself.
+  const linkedAppointmentId = existing.sales_appointment_id
+    ? Number(existing.sales_appointment_id)
+    : null
+  let appointmentUpdated = false
+  let appointmentCanceled = false
+  let appointmentError: string | null = null
+
+  if (linkedAppointmentId && existing.sales_appointment_status === "Pending") {
+    const shouldCancel =
+      (existing.activity_type === "Meeting" && v.activityType !== "Meeting") ||
+      (v.meetingOutcome === "Canceled" && existing.meeting_outcome !== "Canceled")
+
+    // Compare parsed timestamps, not raw strings: existing.activity_date is a
+    // SQL datetime string (dateStrings pool) while v.activityDate is ISO.
+    const existingDateMs = existing.activity_date
+      ? (parseDate(existing.activity_date)?.valueOf() ?? null)
+      : null
+    const nextDate = v.activityDate ? parseDate(v.activityDate) : null
+    const meetingFieldsChanged =
+      v.activityType === "Meeting" &&
+      ((nextDate?.valueOf() ?? null) !== existingDateMs ||
+        v.locationType !== existing.location_type ||
+        v.location !== existing.location ||
+        v.googlePlaceId !== existing.google_place_id)
+
+    try {
+      if (shouldCancel) {
+        const result = await cancelSalesAppointment(pool, linkedAppointmentId, {
+          canceledByUserId: userId,
+          reason: "Meeting canceled from lead activity",
+        })
+        appointmentCanceled = result.status === "canceled"
+      } else if (meetingFieldsChanged) {
+        if (!nextDate) {
+          throw new Error("Activity has no valid meeting date")
+        }
+        const result = await updateSalesAppointmentFromActivity(
+          pool,
+          linkedAppointmentId,
+          {
+            scheduledAt: nextDate,
+            appointmentType: v.locationType === "Onsite" ? "Physical" : "Online",
+            meetingLocation: v.location,
+            googlePlaceId: v.googlePlaceId,
+            googleMapsUri: v.googleMapsUri,
+            locationLat: v.locationLat,
+            locationLng: v.locationLng,
+          }
+        )
+        appointmentUpdated = result.status === "updated"
+      }
+    } catch (error) {
+      console.error(
+        "Unable to cascade lead activity edit to sales appointment",
+        error
+      )
+      appointmentError =
+        "Activity saved, but the linked sales appointment could not be updated."
+    }
+  }
+
   const [rows] = await pool.query(
     `${activitySelectSql} WHERE lead_activities.id = ? LIMIT 1`,
     [activityId]
   )
-  return NextResponse.json({ activity: mapActivity((rows as ActivityRow[])[0]) })
+  return NextResponse.json({
+    activity: mapActivity((rows as ActivityRow[])[0]),
+    ...(linkedAppointmentId
+      ? { appointmentUpdated, appointmentCanceled, appointmentError }
+      : {}),
+  })
 }
 
 export async function DELETE(
@@ -159,12 +257,35 @@ export async function DELETE(
   if ("response" in loaded) {
     return loaded.response
   }
-  const { leadId, activityId } = loaded
+  const { leadId, activityId, existing, userId } = loaded
 
   const pool = getPool()
+
+  // Cancel a linked, still-Pending appointment before the row (and with it
+  // the link) disappears. Fail-open: a cancel failure never blocks the delete.
+  let appointmentCanceled = false
+  if (
+    existing.sales_appointment_id &&
+    existing.sales_appointment_status === "Pending"
+  ) {
+    try {
+      const result = await cancelSalesAppointment(
+        pool,
+        Number(existing.sales_appointment_id),
+        { canceledByUserId: userId, reason: "Meeting activity deleted" }
+      )
+      appointmentCanceled = result.status === "canceled"
+    } catch (error) {
+      console.error(
+        "Unable to cancel linked sales appointment on activity delete",
+        error
+      )
+    }
+  }
+
   await pool.query<ResultSetHeader>(
     `DELETE FROM lead_activities WHERE id = ? AND lead_id = ?`,
     [activityId, leadId]
   )
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, appointmentCanceled })
 }

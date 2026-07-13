@@ -14,6 +14,10 @@ import {
 } from "@/components/ui/dialog"
 import { format } from "date-fns"
 
+import {
+  GooglePlacePicker,
+  type GooglePlaceLocation,
+} from "@/components/google-place-picker"
 import { Checkbox } from "@/components/ui/checkbox"
 import { DateTimePicker } from "@/components/ui/date-time-picker"
 import { Field, FieldError, FieldLabel } from "@/components/ui/field"
@@ -42,6 +46,7 @@ const NO_DEAL_VALUE = "__none__"
 
 type ActivityDialogProps = {
   leadId: string
+  leadEmail?: string | null
   activity?: MappedActivity | null
   deals: MappedDeal[]
   open: boolean
@@ -71,6 +76,7 @@ function toUtcIso(dateValue: string, timeValue: string): string | null {
 
 export function ActivityDialog({
   leadId,
+  leadEmail,
   activity,
   deals,
   open,
@@ -88,7 +94,9 @@ export function ActivityDialog({
   const [meetingOutcome, setMeetingOutcome] = React.useState("")
   const [locationType, setLocationType] = React.useState("")
   const [location, setLocation] = React.useState("")
+  const [placeLocation, setPlaceLocation] = React.useState<GooglePlaceLocation | null>(null)
   const [createAppointment, setCreateAppointment] = React.useState(false)
+  const [participantEmails, setParticipantEmails] = React.useState("")
   const createAppointmentTouched = React.useRef(false)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [submitting, setSubmitting] = React.useState(false)
@@ -108,10 +116,23 @@ export function ActivityDialog({
     setMeetingOutcome(activity?.meetingOutcome ?? "")
     setLocationType(activity?.locationType ?? "")
     setLocation(activity?.location ?? "")
+    setPlaceLocation(
+      activity?.googlePlaceId
+        ? {
+            googlePlaceId: activity.googlePlaceId,
+            locationName: activity.location ?? "",
+            locationAddress: "",
+            googleMapsUri: activity.googleMapsUri,
+            locationLat: activity.locationLat,
+            locationLng: activity.locationLng,
+          }
+        : null
+    )
     setCreateAppointment(false)
+    setParticipantEmails(leadEmail ?? "")
     createAppointmentTouched.current = false
     setErrors({})
-  }, [open, activity])
+  }, [open, activity, leadEmail])
 
   const handleTypeChange = (next: ActivityType) => {
     setActivityType(next)
@@ -121,6 +142,7 @@ export function ActivityDialog({
     setMeetingOutcome("")
     setLocationType("")
     setLocation("")
+    setPlaceLocation(null)
     setCreateAppointment(false)
     createAppointmentTouched.current = false
   }
@@ -138,9 +160,13 @@ export function ActivityDialog({
   const showCall = activityType === "Call"
   const showMeeting = activityType === "Meeting"
   const showLocation = showMeeting && locationType === "Onsite"
-  // Appointments are only created alongside a new Meeting activity; edits
-  // never touch sales appointments.
+  // The create-appointment toggle only appears on new Meeting activities;
+  // edits flow through the persisted link (salesAppointmentId) instead.
   const showCreateAppointment = showMeeting && !activity
+  const showParticipantEmails =
+    showCreateAppointment && locationType === "Online" && createAppointment
+  const linkedAppointmentId = activity?.salesAppointmentId ?? null
+  const linkedAppointmentPending = activity?.salesAppointmentStatus === "Pending"
 
   const handleSubmit = async () => {
     const nextErrors: Record<string, string> = {}
@@ -188,14 +214,25 @@ export function ActivityDialog({
           meetingOutcome: showMeeting ? meetingOutcome : null,
           locationType: showMeeting ? locationType : null,
           location: showLocation ? location.trim() : null,
+          googlePlaceId: showLocation ? (placeLocation?.googlePlaceId ?? null) : null,
+          googleMapsUri: showLocation ? (placeLocation?.googleMapsUri ?? null) : null,
+          locationLat: showLocation
+            ? (placeLocation?.locationLat?.toString() ?? null)
+            : null,
+          locationLng: showLocation
+            ? (placeLocation?.locationLng?.toString() ?? null)
+            : null,
           dealId: dealId === NO_DEAL_VALUE ? null : dealId,
           createAppointment: showCreateAppointment ? createAppointment : false,
+          participantEmails: showParticipantEmails ? participantEmails : null,
         }),
       })
       const data = (await response.json()) as {
         activity?: MappedActivity
         appointmentId?: string | null
         appointmentError?: string | null
+        appointmentUpdated?: boolean
+        appointmentCanceled?: boolean
         error?: string
       }
       if (!response.ok || !data.activity) {
@@ -206,6 +243,10 @@ export function ActivityDialog({
         showToast(data.appointmentError, "error")
       } else if (data.appointmentId) {
         showToast("Activity logged and sales appointment created.")
+      } else if (data.appointmentCanceled) {
+        showToast("Activity updated and the linked sales appointment canceled.")
+      } else if (data.appointmentUpdated) {
+        showToast("Activity updated and the linked sales appointment updated.")
       } else {
         showToast(activity ? "Activity updated." : "Activity logged.")
       }
@@ -386,10 +427,14 @@ export function ActivityDialog({
               {showLocation ? (
                 <Field>
                   <FieldLabel htmlFor="activity-location">Location</FieldLabel>
-                  <Input
+                  <GooglePlacePicker
                     id="activity-location"
-                    value={location}
-                    onChange={(event) => setLocation(event.target.value)}
+                    value={placeLocation}
+                    query={location}
+                    onQueryChange={setLocation}
+                    onSelect={setPlaceLocation}
+                    onClear={() => setPlaceLocation(null)}
+                    allowFreeTextWhenDisabled
                   />
                   <FieldError
                     errors={errors.location ? [{ message: errors.location }] : undefined}
@@ -416,6 +461,30 @@ export function ActivityDialog({
                     </p>
                   </div>
                 </div>
+              ) : null}
+              {showParticipantEmails ? (
+                <Field>
+                  <FieldLabel htmlFor="activity-participant-emails">
+                    Participant emails
+                  </FieldLabel>
+                  <Input
+                    id="activity-participant-emails"
+                    value={participantEmails}
+                    onChange={(event) => setParticipantEmails(event.target.value)}
+                    placeholder="customer@example.com, partner@example.com"
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    Comma-separated. Participants receive the calendar invite
+                    with a Google Meet link.
+                  </p>
+                </Field>
+              ) : null}
+              {activity && linkedAppointmentId ? (
+                <p className="text-muted-foreground text-xs">
+                  {linkedAppointmentPending
+                    ? `Linked to sales appointment #${linkedAppointmentId}. Saving changes updates the appointment; setting the outcome to Canceled or changing the activity type cancels it.`
+                    : `Linked to a ${(activity.salesAppointmentStatus ?? "finalized").toLowerCase()} sales appointment; it will not be changed.`}
+                </p>
               ) : null}
             </>
           ) : null}

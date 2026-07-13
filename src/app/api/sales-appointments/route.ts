@@ -10,8 +10,10 @@ import {
   isAppointmentStatus,
   isAppointmentType,
   mapAppointment,
+  parseOptionalCoordinate,
   parseOptionalId,
   parseOptionalString,
+  parseParticipantEmails,
   resolveAuthUser,
   toSqlDateTime,
 } from "./helpers"
@@ -96,6 +98,11 @@ export async function POST(request: NextRequest) {
     businessType?: unknown
     businessLocation?: unknown
     meetingLocation?: unknown
+    googlePlaceId?: unknown
+    googleMapsUri?: unknown
+    locationLat?: unknown
+    locationLng?: unknown
+    participantEmails?: unknown
     appointmentType?: unknown
     scheduledAt?: unknown
   }
@@ -106,6 +113,11 @@ export async function POST(request: NextRequest) {
   const businessType = cleanString(body.businessType)
   const businessLocation = cleanString(body.businessLocation)
   const meetingLocation = cleanString(body.meetingLocation)
+  const googlePlaceId = cleanString(body.googlePlaceId)
+  const googleMapsUri = cleanString(body.googleMapsUri)
+  const locationLat = parseOptionalCoordinate(body.locationLat, 90)
+  const locationLng = parseOptionalCoordinate(body.locationLng, 180)
+  const participantEmails = parseParticipantEmails(body.participantEmails)
   const appointmentType = cleanString(body.appointmentType)
   const scheduledAtRaw = cleanString(body.scheduledAt)
 
@@ -172,6 +184,12 @@ export async function POST(request: NextRequest) {
     businessLocation,
     appointmentType,
     meetingLocation,
+    // Place fields are all-or-nothing keyed on the place id.
+    googlePlaceId,
+    googleMapsUri: googlePlaceId ? googleMapsUri : null,
+    locationLat: googlePlaceId ? locationLat : null,
+    locationLng: googlePlaceId ? locationLng : null,
+    participantEmails,
     scheduledAt,
     createdByUserId: auth.user.id,
   })

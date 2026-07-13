@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { requireAuthenticatedUser } from "@/lib/auth"
 import { hasPageAccessForPath } from "@/lib/page-access"
+import { splitParticipantEmails } from "@/lib/sales-appointments"
 
 export const SALES_APPOINTMENT_TYPES = ["Online", "Physical"] as const
 export const SALES_APPOINTMENT_STATUSES = [
@@ -31,6 +32,12 @@ export type AppointmentRow = RowDataPacket & {
   business_type: string
   business_location: string
   meeting_location: string | null
+  google_place_id: string | null
+  google_maps_uri: string | null
+  location_lat: string | null
+  location_lng: string | null
+  participant_emails: string | null
+  google_meet_link: string | null
   appointment_type: SalesAppointmentType
   scheduled_at: string
   status: SalesAppointmentStatus
@@ -46,6 +53,7 @@ export type AppointmentRow = RowDataPacket & {
   created_at: string
   updated_at: string
   created_by_name: string | null
+  created_by_email: string | null
   completed_by_name: string | null
   canceled_by_name: string | null
 }
@@ -59,6 +67,12 @@ export const appointmentSelectSql = `
     appointments.business_type,
     appointments.business_location,
     appointments.meeting_location,
+    appointments.google_place_id,
+    appointments.google_maps_uri,
+    appointments.location_lat,
+    appointments.location_lng,
+    appointments.participant_emails,
+    appointments.google_meet_link,
     appointments.appointment_type,
     appointments.scheduled_at,
     appointments.status,
@@ -74,6 +88,7 @@ export const appointmentSelectSql = `
     appointments.created_at,
     appointments.updated_at,
     created_by.name AS created_by_name,
+    created_by.email AS created_by_email,
     completed_by.name AS completed_by_name,
     canceled_by.name AS canceled_by_name
   FROM sales_appointments AS appointments
@@ -154,6 +169,28 @@ export function isAppointmentType(value: string): value is SalesAppointmentType 
   return (SALES_APPOINTMENT_TYPES as readonly string[]).includes(value)
 }
 
+function parseCoordinateValue(value: string | null) {
+  if (value === null) {
+    return null
+  }
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/** Accepts a number or numeric string; range-checked by the caller's bound. */
+export function parseOptionalCoordinate(value: unknown, bound: number) {
+  const raw =
+    typeof value === "number" ? value : cleanString(value) ?? undefined
+  if (raw === undefined) {
+    return null
+  }
+  const parsed = typeof raw === "number" ? raw : Number.parseFloat(raw)
+  if (!Number.isFinite(parsed) || Math.abs(parsed) > bound) {
+    return null
+  }
+  return parsed
+}
+
 export function isAppointmentStatus(
   value: string
 ): value is SalesAppointmentStatus {
@@ -187,11 +224,18 @@ export function mapAppointment(row: AppointmentRow, currentUser: AuthUser) {
     businessType: row.business_type,
     businessLocation: row.business_location,
     meetingLocation: row.meeting_location,
+    googlePlaceId: row.google_place_id,
+    googleMapsUri: row.google_maps_uri,
+    locationLat: parseCoordinateValue(row.location_lat),
+    locationLng: parseCoordinateValue(row.location_lng),
+    participantEmails: splitParticipantEmails(row.participant_emails),
+    googleMeetLink: row.google_meet_link,
     appointmentType: row.appointment_type,
     scheduledAt: row.scheduled_at,
     status: row.status,
     createdByUserId: String(row.created_by_user_id),
     createdByName: row.created_by_name,
+    createdByEmail: row.created_by_email,
     completedByUserId: row.completed_by_user_id
       ? String(row.completed_by_user_id)
       : null,
@@ -214,4 +258,8 @@ export function mapAppointment(row: AppointmentRow, currentUser: AuthUser) {
   }
 }
 
-export { toSqlDateTime } from "@/lib/sales-appointments"
+export {
+  parseParticipantEmails,
+  splitParticipantEmails,
+  toSqlDateTime,
+} from "@/lib/sales-appointments"

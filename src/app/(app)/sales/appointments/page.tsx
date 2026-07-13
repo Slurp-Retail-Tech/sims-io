@@ -40,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { GooglePlacePicker } from "@/components/google-place-picker"
 import { useToast } from "@/components/toast-provider"
 import { formatDateTime, parseDate } from "@/lib/dates"
 import { getSessionUser } from "@/lib/session"
@@ -55,6 +56,12 @@ type Appointment = {
   businessType: string
   businessLocation: string
   meetingLocation: string | null
+  googlePlaceId: string | null
+  googleMapsUri: string | null
+  locationLat: number | null
+  locationLng: number | null
+  participantEmails: string[]
+  googleMeetLink: string | null
   appointmentType: "Online" | "Physical"
   scheduledAt: string
   status: "Pending" | "Completed" | "Canceled"
@@ -93,6 +100,11 @@ type FormState = {
   businessType: string
   businessLocation: string
   meetingLocation: string
+  googlePlaceId: string
+  googleMapsUri: string
+  locationLat: number | null
+  locationLng: number | null
+  participantEmails: string
   appointmentType: "Online" | "Physical"
   scheduledDate: string
   scheduledTime: string
@@ -123,6 +135,11 @@ function getDefaultFormState(): FormState {
     businessType: "",
     businessLocation: "",
     meetingLocation: "",
+    googlePlaceId: "",
+    googleMapsUri: "",
+    locationLat: null,
+    locationLng: null,
+    participantEmails: "",
     appointmentType: "Online",
     scheduledDate: format(new Date(), "yyyy-MM-dd"),
     scheduledTime: timeOptions[0].value,
@@ -328,6 +345,12 @@ export default function SalesAppointmentsPage() {
       businessType: lead.businessType,
       businessLocation: lead.businessLocation,
       meetingLocation: "",
+      googlePlaceId: "",
+      googleMapsUri: "",
+      locationLat: null,
+      locationLng: null,
+      // Prefill the Meet invite with the lead's email when available.
+      participantEmails: lead.email ?? "",
     }))
     setSelectedLeadLabel(`${lead.name} • ${lead.businessName}`)
   }, [])
@@ -341,6 +364,11 @@ export default function SalesAppointmentsPage() {
       businessType: appointment.businessType,
       businessLocation: appointment.businessLocation,
       meetingLocation: appointment.meetingLocation ?? "",
+      googlePlaceId: appointment.googlePlaceId ?? "",
+      googleMapsUri: appointment.googleMapsUri ?? "",
+      locationLat: appointment.locationLat,
+      locationLng: appointment.locationLng,
+      participantEmails: appointment.participantEmails.join(", "),
       appointmentType: appointment.appointmentType,
       scheduledDate: getLocalDatePart(appointment.scheduledAt),
       scheduledTime: normalizeTimeOption(getLocalTimePart(appointment.scheduledAt)),
@@ -395,6 +423,26 @@ export default function SalesAppointmentsPage() {
             meetingLocation:
               formState.appointmentType === "Physical"
                 ? formState.meetingLocation.trim()
+                : null,
+            googlePlaceId:
+              formState.appointmentType === "Physical"
+                ? formState.googlePlaceId || null
+                : null,
+            googleMapsUri:
+              formState.appointmentType === "Physical"
+                ? formState.googleMapsUri || null
+                : null,
+            locationLat:
+              formState.appointmentType === "Physical"
+                ? formState.locationLat
+                : null,
+            locationLng:
+              formState.appointmentType === "Physical"
+                ? formState.locationLng
+                : null,
+            participantEmails:
+              formState.appointmentType === "Online"
+                ? formState.participantEmails
                 : null,
             appointmentType: formState.appointmentType,
             scheduledAt,
@@ -695,10 +743,46 @@ export default function SalesAppointmentsPage() {
                             Meeting location
                           </div>
                           <div className="font-medium">
-                            {appointment.meetingLocation ?? "--"}
+                            {appointment.googleMapsUri ? (
+                              <a
+                                href={appointment.googleMapsUri}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-primary underline-offset-2 hover:underline"
+                              >
+                                {appointment.meetingLocation ?? "--"}
+                              </a>
+                            ) : (
+                              (appointment.meetingLocation ?? "--")
+                            )}
                           </div>
                         </div>
-                      ) : null}
+                      ) : (
+                        <div>
+                          <div className="text-muted-foreground text-xs uppercase tracking-wide">
+                            Google Meet
+                          </div>
+                          <div className="font-medium">
+                            {appointment.googleMeetLink ? (
+                              <a
+                                href={appointment.googleMeetLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-primary underline-offset-2 hover:underline"
+                              >
+                                Join meeting
+                              </a>
+                            ) : (
+                              "--"
+                            )}
+                          </div>
+                          {appointment.participantEmails.length > 0 ? (
+                            <div className="text-muted-foreground mt-1 text-xs">
+                              Invited: {appointment.participantEmails.join(", ")}
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
                       <div>
                         <div className="text-muted-foreground text-xs uppercase tracking-wide">
                           Submitter
@@ -935,6 +1019,16 @@ export default function SalesAppointmentsPage() {
                       appointmentType: value as FormState["appointmentType"],
                       meetingLocation:
                         value === "Physical" ? current.meetingLocation : "",
+                      googlePlaceId:
+                        value === "Physical" ? current.googlePlaceId : "",
+                      googleMapsUri:
+                        value === "Physical" ? current.googleMapsUri : "",
+                      locationLat:
+                        value === "Physical" ? current.locationLat : null,
+                      locationLng:
+                        value === "Physical" ? current.locationLng : null,
+                      participantEmails:
+                        value === "Online" ? current.participantEmails : "",
                     }))
                   }
                 >
@@ -951,25 +1045,74 @@ export default function SalesAppointmentsPage() {
                 </Select>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="meeting-location">Meeting location</Label>
-                <Input
-                  id="meeting-location"
-                  value={formState.meetingLocation}
-                  onChange={(event) =>
-                    setFormState((current) => ({
-                      ...current,
-                      meetingLocation: event.target.value,
-                    }))
-                  }
-                  placeholder={
-                    formState.appointmentType === "Physical"
-                      ? "Enter meeting location"
-                      : "Meeting location is only required for physical appointments"
-                  }
-                  disabled={formState.appointmentType !== "Physical"}
-                />
-              </div>
+              {formState.appointmentType === "Physical" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="meeting-location">Meeting location</Label>
+                  <GooglePlacePicker
+                    id="meeting-location"
+                    value={
+                      formState.googlePlaceId
+                        ? {
+                            googlePlaceId: formState.googlePlaceId,
+                            locationName: formState.meetingLocation,
+                            locationAddress: "",
+                            googleMapsUri: formState.googleMapsUri || null,
+                            locationLat: formState.locationLat,
+                            locationLng: formState.locationLng,
+                          }
+                        : null
+                    }
+                    query={formState.meetingLocation}
+                    onQueryChange={(query) =>
+                      setFormState((current) => ({
+                        ...current,
+                        meetingLocation: query,
+                      }))
+                    }
+                    onSelect={(location) =>
+                      setFormState((current) => ({
+                        ...current,
+                        meetingLocation: `${location.locationName}, ${location.locationAddress}`,
+                        googlePlaceId: location.googlePlaceId,
+                        googleMapsUri: location.googleMapsUri ?? "",
+                        locationLat: location.locationLat,
+                        locationLng: location.locationLng,
+                      }))
+                    }
+                    onClear={() =>
+                      setFormState((current) => ({
+                        ...current,
+                        meetingLocation: "",
+                        googlePlaceId: "",
+                        googleMapsUri: "",
+                        locationLat: null,
+                        locationLng: null,
+                      }))
+                    }
+                    allowFreeTextWhenDisabled
+                    placeholder="Search or enter meeting location"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="participant-emails">Participant emails</Label>
+                  <Input
+                    id="participant-emails"
+                    value={formState.participantEmails}
+                    onChange={(event) =>
+                      setFormState((current) => ({
+                        ...current,
+                        participantEmails: event.target.value,
+                      }))
+                    }
+                    placeholder="customer@example.com, partner@example.com"
+                  />
+                  <p className="text-muted-foreground text-xs">
+                    Comma-separated. Participants receive the calendar invite
+                    with a Google Meet link.
+                  </p>
+                </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="scheduled-date">Date</Label>

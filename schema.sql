@@ -259,6 +259,12 @@ CREATE TABLE IF NOT EXISTS sales_appointments (
   business_type VARCHAR(255) NOT NULL,
   business_location VARCHAR(255) NOT NULL,
   meeting_location VARCHAR(255) DEFAULT NULL,
+  google_place_id VARCHAR(255) DEFAULT NULL,
+  google_maps_uri VARCHAR(512) DEFAULT NULL,
+  location_lat DECIMAL(10, 7) DEFAULT NULL,
+  location_lng DECIMAL(10, 7) DEFAULT NULL,
+  participant_emails VARCHAR(512) DEFAULT NULL,
+  google_meet_link VARCHAR(512) DEFAULT NULL,
   appointment_type ENUM('Online', 'Physical') NOT NULL,
   scheduled_at DATETIME(3) NOT NULL,
   status ENUM('Pending', 'Completed', 'Canceled') NOT NULL DEFAULT 'Pending',
@@ -478,6 +484,7 @@ CREATE TABLE IF NOT EXISTS lead_activities (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   lead_id BIGINT UNSIGNED NOT NULL,
   deal_id BIGINT UNSIGNED DEFAULT NULL,
+  sales_appointment_id BIGINT UNSIGNED DEFAULT NULL,
   activity_type ENUM(
     'Note',
     'Email',
@@ -506,6 +513,10 @@ CREATE TABLE IF NOT EXISTS lead_activities (
   ) DEFAULT NULL,
   location_type ENUM('Online', 'Onsite') DEFAULT NULL,
   location VARCHAR(255) DEFAULT NULL,
+  google_place_id VARCHAR(255) DEFAULT NULL,
+  google_maps_uri VARCHAR(512) DEFAULT NULL,
+  location_lat DECIMAL(10, 7) DEFAULT NULL,
+  location_lng DECIMAL(10, 7) DEFAULT NULL,
   created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) DEFAULT NULL,
@@ -513,10 +524,13 @@ CREATE TABLE IF NOT EXISTS lead_activities (
     FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE,
   CONSTRAINT fk_lead_activities_deal_id
     FOREIGN KEY (deal_id) REFERENCES deals(id) ON DELETE SET NULL,
+  CONSTRAINT fk_lead_activities_sales_appointment_id
+    FOREIGN KEY (sales_appointment_id) REFERENCES sales_appointments(id) ON DELETE SET NULL,
   CONSTRAINT fk_lead_activities_created_by
     FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
   INDEX lead_activities_lead_idx (lead_id, created_at),
   INDEX lead_activities_deal_idx (deal_id),
+  INDEX lead_activities_sales_appointment_idx (sales_appointment_id),
   INDEX lead_activities_type_idx (lead_id, activity_type, created_at)
 );
 
