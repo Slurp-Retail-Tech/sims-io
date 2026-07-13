@@ -22,14 +22,15 @@ The long-term product vision in `docs/PRD.md` and `docs/TDD.md` is broader than 
 - MinIO via AWS S3 SDK
 - ClickUp API integration
 - POS API integration
+- Google Workspace integrations (SSO, Calendar sync with Meet invites, Places lookup, SMTP)
 - Nodemailer for email delivery
 - Mapbox GL for map views
 
 ## Current Product Areas
 
-- Merchant Success — tickets, ticket history, SLA breaches, CSAT insights, audit trail, ticket categories, ClickUp task sync, onboarding appointments and schedule, analytics
+- Merchant Success — tickets, ticket history, SLA breaches, CSAT insights, audit trail, ticket categories, ClickUp task sync, onboarding appointments and schedule (Google Calendar sync, Google Maps locations), analytics
 - Merchant directory, POS import, and PLUS merchant workflows
-- Sales — leads, appointments, overview, and analytics
+- Sales — leads (assignment, deals, activity logging), appointments with Google Calendar sync, invites, and Google Meet links, overview, and analytics. Lead Meeting activities can create linked sales appointments that stay in sync on edit, cancel, and delete
 - Renewal & Retention — renewal due tracking and analytics overview
 - User management, activation, reset-password, and Google Workspace SSO
 - Public support and demo forms
@@ -41,7 +42,7 @@ The long-term product vision in `docs/PRD.md` and `docs/TDD.md` is broader than 
 - Some dashboards are still UI previews or placeholder analytics.
 - Renewal & Retention overview currently shows sample data only and is not live reporting.
 - External messaging-channel integration from the PRD/TDD is not implemented in this app.
-- Automated test coverage is minimal and currently focused on shared timezone helpers.
+- Automated test coverage is focused on shared library helpers (`npm test` runs an explicit allowlist in `package.json`, not auto-discovery); route handlers and UI are largely untested.
 
 ## Getting Started
 
@@ -222,6 +223,29 @@ After deployment, verify:
 - onboarding schedule submission, approval, and completion notifications
 - demo form lead notification delivery
 
+## Google Calendar & Meet Setup
+
+Calendar sync covers two features, both gated on `GOOGLE_CALENDAR_ENABLED=true`:
+
+- **Onboarding appointments** → `GOOGLE_CALENDAR_ID`
+- **Sales appointments** → `GOOGLE_CALENDAR_SALES_ID`, falling back to `GOOGLE_CALENDAR_ID` when unset
+
+Setup:
+
+1. Create (or choose) the target calendar(s) and note their calendar IDs.
+2. Configure `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET` for an OAuth client with the Calendar API enabled.
+3. Run the one-time helper flow at `/api/google-calendar/oauth/start` with the Google account that should own the events, and store the resulting `GOOGLE_CALENDAR_REFRESH_TOKEN`.
+4. The authorizing account must have **"Make changes and manage sharing"** access on the target calendars — sales events add attendees (invite emails via `sendUpdates=all`) and create Google Meet conferences, which fail without it.
+
+Behavior notes:
+
+- Events are updated in place — canceling or completing an appointment rewrites the event description rather than deleting the event.
+- Sales events invite the appointment creator; Online sales appointments also invite the entered participant emails and auto-create a Google Meet link (stored and shown in SIMS).
+- Sync is fail-open: calendar failures are recorded on the appointment row (`google_sync_status`, `google_sync_error`) and never block the API.
+- Events created in SIMS show the authorizing account as the organizer; the SIMS user who created the appointment appears in the event description and as an attendee.
+
+`GOOGLE_PLACES_ENABLED=true` (with `GOOGLE_PLACES_API_KEY`) additionally enables the Google Maps location picker used by onboarding scheduling, lead Meeting activities, and sales appointments. When disabled, sales locations fall back to free text.
+
 ## Database (Docker)
 
 Start MySQL and phpMyAdmin with Docker:
@@ -302,8 +326,8 @@ The app deploys via Coolify from GitHub using the `Dockerfile` at the repo root.
 
 **NEXT_PUBLIC_* vars** must be marked as "Build Variables" in Coolify's env editor so they are passed as Docker build args and baked into the JS bundle.
 
-**Database migrations** must be run manually before deploying schema changes:
+**Database migrations** must be run manually before deploying schema changes — apply any pending files from `migrations/` in numeric order:
 ```bash
-mysql -u user -p dbname < migrations/001_security_remediation.sql
+mysql -u user -p dbname < migrations/019_activity_appointment_link_and_places.sql
 ```
-Migration scripts are in `migrations/` and are idempotent — safe to run twice.
+Track which migrations have been applied per environment — most are plain `ALTER TABLE` statements and will error (harmlessly) if re-run against an already-migrated schema.
