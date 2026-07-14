@@ -30,6 +30,10 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { TimeSelect } from "@/components/ui/time-select"
+import {
+  BUSINESS_HOURS_END_HOUR,
+  BUSINESS_HOURS_START_HOUR,
+} from "@/lib/business-hours"
 import { parseDate } from "@/lib/dates"
 import type { MappedDeal } from "@/lib/deals"
 import {
@@ -329,6 +333,8 @@ export function ActivityDialog({
                   value={activityTime}
                   onChange={setActivityTime}
                   placeholder="Select time"
+                  startHour={showMeeting ? BUSINESS_HOURS_START_HOUR : undefined}
+                  endHour={showMeeting ? BUSINESS_HOURS_END_HOUR : undefined}
                 />
                 <FieldError
                   errors={errors.activityTime ? [{ message: errors.activityTime }] : undefined}

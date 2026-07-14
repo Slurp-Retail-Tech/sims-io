@@ -42,6 +42,10 @@ import {
 } from "@/components/ui/select"
 import { GooglePlacePicker } from "@/components/google-place-picker"
 import { useToast } from "@/components/toast-provider"
+import {
+  BUSINESS_HOURS_END_HOUR,
+  BUSINESS_HOURS_START_HOUR,
+} from "@/lib/business-hours"
 import { formatDateTime, parseDate } from "@/lib/dates"
 import { getSessionUser } from "@/lib/session"
 import { cn } from "@/lib/utils"
@@ -112,8 +116,11 @@ type FormState = {
 
 const appointmentTypeOptions = ["Online", "Physical"] as const
 
-const timeOptions = Array.from({ length: 19 }, (_, index) => {
-  const totalMinutes = 8 * 60 + index * 30
+// 30-minute slots from 8:00 AM through 9:00 PM (inclusive).
+const timeSlotCount =
+  ((BUSINESS_HOURS_END_HOUR - BUSINESS_HOURS_START_HOUR) * 60) / 30 + 1
+const timeOptions = Array.from({ length: timeSlotCount }, (_, index) => {
+  const totalMinutes = BUSINESS_HOURS_START_HOUR * 60 + index * 30
   const hours = Math.floor(totalMinutes / 60)
   const minutes = totalMinutes % 60
   const value = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`

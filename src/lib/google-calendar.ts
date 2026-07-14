@@ -367,9 +367,6 @@ function mapOnboardingCalendarEventInput(
   if (appointment.decisionReason) {
     descriptionLines.push(`Decision notes: ${appointment.decisionReason}`)
   }
-  if (appointment.googleMapsUri) {
-    descriptionLines.push(`Google Maps: ${appointment.googleMapsUri}`)
-  }
 
   return {
     appointmentId: appointment.id,
@@ -408,9 +405,6 @@ function mapSalesCalendarEventInput(
   }
   if (appointment.completionNote) {
     descriptionLines.push(`Completion note: ${appointment.completionNote}`)
-  }
-  if (appointment.googleMapsUri) {
-    descriptionLines.push(`Google Maps: ${appointment.googleMapsUri}`)
   }
 
   // Creator first, then any invited participants (Online meetings).
