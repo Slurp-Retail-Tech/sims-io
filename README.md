@@ -190,6 +190,10 @@ NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=
 # ── CSAT Google Review trigger ───────────────────────────────────────────────
 # Company-wide Google review URL shown after a satisfied CSAT submission.
 CSAT_GOOGLE_REVIEW_URL=
+
+# ── Iframe embedding for public forms ────────────────────────────────────────
+# Comma-separated origins allowed to embed /demoform and /supportform.
+EMBED_ALLOWED_ORIGINS=
 ```
 
 Notes:
@@ -208,6 +212,7 @@ Notes:
 - `NEXT_PUBLIC_RECAPTCHA_SITE_KEY`, `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN`, `NEXT_PUBLIC_GTM_ID`, and `NEXT_PUBLIC_META_PIXEL_ID` are baked into the JS bundle at build time; changing them requires a full redeploy, not just a container restart
 - `RECAPTCHA_SECRET_KEY` — reCAPTCHA enforcement is fail-closed in production; the demo form POST returns 500 if this is missing
 - `CSAT_GOOGLE_REVIEW_URL` — company-wide Google review link for Slurp Retail Tech Sdn Bhd; shown after a CSAT submission only when the Support Service rating is Satisfied/Very Satisfied. Leave blank to disable the review prompt entirely
+- `EMBED_ALLOWED_ORIGINS` — comma-separated list of origins permitted to embed the public forms (`/demoform`, `/supportform`) in an iframe, applied via the CSP `frame-ancestors` directive (e.g. `https://www.getslurp.com,https://partner.example.com`). Leave blank to disable embedding — the forms then keep `X-Frame-Options: DENY` like every other route
 
 ## Google Workspace SMTP Setup
 
