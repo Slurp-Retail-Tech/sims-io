@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { httpFetch } from "@/lib/http"
 import type { ResultSetHeader } from "mysql2/promise"
 import { serverError } from "@/lib/api-errors"
 
@@ -92,12 +93,38 @@ async function uploadRequestAttachmentsToClickUp(input: {
 
     try {
       const url = new URL(resolvedUrl)
-      const fileResponse = await fetch(url)
+      const fileResponse = await httpFetch(url, {
+        label: "clickupReview.downloadAttachment",
+        timeoutMs: ATTACHMENT_FETCH_TIMEOUT_MS,
+        attempts: 2,
+      })
       if (!fileResponse.ok) {
         throw new Error(`Unable to fetch file (${fileResponse.status})`)
       }
 
+      // Bound the download before buffering it: .blob() reads the whole body
+      // into memory, so without a ceiling an oversized (or hostile) attachment
+      // is an availability problem for the whole process.
+      const declaredLength = Number(
+        fileResponse.headers.get("content-length") ?? Number.NaN
+      )
+      if (
+        Number.isFinite(declaredLength) &&
+        declaredLength > MAX_ATTACHMENT_BYTES
+      ) {
+        throw new Error(
+          `Attachment is too large (${declaredLength} bytes; limit ${MAX_ATTACHMENT_BYTES}).`
+        )
+      }
+
       const blob = await fileResponse.blob()
+      // A missing or lying Content-Length is why this is re-checked after the
+      // read rather than trusted from the header alone.
+      if (blob.size > MAX_ATTACHMENT_BYTES) {
+        throw new Error(
+          `Attachment is too large (${blob.size} bytes; limit ${MAX_ATTACHMENT_BYTES}).`
+        )
+      }
       const filename =
         resolveFilenameFromContentDisposition(
           fileResponse.headers.get("content-disposition")
@@ -308,6 +335,16 @@ function buildClickUpDescription(item: {
     item.task_description,
   ].join("\n")
 }
+
+/** Attachment downloads carry file bodies, so they get a longer budget. */
+const ATTACHMENT_FETCH_TIMEOUT_MS = 20_000
+
+/**
+ * Matches MAX_UPLOAD_SIZE in src/app/api/uploads/route.ts. These attachments
+ * originally arrived through that route, so nothing larger should exist; the
+ * check guards against a re-hosted or substituted URL, not normal traffic.
+ */
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 export async function POST(
   request: NextRequest,

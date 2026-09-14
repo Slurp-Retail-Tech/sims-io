@@ -1,3 +1,5 @@
+import { withSentryConfig } from "@sentry/nextjs";
+
 import type { NextConfig } from "next";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -112,4 +114,19 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+/**
+ * The Sentry build plugin (source-map upload, release tagging) is applied ONLY
+ * when an auth token is present. Anyone without a Sentry account builds exactly
+ * what they built before this was added.
+ */
+export default process.env.SENTRY_AUTH_TOKEN
+  ? withSentryConfig(nextConfig, {
+      org: process.env.SENTRY_ORG,
+      project: process.env.SENTRY_PROJECT,
+      authToken: process.env.SENTRY_AUTH_TOKEN,
+      silent: true,
+      // Source maps are uploaded to Sentry, then deleted from the build so
+      // they are never served to browsers.
+      sourcemaps: { deleteSourcemapsAfterUpload: true },
+    })
+  : nextConfig;

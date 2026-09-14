@@ -387,4 +387,22 @@ from the ticket row alone — reconcile it against `merchant_outlets` first.
 
 Track which migrations have been applied per environment — most are plain `ALTER TABLE` statements and will error (harmlessly) if re-run against an already-migrated schema. The Project Tracker migrations (020–023) are `CREATE TABLE IF NOT EXISTS` and are safe to re-run, but **must** be applied in order: 021 depends on 020, and 022/023 depend on the composite unique key created in 021.
 
-Note the deliberate signedness split in these files: `schema.sql` declares ids as `BIGINT UNSIGNED` (self-consistent for a fresh import), while the numbered migrations use signed `BIGINT` to match the deployed `users.id`, which drifted to signed. MySQL requires foreign-key columns to match the referenced column's signedness exactly — see the header note in `migrations/011_leads_assignment_deals_activities.sql`.
+**Signedness is now reconciled.** `schema.sql` previously declared every id as
+`BIGINT UNSIGNED` while the deployed database had drifted to signed, so the
+numbered migrations used signed `BIGINT` to match production and the two
+disagreed. A production survey on 2026-08-29
+(`audit/evidence/prod-bigint-signedness-2026-08-29.json`) established the real
+picture: **57 of 70 id columns are signed in production, and 13 are genuinely
+unsigned** — the older tables (`merchants`, `merchant_outlets`, `sessions.id`,
+`auth_tokens.id`, `ticket_categories`, `sales_appointments.id`,
+`onboarding_appointments.id`) kept unsigned ids, while every `*_user_id` column
+became signed to match `users.id`. `schema.sql` now matches column for column,
+so a fresh import and production have the same shape. MySQL still requires
+foreign-key columns to match the referenced column's signedness exactly — see
+the header note in `migrations/011_leads_assignment_deals_activities.sql`.
+
+CI runs the migration job against **two** shapes: `fresh` loads `schema.sql`,
+and `production` loads `migrations/fixtures/prod-shape-025.sql`. Before this,
+CI loaded only `schema.sql` and so exercised a database that existed nowhere.
+The fixture is deliberately editable (it is excluded from the append-only guard)
+because it must track production as production changes.

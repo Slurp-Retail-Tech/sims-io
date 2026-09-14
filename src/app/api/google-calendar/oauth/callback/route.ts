@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { httpFetch } from "@/lib/http"
 import { escapeHtml } from "@/lib/html"
 
 import { requireAuthenticatedUser } from "@/lib/auth"
@@ -100,7 +101,10 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+  // Never retried: an authorization code is single-use.
+  const tokenResponse = await httpFetch("https://oauth2.googleapis.com/token", {
+    label: "googleCalendarOauth.exchangeCode",
+    timeoutMs: 10_000,
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({

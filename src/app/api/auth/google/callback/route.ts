@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { httpFetch } from "@/lib/http"
 
 import { queryWithReconnect } from "@/lib/db"
 import {
@@ -62,7 +63,10 @@ export async function GET(request: NextRequest) {
     return response
   }
 
-  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+  // Never retried: an authorization code is single-use.
+  const tokenResponse = await httpFetch("https://oauth2.googleapis.com/token", {
+    label: "googleSso.exchangeCode",
+    timeoutMs: 10_000,
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -84,7 +88,9 @@ export async function GET(request: NextRequest) {
     return redirectToLogin(request, "sso_failed")
   }
 
-  const userInfoResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+  const userInfoResponse = await httpFetch("https://openidconnect.googleapis.com/v1/userinfo", {
+    label: "googleSso.userInfo",
+    timeoutMs: 10_000,
     headers: { Authorization: `Bearer ${tokenPayload.access_token}` },
     cache: "no-store",
   })

@@ -76,6 +76,8 @@ export function resolveCsatAutoSendDecision(
  */
 import { buildCsatMessage } from "./csat-message.ts"
 
+import { httpFetch } from "./http.ts"
+
 export { buildCsatMessage }
 
 export type CsatDispatchResult =
@@ -131,8 +133,13 @@ export async function dispatchCsatLink(
   }
 
   try {
-    const response = await fetch(config.url, {
+    // Not retried: the payload carries an idempotencyKey for n8n, but a resend
+    // still risks a duplicate WhatsApp message to a merchant if n8n's own
+    // dedupe window has passed. One attempt, reported honestly.
+    const response = await httpFetch(config.url, {
       method: "POST",
+      label: "respondioCsat.dispatch",
+      timeoutMs: DISPATCH_TIMEOUT_MS,
       headers,
       body: JSON.stringify({
         event: "csat_link_send",
@@ -145,7 +152,6 @@ export async function dispatchCsatLink(
         message: buildCsatMessage(params.csatUrl),
         idempotencyKey: `csat:${params.ticketId}:${params.csatUrl}`,
       }),
-      signal: AbortSignal.timeout(DISPATCH_TIMEOUT_MS),
       cache: "no-store",
     })
 

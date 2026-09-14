@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 
+import { httpFetch } from "./http.ts"
 import { normalizeWhatsappNumber } from "./whatsapp.ts"
 
 /**
@@ -157,14 +158,15 @@ export async function sendLeadConversion(
     accessToken
   )}`
 
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 5000)
   try {
-    const response = await fetch(url, {
+    // Not retried: the browser pixel already fires this event and the two are
+    // deduplicated by a shared event_id, so a resend risks double-counting.
+    const response = await httpFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: controller.signal,
+      label: "metaCapi.leadEvent",
+      timeoutMs: 5_000,
     })
     if (!response.ok) {
       const text = await response.text().catch(() => "")
@@ -175,7 +177,5 @@ export async function sendLeadConversion(
   } catch (error) {
     console.error("Meta CAPI Lead event error", error)
     return { sent: false, reason: "error" }
-  } finally {
-    clearTimeout(timeout)
   }
 }

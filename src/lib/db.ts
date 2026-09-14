@@ -1,4 +1,5 @@
 import mysql from "mysql2/promise"
+import type { ResultSetHeader, RowDataPacket } from "mysql2/promise"
 
 declare global {
   var __mysqlPool__: mysql.Pool | undefined
@@ -130,5 +131,69 @@ export async function queryWithReconnect<T = unknown>(
       T,
       mysql.FieldPacket[],
     ]
+  }
+}
+
+/**
+ * The minimum surface both `Pool` and `PoolConnection` satisfy.
+ *
+ * Helpers that may run either standalone or inside a transaction take this
+ * rather than `Pool | PoolConnection`: the union of two overloaded `query`
+ * methods is painful to call through, whereas a structural type lets an
+ * existing `pool` call site keep compiling untouched.
+ */
+export type Queryable = {
+  query<T extends RowDataPacket[] | RowDataPacket[][] | ResultSetHeader>(
+    sql: string,
+    values?: unknown[]
+  ): Promise<[T, mysql.FieldPacket[]]>
+}
+
+/**
+ * Run `work` inside a single transaction on one pinned connection.
+ *
+ * Acquisition retries once on a retryable connection error, reusing the same
+ * `resetPool()` path as `queryWithReconnect`. Once `work` has started there is
+ * deliberately NO retry: a retryable error mid-transaction means the
+ * transaction is already dead, and silently reconnecting would run the
+ * remaining statements outside it. Retry belongs at the whole-transaction
+ * level, which is the caller's business.
+ *
+ * For the same reason `queryWithReconnect` must never be called from inside
+ * `work` — it goes to `getPool().query`, i.e. a different connection under
+ * autocommit. Use the `connection` passed in.
+ */
+export async function withTransaction<T>(
+  work: (connection: mysql.PoolConnection) => Promise<T>,
+  pool: mysql.Pool = getPool()
+): Promise<T> {
+  let connection: mysql.PoolConnection
+  try {
+    connection = await pool.getConnection()
+    await connection.beginTransaction()
+  } catch (error) {
+    if (!isRetryableConnectionError(error)) {
+      throw error
+    }
+    await resetPool()
+    connection = await getPool().getConnection()
+    await connection.beginTransaction()
+  }
+
+  try {
+    const result = await work(connection)
+    await connection.commit()
+    return result
+  } catch (error) {
+    // Rollback failures must never replace the error that caused them —
+    // a dead connection would otherwise erase the real cause.
+    try {
+      await connection.rollback()
+    } catch {
+      // Ignore; the original error is the one worth propagating.
+    }
+    throw error
+  } finally {
+    connection.release()
   }
 }

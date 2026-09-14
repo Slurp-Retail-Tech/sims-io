@@ -1,6 +1,7 @@
 import type { Pool } from "mysql2/promise"
 
 import { APP_TIME_ZONE } from "./app-timezone.ts"
+import { httpFetch } from "./http.ts"
 
 export type GoogleCalendarConfig =
   | { enabled: false }
@@ -253,7 +254,11 @@ export async function getGoogleCalendarAccessToken(
     return cachedOAuthAccessToken.accessToken
   }
 
-  const response = await fetch(GOOGLE_OAUTH_TOKEN_URL, {
+  // Not retried: a refresh either succeeds or the credential is bad, and the
+  // caller re-enters here on the next sync anyway.
+  const response = await httpFetch(GOOGLE_OAUTH_TOKEN_URL, {
+    label: "googleCalendar.refreshToken",
+    timeoutMs: 10_000,
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -604,7 +609,11 @@ async function syncAppointmentToGoogleCalendar(
           )}/events`
     }?${queryParams.toString()}`
 
-    const response = await fetch(endpoint, {
+    // Not retried: this creates or patches a calendar event, and a duplicate
+    // event is worse than a failed sync the caller already reports.
+    const response = await httpFetch(endpoint, {
+      label: "googleCalendar.syncEvent",
+      timeoutMs: 15_000,
       method,
       headers: {
         Authorization: `Bearer ${accessToken}`,

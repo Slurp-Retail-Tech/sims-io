@@ -1,3 +1,5 @@
+import { httpFetch } from "./http.ts"
+
 export type ClickUpTaskSnapshot = {
   taskId: string
   taskUrl: string | null
@@ -92,6 +94,12 @@ function getErrorMessage(payload: unknown) {
   return typeof message === "string" && message.trim() ? message.trim() : null
 }
 
+/** Ceiling for ordinary ClickUp API calls. */
+const CLICKUP_TIMEOUT_MS = 10_000
+
+/** Attachment uploads carry a file body, so they get a longer budget. */
+const CLICKUP_UPLOAD_TIMEOUT_MS = 20_000
+
 function getHeaders() {
   return {
     Authorization: resolveClickUpToken(),
@@ -126,9 +134,11 @@ export async function createClickUpTask(input: {
   const listId = resolveClickUpListId()
   const endpoint = `${resolveClickUpApiBaseUrl()}/list/${encodeURIComponent(listId)}/task`
 
-  const response = await fetch(endpoint, {
+  const response = await httpFetch(endpoint, {
     method: "POST",
     headers: getHeaders(),
+    label: "clickup.createTask",
+    timeoutMs: CLICKUP_TIMEOUT_MS,
     body: JSON.stringify({
       name: input.name,
       description: input.description,
@@ -171,10 +181,12 @@ export async function uploadClickUpTaskAttachment(input: {
   const formData = new FormData()
   formData.append("attachment", input.file, input.filename)
 
-  const response = await fetch(endpoint, {
+  const response = await httpFetch(endpoint, {
     method: "POST",
     headers: getAuthHeaders(),
     body: formData,
+    label: "clickup.uploadAttachment",
+    timeoutMs: CLICKUP_UPLOAD_TIMEOUT_MS,
   })
 
   const payload = await parseResponse(response)
@@ -192,9 +204,14 @@ export async function fetchClickUpTask(taskId: string) {
   }
 
   const endpoint = `${resolveClickUpApiBaseUrl()}/task/${encodeURIComponent(normalizedTaskId)}`
-  const response = await fetch(endpoint, {
+  // Retried: this runs once per ticket inside the sync loop, where one blip
+  // would otherwise drop that ticket from the whole run.
+  const response = await httpFetch(endpoint, {
     method: "GET",
     headers: getHeaders(),
+    label: "clickup.fetchTask",
+    timeoutMs: CLICKUP_TIMEOUT_MS,
+    attempts: 3,
   })
   const payload = await parseResponse(response)
   if (!response.ok) {
@@ -214,9 +231,12 @@ export async function fetchClickUpTask(taskId: string) {
 export async function fetchClickUpListFields() {
   const listId = resolveClickUpListId()
   const endpoint = `${resolveClickUpApiBaseUrl()}/list/${encodeURIComponent(listId)}/field`
-  const response = await fetch(endpoint, {
+  const response = await httpFetch(endpoint, {
     method: "GET",
     headers: getHeaders(),
+    label: "clickup.fetchListFields",
+    timeoutMs: CLICKUP_TIMEOUT_MS,
+    attempts: 3,
   })
 
   const payload = await parseResponse(response)

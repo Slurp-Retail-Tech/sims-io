@@ -1,3 +1,4 @@
+import { createLogger } from "./logger.ts"
 import {
   incrementRateLimitKey,
   RateLimitStoreUnavailableError,
@@ -35,7 +36,10 @@ export async function checkRateLimit(
     ))
   } catch (error) {
     if (error instanceof RateLimitStoreUnavailableError) {
-      console.error("[rate-limit] Store unavailable; failing closed:", error.cause)
+      createLogger("rate-limit").error(
+        "Store unavailable; failing closed",
+        error.cause
+      )
       return { allowed: false, retryAfterSeconds: STORE_UNAVAILABLE_RETRY_SECONDS }
     }
     throw error
@@ -56,7 +60,7 @@ export async function checkRateLimit(
  * `"direct"` to prevent header-spoofing attacks.
  *
  * NOTE: behind a proxy without TRUSTED_PROXY set, every client shares the
- * single "direct" bucket — which is why `assertRateLimitConfig` refuses to
+ * single "direct" bucket — which is why the env manifest refuses to
  * boot production without it.
  */
 export function getRateLimitIp(request: Request): string {
@@ -79,34 +83,3 @@ export function getRateLimitIp(request: Request): string {
   return "direct"
 }
 
-/**
- * Boot-time configuration assertion, called from `src/instrumentation.ts`.
- *
- * In production, a missing TRUSTED_PROXY silently collapses every client
- * into one shared rate-limit bucket (login becomes 10 requests / 15 min
- * globally), and a missing REDIS_URL makes limits per-process. Refuse to
- * boot rather than run with either misconfiguration.
- */
-export function assertRateLimitConfig(): void {
-  if (process.env.NODE_ENV !== "production") {
-    return
-  }
-
-  const missing: string[] = []
-  if (!process.env.TRUSTED_PROXY?.trim()) {
-    missing.push("TRUSTED_PROXY")
-  }
-  if (!process.env.REDIS_URL?.trim()) {
-    missing.push("REDIS_URL")
-  }
-
-  if (missing.length > 0) {
-    throw new Error(
-      `[rate-limit] Refusing to start in production without ${missing.join(
-        " and "
-      )}. TRUSTED_PROXY makes x-forwarded-for trustworthy so rate limits ` +
-        "are per-client instead of one global bucket; REDIS_URL makes them " +
-        "consistent across processes. Set both in the deployment environment."
-    )
-  }
-}

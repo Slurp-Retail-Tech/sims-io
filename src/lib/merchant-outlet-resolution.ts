@@ -14,7 +14,9 @@
  * avoids a lookup that silently resolves to nothing.
  */
 
-import type { Pool, RowDataPacket } from "mysql2/promise"
+import type { RowDataPacket } from "mysql2/promise"
+
+import type { Queryable } from "./db.ts"
 
 export type ResolvedMerchantNames = {
   franchiseName: string | null
@@ -50,8 +52,15 @@ export function pickMerchantNames(
   }
 }
 
+/**
+ * Takes a `Queryable`, not a `Pool`, so a caller inside an open transaction can
+ * pass its own connection. Passing the pool from inside a transaction checks
+ * out a SECOND connection while the first is held — the read then runs outside
+ * the transaction's snapshot, and against connectionLimit 10 with queueLimit 0
+ * (wait forever) it is a self-deadlock vector under load.
+ */
 export async function resolveMerchantNames(
-  pool: Pool,
+  db: Queryable,
   fid: string | null,
   oid: string | null
 ): Promise<ResolvedMerchantNames> {
@@ -65,7 +74,7 @@ export async function resolveMerchantNames(
   let primary: ResolvedMerchantNames | null = null
 
   if (trimmedFid) {
-    const [rows] = await pool.query<NameRow[]>(
+    const [rows] = await db.query<NameRow[]>(
       `
       SELECT
         merchants.name AS franchise_name,
@@ -98,7 +107,7 @@ export async function resolveMerchantNames(
     return primary
   }
 
-  const [fallbackRows] = await pool.query<NameRow[]>(
+  const [fallbackRows] = await db.query<NameRow[]>(
     `
     SELECT
       merchants.name AS franchise_name,

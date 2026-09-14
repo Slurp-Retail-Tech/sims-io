@@ -86,10 +86,6 @@ type MonthRow = {
   month_value: string
 }
 
-type ColumnExistsRow = {
-  column_exists: number | string
-}
-
 export type AnalyticsData = {
   totalTickets: number
   resolvedTickets: number
@@ -214,20 +210,6 @@ function toNumber(value: number | string | null | undefined) {
   return 0
 }
 
-async function tableColumnExists(tableName: string, columnName: string) {
-  const [rows] = await queryWithReconnect<ColumnExistsRow[]>(
-    `
-    SELECT COUNT(*) AS column_exists
-    FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = ?
-      AND COLUMN_NAME = ?
-  `,
-    [tableName, columnName]
-  )
-
-  return toNumber(rows[0]?.column_exists) > 0
-}
 
 function toNullableNumber(value: number | string | null | undefined) {
   if (value === null || value === undefined) {
@@ -479,10 +461,10 @@ export async function getMerchantSuccessAnalyticsData({
     : { sql: "", values: [] as string[] }
 
   const values = dateFilter.values
-  const hasMerchantSentiment = await tableColumnExists("tickets", "merchant_sentiment")
-  const sentimentExpression = hasMerchantSentiment
-    ? "COALESCE(NULLIF(TRIM(tickets.merchant_sentiment), ''), 'Not Set')"
-    : "'Not Set'"
+  // tickets.merchant_sentiment is in schema.sql and confirmed present in
+  // production, so the column no longer needs probing per page load.
+  const sentimentExpression =
+    "COALESCE(NULLIF(TRIM(tickets.merchant_sentiment), ''), 'Not Set')"
 
   const [
     [overviewRows],

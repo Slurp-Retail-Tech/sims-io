@@ -4,6 +4,8 @@ import { notFound, serverError } from "@/lib/api-errors"
 import { resolveApiUser } from "@/lib/api-auth"
 import getPool from "@/lib/db"
 import { isOwnObject } from "@/lib/object-access"
+import { PLUS_IMPORT_JOB_TYPE } from "@/lib/job-handlers/plus-import"
+import { enqueueJobRun } from "@/lib/job-runner"
 import { createPlusUpdateJob, previewPlusTemplate } from "@/lib/plus-import"
 import { parseJsonBody } from "@/lib/validation"
 
@@ -31,12 +33,27 @@ export async function POST(request: NextRequest) {
     }
 
     const preview = await previewPlusTemplate(key.key)
-    const jobId = await createPlusUpdateJob(getPool(), {
+    const pool = getPool()
+    const jobId = await createPlusUpdateJob(pool, {
       requestedBy: user.id,
       uploadKey: key.key,
     })
 
-    return NextResponse.json({ jobId, ...preview })
+    // Enqueue the durable run alongside the legacy job row. artifactKey is what
+    // ties the retained spreadsheet to this run: the reaper deletes it only
+    // once the run is terminal, and the cleanup route refuses while it is not.
+    const { jobRunId } = await enqueueJobRun(pool, {
+      jobType: PLUS_IMPORT_JOB_TYPE,
+      // Per upload, not a singleton: two people may legitimately update
+      // different spreadsheets at once.
+      dedupeKey: `plus:${jobId}`,
+      triggerSource: "manual",
+      requestedBy: user.id,
+      params: { plusJobId: jobId },
+      artifactKey: key.key,
+    })
+
+    return NextResponse.json({ jobId, jobRunId, ...preview })
   } catch (error) {
     return serverError("plus/update/upload", error, "Unable to preview PLUS template.")
   }

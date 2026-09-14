@@ -1,7 +1,7 @@
 -- Schema snapshot (aligned with production support schema)
 
 CREATE TABLE IF NOT EXISTS users (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(120) NOT NULL,
   email VARCHAR(255) NOT NULL UNIQUE,
   avatar_url TEXT DEFAULT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS auth_tokens (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT NOT NULL,
   type ENUM('activation', 'password_reset') NOT NULL,
   token_hash CHAR(64) NOT NULL,
   expires_at DATETIME(3) NOT NULL,
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
 
 CREATE TABLE IF NOT EXISTS sessions (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  user_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT NOT NULL,
   token_hash CHAR(64) NOT NULL,
   remember BOOLEAN NOT NULL DEFAULT FALSE,
   expires_at DATETIME(3) NOT NULL,
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS merchant_outlets (
 );
 
 CREATE TABLE IF NOT EXISTS plus_update_jobs (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   status ENUM('running', 'completed', 'failed') NOT NULL DEFAULT 'running',
   requested_by VARCHAR(255) DEFAULT NULL,
   upload_key VARCHAR(512) DEFAULT NULL,
@@ -117,9 +117,9 @@ CREATE TABLE IF NOT EXISTS contacts (
   respondio_contact_id VARCHAR(64) DEFAULT NULL,
   -- BIGINT UNSIGNED here to match this snapshot's users.id; migration 024 uses signed
   -- BIGINT to match the deployed users.id, which drifted to signed. See README.
-  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_by_user_id BIGINT DEFAULT NULL,
   deleted_at DATETIME(3) DEFAULT NULL,
-  deleted_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  deleted_by_user_id BIGINT DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   CONSTRAINT fk_contacts_created_by
@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS contact_outlets (
   contact_id BIGINT NOT NULL,
   franchise_id VARCHAR(120) NOT NULL,
   outlet_id VARCHAR(120) DEFAULT NULL,
-  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_by_user_id BIGINT DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   CONSTRAINT fk_contact_outlets_contact
     FOREIGN KEY (contact_id) REFERENCES contacts(id) ON DELETE CASCADE,
@@ -231,8 +231,8 @@ CREATE TABLE IF NOT EXISTS ticket_history (
 );
 
 CREATE TABLE IF NOT EXISTS clickup_task_requests (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  ticket_id BIGINT UNSIGNED DEFAULT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  ticket_id BIGINT DEFAULT NULL,
   -- Widened in migration 025 alongside tickets.fid / tickets.oid: these values are
   -- copied verbatim from a ticket, and the old VARCHAR(4)/VARCHAR(2) truncated
   -- real ids.
@@ -251,10 +251,10 @@ CREATE TABLE IF NOT EXISTS clickup_task_requests (
   attachment_url_2 VARCHAR(512) DEFAULT NULL,
   attachment_url_3 VARCHAR(512) DEFAULT NULL,
   status ENUM('Pending Approval', 'Approved', 'Rejected') NOT NULL DEFAULT 'Pending Approval',
-  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_by_user_id BIGINT DEFAULT NULL,
   created_by_email VARCHAR(255) DEFAULT NULL,
   decision_reason TEXT DEFAULT NULL,
-  decision_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  decision_by_user_id BIGINT DEFAULT NULL,
   decision_by_email VARCHAR(255) DEFAULT NULL,
   decision_at DATETIME(3) DEFAULT NULL,
   clickup_task_id VARCHAR(255) DEFAULT NULL,
@@ -270,10 +270,10 @@ CREATE TABLE IF NOT EXISTS clickup_task_requests (
 );
 
 CREATE TABLE IF NOT EXISTS clickup_task_request_attachments (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   -- UNSIGNED to match clickup_task_requests.id above — MySQL requires FK
   -- column signedness to match exactly, and a fresh import fails otherwise.
-  clickup_task_request_id BIGINT UNSIGNED NOT NULL,
+  clickup_task_request_id BIGINT NOT NULL,
   storage_key VARCHAR(512) NOT NULL,
   original_name VARCHAR(255) DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -297,11 +297,11 @@ CREATE TABLE IF NOT EXISTS onboarding_appointments (
   google_maps_uri VARCHAR(512) DEFAULT NULL,
   location_lat DECIMAL(10, 7) DEFAULT NULL,
   location_lng DECIMAL(10, 7) DEFAULT NULL,
-  created_by_user_id BIGINT UNSIGNED NOT NULL,
-  decision_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_by_user_id BIGINT NOT NULL,
+  decision_by_user_id BIGINT DEFAULT NULL,
   decision_at DATETIME(3) DEFAULT NULL,
   decision_reason TEXT DEFAULT NULL,
-  assigned_ms_user_id BIGINT UNSIGNED DEFAULT NULL,
+  assigned_ms_user_id BIGINT DEFAULT NULL,
   canceled_by_user_id BIGINT UNSIGNED DEFAULT NULL,
   canceled_at DATETIME(3) DEFAULT NULL,
   cancel_reason TEXT DEFAULT NULL,
@@ -335,7 +335,7 @@ CREATE TABLE IF NOT EXISTS onboarding_appointment_attachments (
 
 CREATE TABLE IF NOT EXISTS sales_appointments (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  lead_id BIGINT UNSIGNED DEFAULT NULL,
+  lead_id BIGINT DEFAULT NULL,
   customer_name VARCHAR(255) NOT NULL,
   business_name VARCHAR(255) NOT NULL,
   business_type VARCHAR(255) NOT NULL,
@@ -350,11 +350,11 @@ CREATE TABLE IF NOT EXISTS sales_appointments (
   appointment_type ENUM('Online', 'Physical') NOT NULL,
   scheduled_at DATETIME(3) NOT NULL,
   status ENUM('Pending', 'Completed', 'Canceled') NOT NULL DEFAULT 'Pending',
-  created_by_user_id BIGINT UNSIGNED NOT NULL,
-  completed_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_by_user_id BIGINT NOT NULL,
+  completed_by_user_id BIGINT DEFAULT NULL,
   completed_at DATETIME(3) DEFAULT NULL,
   completion_note TEXT DEFAULT NULL,
-  canceled_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  canceled_by_user_id BIGINT DEFAULT NULL,
   canceled_at DATETIME(3) DEFAULT NULL,
   cancel_reason TEXT DEFAULT NULL,
   google_calendar_id VARCHAR(255) DEFAULT NULL,
@@ -435,7 +435,7 @@ CREATE TABLE IF NOT EXISTS csat_responses (
 -- NOTE: live DB still has column named request_id — run migration below to rename to ticket_id
 
 CREATE TABLE IF NOT EXISTS franchise_import_jobs (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   status ENUM('running', 'completed', 'failed') NOT NULL DEFAULT 'running',
   import_trigger ENUM('cron', 'manual') NOT NULL DEFAULT 'manual',
   requested_by VARCHAR(255) DEFAULT NULL,
@@ -448,7 +448,7 @@ CREATE TABLE IF NOT EXISTS franchise_import_jobs (
 );
 
 CREATE TABLE IF NOT EXISTS franchise_cache (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   fid VARCHAR(32) DEFAULT NULL,
   franchise_name VARCHAR(255) DEFAULT NULL,
   franchise_json JSON DEFAULT NULL,
@@ -456,7 +456,7 @@ CREATE TABLE IF NOT EXISTS franchise_cache (
   outlet_count INT NOT NULL DEFAULT 0,
   active_outlet_count INT NOT NULL DEFAULT 0,
   import_index INT NOT NULL,
-  job_id BIGINT UNSIGNED DEFAULT NULL,
+  job_id BIGINT DEFAULT NULL,
   is_active BOOLEAN NOT NULL DEFAULT FALSE,
   imported_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   CONSTRAINT fk_franchise_cache_job_id
@@ -466,7 +466,7 @@ CREATE TABLE IF NOT EXISTS franchise_cache (
 );
 
 CREATE TABLE IF NOT EXISTS leads (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   telephone VARCHAR(32) NOT NULL,
   email VARCHAR(255) DEFAULT NULL,
@@ -475,7 +475,7 @@ CREATE TABLE IF NOT EXISTS leads (
   business_location VARCHAR(255) NOT NULL,
   source VARCHAR(255) DEFAULT NULL,
   status ENUM('Unworked', 'Worked') NOT NULL DEFAULT 'Unworked',
-  assigned_user_id BIGINT UNSIGNED DEFAULT NULL,
+  assigned_user_id BIGINT DEFAULT NULL,
   referrer VARCHAR(1024) DEFAULT NULL,
   origin VARCHAR(64) DEFAULT NULL,
   utm_source VARCHAR(255) DEFAULT NULL,
@@ -498,8 +498,8 @@ CREATE TABLE IF NOT EXISTS leads (
 );
 
 CREATE TABLE IF NOT EXISTS deals (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  lead_id BIGINT UNSIGNED NOT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  lead_id BIGINT NOT NULL,
   deal_name VARCHAR(255) NOT NULL,
   deal_stage ENUM(
     'To Qualify',
@@ -522,7 +522,7 @@ CREATE TABLE IF NOT EXISTS deals (
     'Disqualify'
   ) DEFAULT NULL,
   close_lost_remarks TEXT DEFAULT NULL,
-  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_by_user_id BIGINT DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   CONSTRAINT fk_deals_lead_id
@@ -536,8 +536,8 @@ CREATE TABLE IF NOT EXISTS deals (
 -- Audit log of deal lifecycle events. Currently records deal creation and
 -- every stage transition (from_stage -> to_stage). Append-only.
 CREATE TABLE IF NOT EXISTS deal_activities (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  deal_id BIGINT UNSIGNED NOT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  deal_id BIGINT NOT NULL,
   activity_type ENUM('created', 'stage_changed') NOT NULL,
   from_stage ENUM(
     'To Qualify',
@@ -553,7 +553,7 @@ CREATE TABLE IF NOT EXISTS deal_activities (
     'Closed Won',
     'Closed Lost'
   ) DEFAULT NULL,
-  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_by_user_id BIGINT DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   CONSTRAINT fk_deal_activities_deal_id
     FOREIGN KEY (deal_id) REFERENCES deals(id) ON DELETE CASCADE,
@@ -563,9 +563,9 @@ CREATE TABLE IF NOT EXISTS deal_activities (
 );
 
 CREATE TABLE IF NOT EXISTS lead_activities (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  lead_id BIGINT UNSIGNED NOT NULL,
-  deal_id BIGINT UNSIGNED DEFAULT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  lead_id BIGINT NOT NULL,
+  deal_id BIGINT DEFAULT NULL,
   sales_appointment_id BIGINT UNSIGNED DEFAULT NULL,
   activity_type ENUM(
     'Note',
@@ -599,7 +599,7 @@ CREATE TABLE IF NOT EXISTS lead_activities (
   google_maps_uri VARCHAR(512) DEFAULT NULL,
   location_lat DECIMAL(10, 7) DEFAULT NULL,
   location_lng DECIMAL(10, 7) DEFAULT NULL,
-  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_by_user_id BIGINT DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) DEFAULT NULL,
   CONSTRAINT fk_lead_activities_lead_id
@@ -628,11 +628,11 @@ CREATE TABLE IF NOT EXISTS lead_notification_settings (
 -- Project Tracker: projects and per-project access control.
 -- Phases/activities, dependencies and comments follow in the tables below.
 CREATE TABLE IF NOT EXISTS projects (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(160) NOT NULL,
   description TEXT DEFAULT NULL,
   start_date DATE NOT NULL,
-  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_by_user_id BIGINT DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   CONSTRAINT fk_projects_created_by
@@ -641,9 +641,9 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 
 CREATE TABLE IF NOT EXISTS project_members (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  project_id BIGINT UNSIGNED NOT NULL,
-  user_id BIGINT UNSIGNED NOT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  project_id BIGINT NOT NULL,
+  user_id BIGINT NOT NULL,
   role ENUM('Owner', 'Editor', 'Viewer') NOT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
@@ -664,22 +664,22 @@ CREATE TABLE IF NOT EXISTS project_members (
 -- its own or its parent's deleted_at is set, so restoring a phase restores exactly
 -- the children that were not deleted individually.
 CREATE TABLE IF NOT EXISTS project_items (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  project_id BIGINT UNSIGNED NOT NULL,
-  parent_item_id BIGINT UNSIGNED DEFAULT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  project_id BIGINT NOT NULL,
+  parent_item_id BIGINT DEFAULT NULL,
   item_type ENUM('Phase', 'Activity') NOT NULL,
   name VARCHAR(200) NOT NULL,
   description TEXT DEFAULT NULL,
   status ENUM('Not Started', 'In Progress', 'Blocked', 'Completed')
     NOT NULL DEFAULT 'Not Started',
-  assigned_user_id BIGINT UNSIGNED DEFAULT NULL,
+  assigned_user_id BIGINT DEFAULT NULL,
   start_date DATE DEFAULT NULL,
   due_date DATE DEFAULT NULL,
   sort_order INT NOT NULL DEFAULT 0,
   completed_at DATETIME(3) DEFAULT NULL,
   deleted_at DATETIME(3) DEFAULT NULL,
-  deleted_by_user_id BIGINT UNSIGNED DEFAULT NULL,
-  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  deleted_by_user_id BIGINT DEFAULT NULL,
+  created_by_user_id BIGINT DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   CONSTRAINT fk_project_items_project
@@ -708,11 +708,11 @@ CREATE TABLE IF NOT EXISTS project_items (
 -- "same project only" a database guarantee; cycles are rejected in application
 -- code (src/lib/project-dependencies.ts) under a project row lock.
 CREATE TABLE IF NOT EXISTS project_item_dependencies (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  project_id BIGINT UNSIGNED NOT NULL,
-  item_id BIGINT UNSIGNED NOT NULL,
-  depends_on_item_id BIGINT UNSIGNED NOT NULL,
-  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  project_id BIGINT NOT NULL,
+  item_id BIGINT NOT NULL,
+  depends_on_item_id BIGINT NOT NULL,
+  created_by_user_id BIGINT DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   CONSTRAINT fk_project_item_deps_item
     FOREIGN KEY (item_id, project_id)
@@ -736,11 +736,11 @@ CREATE TABLE IF NOT EXISTS project_item_dependencies (
 -- Comments survive soft delete of their item: soft delete only sets
 -- project_items.deleted_at, so these rows stay retrievable for audit.
 CREATE TABLE IF NOT EXISTS project_item_comments (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  project_id BIGINT UNSIGNED NOT NULL,
-  item_id BIGINT UNSIGNED NOT NULL,
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  project_id BIGINT NOT NULL,
+  item_id BIGINT NOT NULL,
   body TEXT NOT NULL,
-  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_by_user_id BIGINT DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   CONSTRAINT fk_project_item_comments_item
@@ -795,10 +795,10 @@ CREATE TABLE IF NOT EXISTS respondio_integration_secrets (
   secret_hash CHAR(64) NOT NULL,
   secret_prefix VARCHAR(16) NOT NULL,
   secret_last4 CHAR(4) NOT NULL,
-  created_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  created_by_user_id BIGINT DEFAULT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   revoked_at DATETIME(3) DEFAULT NULL,
-  revoked_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+  revoked_by_user_id BIGINT DEFAULT NULL,
   last_used_at DATETIME(3) DEFAULT NULL,
   CONSTRAINT fk_respondio_secrets_created_by
     FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,

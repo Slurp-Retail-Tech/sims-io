@@ -1,0 +1,82 @@
+[
+  {
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "ticket_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "token_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "support_score",
+    "COLUMN_TYPE": "varchar(32)"
+  },
+  {
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "support_reason",
+    "COLUMN_TYPE": "text"
+  },
+  {
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "product_score",
+    "COLUMN_TYPE": "varchar(32)"
+  },
+  {
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "product_feedback",
+    "COLUMN_TYPE": "text"
+  },
+  {
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "submitted_at",
+    "COLUMN_TYPE": "datetime(3)"
+  },
+  {
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "google_review_shown_at",
+    "COLUMN_TYPE": "datetime(3)"
+  },
+  {
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "google_review_clicked_at",
+    "COLUMN_TYPE": "datetime(3)"
+  },
+  {
+    "TABLE_NAME": "csat_tokens",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "csat_tokens",
+    "COLUMN_NAME": "ticket_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "csat_tokens",
+    "COLUMN_NAME": "token",
+    "COLUMN_TYPE": "varchar(255)"
+  },
+  {
+    "TABLE_NAME": "csat_tokens",
+    "COLUMN_NAME": "expires_at",
+    "COLUMN_TYPE": "datetime(3)"
+  },
+  {
+    "TABLE_NAME": "csat_tokens",
+    "COLUMN_NAME": "used_at",
+    "COLUMN_TYPE": "datetime(3)"
+  },
+  {
+    "TABLE_NAME": "csat_tokens",
+    "COLUMN_NAME": "created_at",
+    "COLUMN_TYPE": "datetime(3)"
+  }
+]

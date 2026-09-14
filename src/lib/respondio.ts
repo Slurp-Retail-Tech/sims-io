@@ -11,10 +11,12 @@
  * The endpoint that calls into here is `src/app/api/integrations/respond-io/route.ts`.
  */
 
-import getPool, { queryWithReconnect } from "@/lib/db"
+import { queryWithReconnect, withTransaction } from "@/lib/db"
+import type { Queryable } from "@/lib/db"
 import { isCoveredByFranchiseWide } from "@/lib/contact-mappings"
 import type { ContactMapping } from "@/lib/contact-mappings"
 import { resolveMerchantNames } from "@/lib/merchant-outlet-resolution"
+import { insertTicketHistory } from "@/lib/ticket-history"
 import {
   normalizePhone,
   resolveContactCandidate,
@@ -423,20 +425,25 @@ export async function handleContactTagUpdated(
     }
   }
 
-  const existing = await findOpenTicket(event.respondioContactId)
-  if (existing) {
-    return {
-      status: "noop",
-      summary: `Ticket #${existing.id} already open for this contact`,
-      ticketId: existing.id,
+  return withTransaction(async (connection) => {
+    // Serialize per contact for the whole check-then-create. The duplicate
+    // check below is a read-then-write, so without this two genuinely distinct
+    // events for one contact can both see "no open ticket" and both insert.
+    // (Retries are already deduped by respondio_webhook_events; this covers the
+    // distinct-event case that ledger cannot.) There is no ticket row to lock
+    // yet, hence an advisory lock rather than SELECT ... FOR UPDATE.
+    await connection.query(`SELECT GET_LOCK(?, 5)`, [
+      `respondio:contact:${event.respondioContactId}`,
+    ])
+
+    const existing = await findOpenTicket(event.respondioContactId, connection)
+    if (existing) {
+      return {
+        status: "noop" as const,
+        summary: `Ticket #${existing.id} already open for this contact`,
+        ticketId: existing.id,
+      }
     }
-  }
-
-  const pool = getPool()
-  const connection = await pool.getConnection()
-
-  try {
-    await connection.beginTransaction()
 
     const contact = await resolveSimsContact(connection, event)
 
@@ -447,7 +454,13 @@ export async function handleContactTagUpdated(
       : await loadMappings(connection, contact.contactId)
     const decision = resolveOutletMatch(mappings)
 
-    const names = await resolveMerchantNames(pool, decision.fid, decision.oid)
+    // On `connection`, not `pool`: reading through the pool here would check
+    // out a second connection while this transaction holds the first.
+    const names = await resolveMerchantNames(
+      connection,
+      decision.fid,
+      decision.oid
+    )
 
     const row = buildRespondioTicketInsert(event, decision, {
       contactId: contact.softDeleted ? null : contact.contactId,
@@ -465,25 +478,19 @@ export async function handleContactTagUpdated(
 
     const ticketId = String(result.insertId)
 
-    await connection.query(
-      `INSERT INTO ticket_history (ticket_id, field_name, old_value, new_value, changed_by)
-       VALUES (?, 'source', NULL, 'respond_io', ?)`,
-      [ticketId, RESPONDIO_ACTOR]
+    await insertTicketHistory(
+      connection,
+      ticketId,
+      [{ field: "source", oldValue: null, newValue: "respond_io" }],
+      RESPONDIO_ACTOR
     )
 
-    await connection.commit()
-
     return {
-      status: "processed",
+      status: "processed" as const,
       summary: buildTicketSummary(ticketId, decision.action, contact),
       ticketId,
     }
-  } catch (error) {
-    await connection.rollback()
-    throw error
-  } finally {
-    connection.release()
-  }
+  })
 }
 
 function buildTicketSummary(
@@ -547,16 +554,26 @@ export async function handleAssigneeUpdated(
     }
   }
 
-  await queryWithReconnect(
-    `UPDATE tickets SET ms_pic_user_id = ?, updated_by = ? WHERE id = ?`,
-    [user.id, RESPONDIO_ACTOR, ticketId]
-  )
-
-  await queryWithReconnect(
-    `INSERT INTO ticket_history (ticket_id, field_name, old_value, new_value, changed_by)
-     VALUES (?, 'ms_pic_user_id', NULL, ?, ?)`,
-    [ticketId, String(user.id), RESPONDIO_ACTOR]
-  )
+  // The update and its history row are one unit: a crash between them would
+  // leave the ticket reassigned with no audit trail of who moved it.
+  await withTransaction(async (connection) => {
+    await connection.query(
+      `UPDATE tickets SET ms_pic_user_id = ?, updated_by = ? WHERE id = ?`,
+      [user.id, RESPONDIO_ACTOR, ticketId]
+    )
+    await insertTicketHistory(
+      connection,
+      ticketId,
+      [
+        {
+          field: "ms_pic_user_id",
+          oldValue: null,
+          newValue: String(user.id),
+        },
+      ],
+      RESPONDIO_ACTOR
+    )
+  })
 
   return {
     status: "processed",
@@ -598,16 +615,49 @@ export async function handleMessageSent(
     }
   }
 
-  await queryWithReconnect(
-    `UPDATE tickets SET status = ?, updated_by = ? WHERE id = ? AND status = ?`,
-    [RESPONDIO_IN_PROGRESS_STATUS, RESPONDIO_ACTOR, ticket.id, RESPONDIO_TICKET_STATUS]
-  )
+  // The status read above is unlocked, so it can be stale by the time we write.
+  // Re-read FOR UPDATE inside the transaction and bail before writing anything:
+  // previously the UPDATE was guarded by `AND status = ?` but the history INSERT
+  // was not, so a lost race recorded a transition that never happened.
+  const moved = await withTransaction(async (connection) => {
+    const [rows] = await connection.query<
+      Array<RowDataPacket & { status: string }>
+    >(`SELECT status FROM tickets WHERE id = ? FOR UPDATE`, [ticket.id])
 
-  await queryWithReconnect(
-    `INSERT INTO ticket_history (ticket_id, field_name, old_value, new_value, changed_by)
-     VALUES (?, 'status', ?, ?, ?)`,
-    [ticket.id, RESPONDIO_TICKET_STATUS, RESPONDIO_IN_PROGRESS_STATUS, RESPONDIO_ACTOR]
-  )
+    const current = rows[0]?.status
+    if (current !== RESPONDIO_TICKET_STATUS) {
+      return current ?? null
+    }
+
+    await connection.query(
+      `UPDATE tickets SET status = ?, updated_by = ? WHERE id = ?`,
+      [RESPONDIO_IN_PROGRESS_STATUS, RESPONDIO_ACTOR, ticket.id]
+    )
+    await insertTicketHistory(
+      connection,
+      ticket.id,
+      [
+        {
+          field: "status",
+          oldValue: RESPONDIO_TICKET_STATUS,
+          newValue: RESPONDIO_IN_PROGRESS_STATUS,
+        },
+      ],
+      RESPONDIO_ACTOR
+    )
+    return true
+  })
+
+  if (moved !== true) {
+    return {
+      status: "noop",
+      summary:
+        moved === null
+          ? `Ticket #${ticket.id} no longer exists`
+          : `Ticket #${ticket.id} is already ${moved}`,
+      ticketId: ticket.id,
+    }
+  }
 
   return {
     status: "processed",
@@ -631,18 +681,34 @@ export async function handleConversationClosed(
 
   const ticketId = ticket.id
 
-  await queryWithReconnect(
-    `UPDATE tickets
-     SET status = ?, closed_at = CURRENT_TIMESTAMP(3), updated_by = ?
-     WHERE id = ?`,
-    [RESPONDIO_CLOSED_STATUS, RESPONDIO_ACTOR, ticketId]
-  )
+  // Closing the ticket and recording the close are one unit — a half-applied
+  // close is a ticket that looks resolved with nothing saying who resolved it.
+  // The old_value is read under the lock so it reflects what was actually
+  // replaced rather than the unlocked read above.
+  await withTransaction(async (connection) => {
+    const [rows] = await connection.query<
+      Array<RowDataPacket & { status: string }>
+    >(`SELECT status FROM tickets WHERE id = ? FOR UPDATE`, [ticketId])
 
-  await queryWithReconnect(
-    `INSERT INTO ticket_history (ticket_id, field_name, old_value, new_value, changed_by)
-     VALUES (?, 'status', NULL, ?, ?)`,
-    [ticketId, RESPONDIO_CLOSED_STATUS, RESPONDIO_ACTOR]
-  )
+    await connection.query(
+      `UPDATE tickets
+       SET status = ?, closed_at = CURRENT_TIMESTAMP(3), updated_by = ?
+       WHERE id = ?`,
+      [RESPONDIO_CLOSED_STATUS, RESPONDIO_ACTOR, ticketId]
+    )
+    await insertTicketHistory(
+      connection,
+      ticketId,
+      [
+        {
+          field: "status",
+          oldValue: rows[0]?.status ?? null,
+          newValue: RESPONDIO_CLOSED_STATUS,
+        },
+      ],
+      RESPONDIO_ACTOR
+    )
+  })
 
   return {
     status: "processed",
@@ -653,19 +719,29 @@ export async function handleConversationClosed(
 
 type OpenTicket = { id: string; status: string }
 
+/**
+ * `db` is optional so a caller inside a transaction can pass its connection and
+ * have the duplicate check see the same snapshot as the insert that follows.
+ * Standalone callers keep the reconnecting pool path.
+ */
 async function findOpenTicket(
-  respondioContactId: string
+  respondioContactId: string,
+  db?: Queryable
 ): Promise<OpenTicket | null> {
   const placeholders = OPEN_STATUSES.map(() => "?").join(", ")
-  const [rows] = await queryWithReconnect<
-    Array<RowDataPacket & { id: number | string; status: string }>
-  >(
-    `SELECT id, status FROM tickets
+  const sql = `SELECT id, status FROM tickets
      WHERE respondio_contact_id = ? AND status IN (${placeholders})
      ORDER BY created_at DESC
-     LIMIT 1`,
-    [respondioContactId, ...OPEN_STATUSES]
-  )
+     LIMIT 1`
+  const values = [respondioContactId, ...OPEN_STATUSES]
+  const [rows] = db
+    ? await db.query<Array<RowDataPacket & { id: number | string; status: string }>>(
+        sql,
+        values
+      )
+    : await queryWithReconnect<
+        Array<RowDataPacket & { id: number | string; status: string }>
+      >(sql, values)
 
   const row = rows[0]
   return row ? { id: String(row.id), status: row.status } : null

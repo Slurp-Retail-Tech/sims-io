@@ -1,3 +1,5 @@
+import { httpFetch } from "./http.ts"
+
 export type GooglePlacesConfig =
   | { enabled: false }
   | { enabled: true; apiKey: string; regionCodes: string[] }
@@ -123,6 +125,9 @@ function mapAutocompleteResponse(
     )
 }
 
+/** Google Places sits in front of a typeahead; keep it snappy. */
+const GOOGLE_PLACES_TIMEOUT_MS = 5_000
+
 export async function searchGooglePlacesAutocomplete(input: {
   input: string
   sessionToken: string
@@ -138,7 +143,11 @@ export async function searchGooglePlacesAutocomplete(input: {
     return { enabled: true as const, predictions: [] }
   }
 
-  const response = await fetch(GOOGLE_PLACES_AUTOCOMPLETE_URL, {
+  // Not retried: autocomplete fires per keystroke, so a slow upstream should
+  // fail this suggestion rather than pile more requests onto it.
+  const response = await httpFetch(GOOGLE_PLACES_AUTOCOMPLETE_URL, {
+    label: "googlePlaces.autocomplete",
+    timeoutMs: GOOGLE_PLACES_TIMEOUT_MS,
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -212,7 +221,12 @@ export async function getGooglePlaceDetails(input: {
   )
   url.searchParams.set("sessionToken", sessionToken)
 
-  const response = await fetch(url.toString(), {
+  // Retried once: details is a one-off lookup after the user has committed to a
+  // place, so a blip there loses real work rather than one suggestion.
+  const response = await httpFetch(url.toString(), {
+    label: "googlePlaces.details",
+    timeoutMs: GOOGLE_PLACES_TIMEOUT_MS,
+    attempts: 2,
     method: "GET",
     headers: {
       "X-Goog-Api-Key": config.apiKey,

@@ -3,7 +3,8 @@ import type { RowDataPacket } from "mysql2"
 
 import { requireAuthenticatedUser } from "@/lib/auth"
 import { issueCsatLink } from "@/lib/csat-link"
-import getPool from "@/lib/db"
+import { withTransaction } from "@/lib/db"
+import { insertTicketHistory } from "@/lib/ticket-history"
 import { resolveTicketHistoryActor } from "@/lib/ticket-history-actor"
 
 type TicketRow = RowDataPacket & {
@@ -30,62 +31,71 @@ export async function POST(
   }
 
   const { ticketId } = await params
-  const pool = getPool()
-  const [ticketRows] = await pool.query<TicketRow[]>(
-    "SELECT id, status FROM tickets WHERE id = ? LIMIT 1",
-    [ticketId]
-  )
-  const ticket = ticketRows[0]
-  if (!ticket) {
-    return NextResponse.json({ error: "Ticket not found." }, { status: 404 })
-  }
-  if (ticket.status !== "Resolved") {
-    return NextResponse.json(
-      { error: "CSAT link can only be shared for resolved tickets." },
-      { status: 400 }
-    )
-  }
-
-  const link = await issueCsatLink(pool, ticketId)
-  if (!link) {
-    return NextResponse.json({ error: "Unable to create CSAT link." }, { status: 500 })
-  }
-
   const actorId = resolveTicketHistoryActor(user)
-  if (link.generated) {
-    await pool.query(
-      `
-      INSERT INTO ticket_history (
-        ticket_id,
-        field_name,
-        old_value,
-        new_value,
-        changed_by
-      )
-      VALUES (?, 'csat_token_generated', NULL, ?, ?)
-    `,
-      [ticketId, "[generated]", actorId]
+
+  // The status guard, the token mint and both history rows are one unit.
+  // issueCsatLink supersedes any live token before inserting its replacement,
+  // so a failure between those two writes would leave the ticket with no usable
+  // link. The status is read FOR UPDATE so a concurrent reopen cannot slip a
+  // share past the Resolved-only guard.
+  const outcome = await withTransaction(async (connection) => {
+    const [ticketRows] = await connection.query<TicketRow[]>(
+      "SELECT id, status FROM tickets WHERE id = ? LIMIT 1 FOR UPDATE",
+      [ticketId]
+    )
+    const ticket = ticketRows[0]
+    if (!ticket) {
+      return { error: "Ticket not found.", status: 404 } as const
+    }
+    if (ticket.status !== "Resolved") {
+      return {
+        error: "CSAT link can only be shared for resolved tickets.",
+        status: 400,
+      } as const
+    }
+
+    const link = await issueCsatLink(connection, ticketId)
+    if (!link) {
+      return { error: "Unable to create CSAT link.", status: 500 } as const
+    }
+
+    await insertTicketHistory(
+      connection,
+      ticketId,
+      [
+        ...(link.generated
+          ? [
+              {
+                field: "csat_token_generated",
+                oldValue: null,
+                newValue: "[generated]",
+              },
+            ]
+          : []),
+        {
+          field: "csat_link_shared",
+          oldValue: null,
+          newValue: null,
+          newValueIsNow: true,
+        },
+      ],
+      actorId
+    )
+
+    return { link } as const
+  })
+
+  if ("error" in outcome) {
+    return NextResponse.json(
+      { error: outcome.error },
+      { status: outcome.status }
     )
   }
-
-  await pool.query(
-    `
-    INSERT INTO ticket_history (
-      ticket_id,
-      field_name,
-      old_value,
-      new_value,
-      changed_by
-    )
-    VALUES (?, 'csat_link_shared', NULL, NOW(3), ?)
-  `,
-    [ticketId, actorId]
-  )
 
   return NextResponse.json({
     ok: true,
-    token: link.token,
-    expiresAt: link.expiresAt,
-    generated: link.generated,
+    token: outcome.link.token,
+    expiresAt: outcome.link.expiresAt,
+    generated: outcome.link.generated,
   })
 }

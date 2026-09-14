@@ -1,8 +1,26 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { resolveApiUser } from "@/lib/api-auth"
-import { getPlusUpdateJob, runPlusUpdateJob } from "@/lib/plus-import"
+import { serverError } from "@/lib/api-errors"
+import { PLUS_IMPORT_JOB_TYPE } from "@/lib/job-handlers/plus-import"
+import { driveJobType } from "@/lib/job-tick"
+import { getPlusUpdateJob } from "@/lib/plus-import"
 
+export const dynamic = "force-dynamic"
+export const runtime = "nodejs"
+
+/**
+ * POST /api/plus/update/:jobId/start — advance the run by one slice.
+ *
+ * Idempotent, and safe to call on a loop: it takes the job type's advisory lock
+ * and returns immediately if another caller (or the cron tick) already holds
+ * it. That is what lets the page drive its own job at sub-second latency while
+ * the tick remains the safety net for a closed tab.
+ *
+ * It replaces a fire-and-forget `void runPlusUpdateJob(...)`, which detached
+ * the work from any supervision — a deploy mid-run left the row marked running
+ * forever with nothing to notice or resume it.
+ */
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ jobId: string }> }
@@ -20,13 +38,17 @@ export async function POST(
   if (job.finishedAt) {
     return NextResponse.json({ ok: true, alreadyFinished: true })
   }
-  if (job.totalRows > 0 || job.processedRows > 0) {
-    return NextResponse.json({ ok: true, alreadyStarted: true })
+
+  try {
+    const slice = await driveJobType(PLUS_IMPORT_JOB_TYPE)
+    return NextResponse.json({
+      ok: true,
+      // null when another slice or the tick holds the lock; the caller simply
+      // polls again rather than treating it as an error.
+      claimed: Boolean(slice),
+      slice: slice ?? null,
+    })
+  } catch (error) {
+    return serverError("plus/update/start", error, "Unable to advance the PLUS update.")
   }
-
-  void runPlusUpdateJob(jobId).catch((error) => {
-    console.error("PLUS job failed:", error)
-  })
-
-  return NextResponse.json({ ok: true, jobId })
 }

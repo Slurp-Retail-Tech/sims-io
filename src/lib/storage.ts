@@ -7,6 +7,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3"
+import { NodeHttpHandler } from "@smithy/node-http-handler"
 import { Readable } from "stream"
 
 type UploadInput = {
@@ -40,17 +41,54 @@ function getS3Client() {
       secretAccessKey,
     },
     forcePathStyle: true,
+    // The SDK's own defaults are generous; MinIO runs alongside the app, so a
+    // connection that has not established in 3s is not coming up, and no single
+    // object operation should take longer than 30s.
+    requestHandler: new NodeHttpHandler({
+      connectionTimeout: 3_000,
+      requestTimeout: 30_000,
+    }),
+    maxAttempts: 3,
   })
 
   return client
 }
 
+/**
+ * Auto-creating a missing bucket is a development convenience only.
+ *
+ * In production it is a durability hazard: a lost or unmounted volume makes
+ * HeadBucket fail, and silently creating an empty bucket turns "our files are
+ * gone" into a slow discovery by whoever next opens an attachment. Fail loudly
+ * instead, so the deploy surfaces it.
+ */
 async function ensureBucketExists(s3: S3Client, bucket: string) {
   try {
     await s3.send(new HeadBucketCommand({ Bucket: bucket }))
-  } catch {
+  } catch (error) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        `Storage bucket "${bucket}" is not reachable. Refusing to create it ` +
+          "automatically in production: if the bucket genuinely does not exist " +
+          "yet, create it once by hand; if it existed before, this is data loss " +
+          "and creating an empty one would hide it.",
+        { cause: error }
+      )
+    }
     await s3.send(new CreateBucketCommand({ Bucket: bucket }))
   }
+}
+
+/**
+ * Liveness probe for object storage: does the configured bucket answer?
+ * Throws on any failure so the caller can report it. Never creates anything.
+ */
+export async function checkStorageReachable(): Promise<void> {
+  const bucket = process.env.MINIO_BUCKET
+  if (!bucket) {
+    throw new Error("MINIO_BUCKET is not set")
+  }
+  await getS3Client().send(new HeadBucketCommand({ Bucket: bucket }))
 }
 
 /**

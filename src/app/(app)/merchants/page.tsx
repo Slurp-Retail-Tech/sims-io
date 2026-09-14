@@ -67,11 +67,11 @@ type Merchant = {
 
 type ImportRun = {
   id: string
-  status: "running" | "success" | "failed"
-  started_at: string
-  completed_at: string | null
-  records_imported: number
-  error_message: string | null
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled"
+  startedAt: string | null
+  completedAt: string | null
+  recordsImported: number
+  errorMessage: string | null
 }
 
 type BranchOption = {
@@ -400,7 +400,11 @@ export default function MerchantsPage() {
   }, [loadImportStatus])
 
   React.useEffect(() => {
-    if (importRun?.status === "running" || isImporting) {
+    if (
+      importRun?.status === "running" ||
+      importRun?.status === "queued" ||
+      isImporting
+    ) {
       if (!pollRef.current) {
         pollRef.current = setInterval(() => {
           void loadImportStatus()
@@ -455,7 +459,9 @@ export default function MerchantsPage() {
         showToast(data.error ?? "Import failed.", "error")
         return
       }
-      showToast("Import completed.")
+      // The import is enqueued and advanced in slices, so this response does
+      // not mean it finished — the poll below reports actual completion.
+      showToast("Import started.")
       await loadMerchants()
       await loadImportStatus()
     } catch (error) {
@@ -553,7 +559,7 @@ export default function MerchantsPage() {
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/60 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
               </span>
-              Importing {importRun.records_imported} records
+              Importing {importRun.recordsImported} records
             </span>
           ) : null}
           <DropdownMenu>
@@ -729,9 +735,9 @@ export default function MerchantsPage() {
               Clear
             </Button>
           </div>
-          {importRun?.status === "failed" && importRun.error_message ? (
+          {importRun?.status === "failed" && importRun.errorMessage ? (
             <p className="text-destructive text-xs">
-              Last import failed: {importRun.error_message}
+              Last import failed: {importRun.errorMessage}
             </p>
           ) : null}
         </CardHeader>

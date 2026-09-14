@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server"
 
+import { createLogger } from "./logger.ts"
+import { getRequestContext } from "./request-context.ts"
+
 /**
  * Shared error envelopes for API routes.
  *
@@ -47,6 +50,18 @@ export function serverError(
   error: unknown,
   message = "Something went wrong. Please try again."
 ): NextResponse {
-  console.error(`[${scope}]`, error)
+  const context = getRequestContext()
+  createLogger(scope).error(message, error)
+
+  // The id goes in the body only when a request context exists, so a user
+  // reporting "it failed" can quote something that appears in the logs. Routes
+  // that have not adopted withRequestContext yet simply get the old envelope
+  // unchanged, which is what makes the rollout incremental.
+  if (context) {
+    return NextResponse.json(
+      { error: message, requestId: context.requestId },
+      { status: 500 }
+    )
+  }
   return errorResponse(message, 500)
 }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
+import { httpFetch } from "@/lib/http"
 import type { ResultSetHeader } from "mysql2/promise"
 import { tooManyRequests } from "@/lib/api-errors"
 
@@ -66,7 +67,11 @@ async function verifyRecaptchaToken(token: string, remoteIp?: string | null) {
     params.set("remoteip", remoteIp)
   }
 
-  const response = await fetch("https://www.google.com/recaptcha/api/siteverify", {
+  // Never retried: a verification token is single-use, so a second attempt
+  // would be rejected as already-consumed even if the first only timed out.
+  const response = await httpFetch("https://www.google.com/recaptcha/api/siteverify", {
+    label: "recaptcha.siteverify",
+    timeoutMs: 5_000,
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: params.toString(),

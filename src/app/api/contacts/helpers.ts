@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 
 import { resolveApiUser } from "@/lib/api-auth"
 
-import getPool, { queryWithReconnect } from "@/lib/db"
+import { queryWithReconnect, withTransaction } from "@/lib/db"
 import { mapContact, mapContactPhone } from "@/lib/contacts"
 import type {
   Contact,
@@ -190,36 +190,16 @@ export async function withContactLock<T>(
   contactId: number | string,
   work: (connection: PoolConnection) => Promise<T>
 ): Promise<T> {
-  const connection = await getPool().getConnection()
-  try {
-    await connection.beginTransaction()
+  return withTransaction(async (connection) => {
     await connection.query(`SELECT id FROM contacts WHERE id = ? FOR UPDATE`, [
       contactId,
     ])
-    const result = await work(connection)
-    await connection.commit()
-    return result
-  } catch (error) {
-    await connection.rollback()
-    throw error
-  } finally {
-    connection.release()
-  }
+    return work(connection)
+  })
 }
 
-export async function withTransaction<T>(
-  work: (connection: PoolConnection) => Promise<T>
-): Promise<T> {
-  const connection = await getPool().getConnection()
-  try {
-    await connection.beginTransaction()
-    const result = await work(connection)
-    await connection.commit()
-    return result
-  } catch (error) {
-    await connection.rollback()
-    throw error
-  } finally {
-    connection.release()
-  }
-}
+// Re-exported so the existing call site keeps its import path. The
+// implementation moved to src/lib/db.ts: this file imports next/server, so
+// anything reaching withTransaction through it cannot be unit-tested under
+// `node --test`.
+export { withTransaction }

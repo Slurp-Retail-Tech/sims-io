@@ -1,5 +1,7 @@
+import { httpFetch } from "./http.ts"
+
 type PosApiRecord = Record<string, unknown>
-type PosApiAuthSession = {
+export type PosApiAuthSession = {
   token: string
   cookieHeader: string | null
 }
@@ -7,6 +9,19 @@ type PosApiAuthSession = {
 const DEFAULT_AUTH_URL = "https://api.getslurp.com/api/login"
 const DEFAULT_IMPORT_URL = "https://api.getslurp.com/api/franchise-retrieve/"
 const DEFAULT_BRANCH_PATH = "/api/branch"
+
+/**
+ * POS data calls sit inside the merchant import and the PLUS update, which walk
+ * many pages/rows serially — a per-call ceiling keeps one wedged page from
+ * stalling a whole job. Overridable via POS_API_TIMEOUT_MS.
+ */
+const POS_API_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.POS_API_TIMEOUT_MS ?? 30_000)
+  return Number.isFinite(raw) && raw > 0 ? raw : 30_000
+})()
+
+/** Login is a single short call; it does not need the data-call budget. */
+const POS_AUTH_TIMEOUT_MS = 10_000
 
 function mergeHeaders(...headersList: Array<HeadersInit | undefined>) {
   const merged = new Headers()
@@ -201,10 +216,14 @@ export async function authenticatePosApi() {
 
 export async function authenticatePosApiSession(): Promise<PosApiAuthSession> {
   const { email, password } = resolvePosCredentials()
-  const authResponse = await fetch(resolvePosAuthUrl(), {
+  // Never retried: a failed login is a credential or configuration problem, and
+  // repeating it only risks tripping upstream lockout.
+  const authResponse = await httpFetch(resolvePosAuthUrl(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
+    label: "pos.authenticate",
+    timeoutMs: POS_AUTH_TIMEOUT_MS,
   })
 
   if (!authResponse.ok) {
@@ -237,14 +256,33 @@ export async function authenticatePosApiSession(): Promise<PosApiAuthSession> {
   }
 }
 
-export async function fetchPosApiWithToken(url: URL, token: string) {
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    "X-Api-Token": token,
-    "X-Api-Key": token,
-  }
+/**
+ * The POS API's 401 fallback, in one place.
+ *
+ * Some POS endpoints reject the `Authorization: Bearer` header and only accept
+ * the token as a query parameter with an `Authorization: Token` header. Rather
+ * than knowing which is which, every data call tries the header form first and
+ * falls back once on a 401.
+ *
+ * The fallback URL carries the token in its query string, so it must never be
+ * logged — see `redactUrlForLogs` in src/lib/http.ts. That is an upstream
+ * requirement, not a choice made here.
+ */
+async function fetchPosApiWithTokenFallback(
+  input: URL | string,
+  token: string,
+  headers: HeadersInit,
+  init: RequestInit,
+  label: string
+) {
+  const url = typeof input === "string" ? new URL(input) : input
 
-  let response = await fetch(url.toString(), { headers })
+  const response = await httpFetch(url.toString(), {
+    ...init,
+    headers,
+    label,
+    timeoutMs: POS_API_TIMEOUT_MS,
+  })
   if (response.status !== 401) {
     return response
   }
@@ -253,14 +291,24 @@ export async function fetchPosApiWithToken(url: URL, token: string) {
   retryUrl.searchParams.set("api_token", token)
   retryUrl.searchParams.set("token", token)
 
-  response = await fetch(retryUrl.toString(), {
-    headers: {
-      ...headers,
+  return httpFetch(retryUrl.toString(), {
+    ...init,
+    headers: mergeHeaders(headers, {
       Authorization: `Token ${token}`,
-    },
+    }),
+    label: `${label}.tokenFallback`,
+    timeoutMs: POS_API_TIMEOUT_MS,
   })
+}
 
-  return response
+export async function fetchPosApiWithToken(url: URL, token: string) {
+  return fetchPosApiWithTokenFallback(
+    url,
+    token,
+    buildPosApiHeaders(token),
+    {},
+    "pos.fetchWithToken"
+  )
 }
 
 export function buildPosApiHeaders(token: string, headers?: HeadersInit) {
@@ -287,29 +335,13 @@ export async function fetchPosApiWithTokenInit(
   token: string,
   init: RequestInit = {}
 ) {
-  const url = typeof input === "string" ? new URL(input) : input
-  const headers = buildPosApiHeaders(token, init.headers)
-
-  let response = await fetch(url.toString(), {
-    ...init,
-    headers,
-  })
-  if (response.status !== 401) {
-    return response
-  }
-
-  const retryUrl = new URL(url.toString())
-  retryUrl.searchParams.set("api_token", token)
-  retryUrl.searchParams.set("token", token)
-
-  response = await fetch(retryUrl.toString(), {
-    ...init,
-    headers: mergeHeaders(headers, {
-      Authorization: `Token ${token}`,
-    }),
-  })
-
-  return response
+  return fetchPosApiWithTokenFallback(
+    input,
+    token,
+    buildPosApiHeaders(token, init.headers),
+    init,
+    "pos.fetchWithTokenInit"
+  )
 }
 
 export async function fetchPosApiWithSessionInit(
@@ -317,27 +349,11 @@ export async function fetchPosApiWithSessionInit(
   session: PosApiAuthSession,
   init: RequestInit = {}
 ) {
-  const url = typeof input === "string" ? new URL(input) : input
-  const headers = buildPosApiSessionHeaders(session, init.headers)
-
-  let response = await fetch(url.toString(), {
-    ...init,
-    headers,
-  })
-  if (response.status !== 401) {
-    return response
-  }
-
-  const retryUrl = new URL(url.toString())
-  retryUrl.searchParams.set("api_token", session.token)
-  retryUrl.searchParams.set("token", session.token)
-
-  response = await fetch(retryUrl.toString(), {
-    ...init,
-    headers: mergeHeaders(headers, {
-      Authorization: `Token ${session.token}`,
-    }),
-  })
-
-  return response
+  return fetchPosApiWithTokenFallback(
+    input,
+    session.token,
+    buildPosApiSessionHeaders(session, init.headers),
+    init,
+    "pos.fetchWithSessionInit"
+  )
 }

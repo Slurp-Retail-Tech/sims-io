@@ -55,6 +55,15 @@ function getTransporter() {
       user: config.user,
       pass: config.pass,
     },
+    // Without these nodemailer waits on the OS socket timeout, so an SMTP host
+    // that accepts a connection and then stalls holds the request open for
+    // minutes. The transporter is cached and shared, so it is pooled with a
+    // small ceiling rather than opening a connection per send.
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 20_000,
+    pool: true,
+    maxConnections: 3,
   })
 
   return cachedTransporter

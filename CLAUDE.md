@@ -53,7 +53,7 @@ src/app/
 | `src/lib/` | Shared server-side business logic and integrations |
 | `src/components/` | React components; UI primitives under `src/components/ui/` |
 | `src/hooks/` | React hooks |
-| `schema.sql` | Authoritative MySQL schema (snake_case tables/columns) |
+| `schema.sql` | Fresh-import snapshot of the MySQL schema (snake_case). `migrations/` is the source of truth for what production holds; CI exercises both shapes |
 | `docs/` | PRD, TDD, style guide, operational docs |
 | `scripts/` | Database and import scripts |
 

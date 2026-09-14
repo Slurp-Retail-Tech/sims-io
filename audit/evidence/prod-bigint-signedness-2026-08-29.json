@@ -1,0 +1,442 @@
+[
+  {
+    "TABLE_NAME": "auth_tokens",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint unsigned"
+  },
+  {
+    "TABLE_NAME": "auth_tokens",
+    "COLUMN_NAME": "user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "clickup_task_request_attachments",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "clickup_task_request_attachments",
+    "COLUMN_NAME": "clickup_task_request_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "clickup_task_requests",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "clickup_task_requests",
+    "COLUMN_NAME": "ticket_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "clickup_task_requests",
+    "COLUMN_NAME": "created_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "clickup_task_requests",
+    "COLUMN_NAME": "decision_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "contact_outlets",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "contact_outlets",
+    "COLUMN_NAME": "contact_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "contact_outlets",
+    "COLUMN_NAME": "created_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "contact_phone_numbers",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "contact_phone_numbers",
+    "COLUMN_NAME": "contact_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "contacts",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "contacts",
+    "COLUMN_NAME": "created_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "contacts",
+    "COLUMN_NAME": "deleted_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "ticket_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "token_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "csat_tokens",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "csat_tokens",
+    "COLUMN_NAME": "ticket_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "deal_activities",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "deal_activities",
+    "COLUMN_NAME": "deal_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "deal_activities",
+    "COLUMN_NAME": "created_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "deals",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "deals",
+    "COLUMN_NAME": "lead_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "deals",
+    "COLUMN_NAME": "created_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "franchise_cache",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "franchise_cache",
+    "COLUMN_NAME": "job_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "franchise_import_jobs",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "lead_activities",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "lead_activities",
+    "COLUMN_NAME": "lead_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "lead_activities",
+    "COLUMN_NAME": "deal_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "lead_activities",
+    "COLUMN_NAME": "sales_appointment_id",
+    "COLUMN_TYPE": "bigint unsigned"
+  },
+  {
+    "TABLE_NAME": "lead_activities",
+    "COLUMN_NAME": "created_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "leads",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "leads",
+    "COLUMN_NAME": "assigned_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "merchant_import_runs",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint unsigned"
+  },
+  {
+    "TABLE_NAME": "merchant_outlets",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint unsigned"
+  },
+  {
+    "TABLE_NAME": "merchants",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint unsigned"
+  },
+  {
+    "TABLE_NAME": "onboarding_appointment_attachments",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint unsigned"
+  },
+  {
+    "TABLE_NAME": "onboarding_appointment_attachments",
+    "COLUMN_NAME": "appointment_id",
+    "COLUMN_TYPE": "bigint unsigned"
+  },
+  {
+    "TABLE_NAME": "onboarding_appointments",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint unsigned"
+  },
+  {
+    "TABLE_NAME": "onboarding_appointments",
+    "COLUMN_NAME": "created_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "onboarding_appointments",
+    "COLUMN_NAME": "decision_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "onboarding_appointments",
+    "COLUMN_NAME": "assigned_ms_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "onboarding_appointments",
+    "COLUMN_NAME": "canceled_by_user_id",
+    "COLUMN_TYPE": "bigint unsigned"
+  },
+  {
+    "TABLE_NAME": "plus_update_jobs",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_item_comments",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_item_comments",
+    "COLUMN_NAME": "project_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_item_comments",
+    "COLUMN_NAME": "item_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_item_comments",
+    "COLUMN_NAME": "created_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_item_dependencies",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_item_dependencies",
+    "COLUMN_NAME": "project_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_item_dependencies",
+    "COLUMN_NAME": "item_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_item_dependencies",
+    "COLUMN_NAME": "depends_on_item_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_item_dependencies",
+    "COLUMN_NAME": "created_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_items",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_items",
+    "COLUMN_NAME": "project_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_items",
+    "COLUMN_NAME": "parent_item_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_items",
+    "COLUMN_NAME": "assigned_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_items",
+    "COLUMN_NAME": "deleted_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_items",
+    "COLUMN_NAME": "created_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_members",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_members",
+    "COLUMN_NAME": "project_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "project_members",
+    "COLUMN_NAME": "user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "projects",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "projects",
+    "COLUMN_NAME": "created_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "respondio_integration_secrets",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "respondio_integration_secrets",
+    "COLUMN_NAME": "created_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "respondio_integration_secrets",
+    "COLUMN_NAME": "revoked_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "respondio_webhook_events",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "respondio_webhook_events",
+    "COLUMN_NAME": "ticket_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "sales_appointments",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint unsigned"
+  },
+  {
+    "TABLE_NAME": "sales_appointments",
+    "COLUMN_NAME": "lead_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "sales_appointments",
+    "COLUMN_NAME": "created_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "sales_appointments",
+    "COLUMN_NAME": "completed_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "sales_appointments",
+    "COLUMN_NAME": "canceled_by_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "sessions",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint unsigned"
+  },
+  {
+    "TABLE_NAME": "sessions",
+    "COLUMN_NAME": "user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "ticket_categories",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint unsigned"
+  },
+  {
+    "TABLE_NAME": "ticket_categories",
+    "COLUMN_NAME": "parent_id",
+    "COLUMN_TYPE": "bigint unsigned"
+  },
+  {
+    "TABLE_NAME": "ticket_history",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "ticket_history",
+    "COLUMN_NAME": "ticket_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "tickets",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "tickets",
+    "COLUMN_NAME": "contact_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "tickets",
+    "COLUMN_NAME": "ms_pic_user_id",
+    "COLUMN_TYPE": "bigint"
+  },
+  {
+    "TABLE_NAME": "users",
+    "COLUMN_NAME": "id",
+    "COLUMN_TYPE": "bigint"
+  }
+]

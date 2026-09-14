@@ -1,0 +1,254 @@
+[
+  {
+    "CONSTRAINT_NAME": "fk_auth_tokens_user_id",
+    "TABLE_NAME": "auth_tokens",
+    "COLUMN_NAME": "user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_clickup_task_request_attachments_clickup_task_request_id",
+    "TABLE_NAME": "clickup_task_request_attachments",
+    "COLUMN_NAME": "clickup_task_request_id",
+    "REFERENCED_TABLE_NAME": "clickup_task_requests"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_contact_outlets_contact",
+    "TABLE_NAME": "contact_outlets",
+    "COLUMN_NAME": "contact_id",
+    "REFERENCED_TABLE_NAME": "contacts"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_contact_outlets_created_by",
+    "TABLE_NAME": "contact_outlets",
+    "COLUMN_NAME": "created_by_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_contact_phone_numbers_contact",
+    "TABLE_NAME": "contact_phone_numbers",
+    "COLUMN_NAME": "contact_id",
+    "REFERENCED_TABLE_NAME": "contacts"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_contacts_created_by",
+    "TABLE_NAME": "contacts",
+    "COLUMN_NAME": "created_by_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_contacts_deleted_by",
+    "TABLE_NAME": "contacts",
+    "COLUMN_NAME": "deleted_by_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_csat_responses_ticket_id",
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "ticket_id",
+    "REFERENCED_TABLE_NAME": "tickets"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_csat_responses_token_id",
+    "TABLE_NAME": "csat_responses",
+    "COLUMN_NAME": "token_id",
+    "REFERENCED_TABLE_NAME": "csat_tokens"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_csat_tokens_ticket_id",
+    "TABLE_NAME": "csat_tokens",
+    "COLUMN_NAME": "ticket_id",
+    "REFERENCED_TABLE_NAME": "tickets"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_deal_activities_created_by",
+    "TABLE_NAME": "deal_activities",
+    "COLUMN_NAME": "created_by_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_deal_activities_deal_id",
+    "TABLE_NAME": "deal_activities",
+    "COLUMN_NAME": "deal_id",
+    "REFERENCED_TABLE_NAME": "deals"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_deals_created_by",
+    "TABLE_NAME": "deals",
+    "COLUMN_NAME": "created_by_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_deals_lead_id",
+    "TABLE_NAME": "deals",
+    "COLUMN_NAME": "lead_id",
+    "REFERENCED_TABLE_NAME": "leads"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_franchise_cache_job_id",
+    "TABLE_NAME": "franchise_cache",
+    "COLUMN_NAME": "job_id",
+    "REFERENCED_TABLE_NAME": "franchise_import_jobs"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_lead_activities_created_by",
+    "TABLE_NAME": "lead_activities",
+    "COLUMN_NAME": "created_by_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_lead_activities_deal_id",
+    "TABLE_NAME": "lead_activities",
+    "COLUMN_NAME": "deal_id",
+    "REFERENCED_TABLE_NAME": "deals"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_lead_activities_lead_id",
+    "TABLE_NAME": "lead_activities",
+    "COLUMN_NAME": "lead_id",
+    "REFERENCED_TABLE_NAME": "leads"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_lead_activities_sales_appointment_id",
+    "TABLE_NAME": "lead_activities",
+    "COLUMN_NAME": "sales_appointment_id",
+    "REFERENCED_TABLE_NAME": "sales_appointments"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_leads_assigned_user_id",
+    "TABLE_NAME": "leads",
+    "COLUMN_NAME": "assigned_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_onboarding_appointment_attachments_appointment_id",
+    "TABLE_NAME": "onboarding_appointment_attachments",
+    "COLUMN_NAME": "appointment_id",
+    "REFERENCED_TABLE_NAME": "onboarding_appointments"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_item_comments_created_by",
+    "TABLE_NAME": "project_item_comments",
+    "COLUMN_NAME": "created_by_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_item_comments_item",
+    "TABLE_NAME": "project_item_comments",
+    "COLUMN_NAME": "item_id",
+    "REFERENCED_TABLE_NAME": "project_items"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_item_comments_item",
+    "TABLE_NAME": "project_item_comments",
+    "COLUMN_NAME": "project_id",
+    "REFERENCED_TABLE_NAME": "project_items"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_item_deps_created_by",
+    "TABLE_NAME": "project_item_dependencies",
+    "COLUMN_NAME": "created_by_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_item_deps_item",
+    "TABLE_NAME": "project_item_dependencies",
+    "COLUMN_NAME": "item_id",
+    "REFERENCED_TABLE_NAME": "project_items"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_item_deps_item",
+    "TABLE_NAME": "project_item_dependencies",
+    "COLUMN_NAME": "project_id",
+    "REFERENCED_TABLE_NAME": "project_items"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_item_deps_predecessor",
+    "TABLE_NAME": "project_item_dependencies",
+    "COLUMN_NAME": "depends_on_item_id",
+    "REFERENCED_TABLE_NAME": "project_items"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_item_deps_predecessor",
+    "TABLE_NAME": "project_item_dependencies",
+    "COLUMN_NAME": "project_id",
+    "REFERENCED_TABLE_NAME": "project_items"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_items_assigned_user",
+    "TABLE_NAME": "project_items",
+    "COLUMN_NAME": "assigned_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_items_created_by",
+    "TABLE_NAME": "project_items",
+    "COLUMN_NAME": "created_by_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_items_deleted_by",
+    "TABLE_NAME": "project_items",
+    "COLUMN_NAME": "deleted_by_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_items_parent",
+    "TABLE_NAME": "project_items",
+    "COLUMN_NAME": "parent_item_id",
+    "REFERENCED_TABLE_NAME": "project_items"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_items_project",
+    "TABLE_NAME": "project_items",
+    "COLUMN_NAME": "project_id",
+    "REFERENCED_TABLE_NAME": "projects"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_members_project",
+    "TABLE_NAME": "project_members",
+    "COLUMN_NAME": "project_id",
+    "REFERENCED_TABLE_NAME": "projects"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_project_members_user",
+    "TABLE_NAME": "project_members",
+    "COLUMN_NAME": "user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_projects_created_by",
+    "TABLE_NAME": "projects",
+    "COLUMN_NAME": "created_by_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_respondio_secrets_created_by",
+    "TABLE_NAME": "respondio_integration_secrets",
+    "COLUMN_NAME": "created_by_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_respondio_secrets_revoked_by",
+    "TABLE_NAME": "respondio_integration_secrets",
+    "COLUMN_NAME": "revoked_by_user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_sessions_user_id",
+    "TABLE_NAME": "sessions",
+    "COLUMN_NAME": "user_id",
+    "REFERENCED_TABLE_NAME": "users"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_ticket_history_ticket_id",
+    "TABLE_NAME": "ticket_history",
+    "COLUMN_NAME": "ticket_id",
+    "REFERENCED_TABLE_NAME": "tickets"
+  },
+  {
+    "CONSTRAINT_NAME": "fk_tickets_contact",
+    "TABLE_NAME": "tickets",
+    "COLUMN_NAME": "contact_id",
+    "REFERENCED_TABLE_NAME": "contacts"
+  }
+]

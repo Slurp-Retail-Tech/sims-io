@@ -1,7 +1,10 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { pickMerchantNames } from "./merchant-outlet-resolution.ts"
+import {
+  pickMerchantNames,
+  resolveMerchantNames,
+} from "./merchant-outlet-resolution.ts"
 
 test("prefers the franchise-keyed row for both names", () => {
   assert.deepEqual(
@@ -48,4 +51,60 @@ test("returns both names null when nothing resolved", () => {
     franchiseName: null,
     outletName: null,
   })
+})
+
+// resolveMerchantNames runs inside an open transaction on the Respond.io ingest
+// path, so both its query budget and the fact that it uses the caller's
+// connection are load-bearing. A stub Queryable pins both without a database.
+function createStubDb(rows: Array<Array<Record<string, unknown>>>) {
+  const queries: string[] = []
+  let call = 0
+  const db = {
+    async query(sql: string) {
+      queries.push(sql)
+      const result = rows[call] ?? []
+      call += 1
+      return [result, []] as never
+    },
+  }
+  return { db: db as never, queries }
+}
+
+test("skips the outlet fallback when the franchise query answered both names", async () => {
+  const { db, queries } = createStubDb([
+    [{ franchise_name: "Teh Tarik House", outlet_name: "Mid Valley" }],
+  ])
+
+  const names = await resolveMerchantNames(db, "F123", "01")
+
+  assert.deepEqual(names, {
+    franchiseName: "Teh Tarik House",
+    outletName: "Mid Valley",
+  })
+  assert.equal(queries.length, 1)
+})
+
+test("falls back to the outlet-keyed query when the outlet name is missing", async () => {
+  const { db, queries } = createStubDb([
+    [{ franchise_name: "Teh Tarik House", outlet_name: null }],
+    [{ franchise_name: "Kopitiam Sentral", outlet_name: "Mid Valley" }],
+  ])
+
+  const names = await resolveMerchantNames(db, "F123", "01")
+
+  assert.deepEqual(names, {
+    franchiseName: "Teh Tarik House",
+    outletName: "Mid Valley",
+  })
+  assert.equal(queries.length, 2)
+})
+
+test("issues no query at all when neither fid nor oid is usable", async () => {
+  const { db, queries } = createStubDb([])
+
+  assert.deepEqual(await resolveMerchantNames(db, "  ", null), {
+    franchiseName: null,
+    outletName: null,
+  })
+  assert.equal(queries.length, 0)
 })

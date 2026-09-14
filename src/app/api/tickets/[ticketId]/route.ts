@@ -4,11 +4,11 @@ import type { RowDataPacket } from "mysql2"
 import { resolveApiUser } from "@/lib/api-auth"
 import { sendCsatLinkForClosedTicket } from "@/lib/csat-link"
 import {
-  getCsatReferenceColumn,
   getCsatTokenColumn,
   getCsatTokenSelectExpressions,
 } from "@/lib/csat-schema"
-import getPool from "@/lib/db"
+import getPool, { withTransaction } from "@/lib/db"
+import { insertTicketHistory } from "@/lib/ticket-history"
 import { normalizeDateTimeForMysqlInput } from "@/lib/mysql-datetime"
 import { resolveStoredObjectUrl } from "@/lib/storage"
 import { resolveMerchantNames } from "@/lib/merchant-outlet-resolution"
@@ -170,12 +170,13 @@ export async function GET(
     return NextResponse.json({ error: "Ticket not found." }, { status: 404 })
   }
 
-  const [csatTokenTicketColumn, csatResponseTicketColumn, csatTokenColumn] =
-    await Promise.all([
-      getCsatReferenceColumn(pool, "csat_tokens"),
-      getCsatReferenceColumn(pool, "csat_responses"),
-      getCsatTokenColumn(pool),
-    ])
+  // `ticket_id` directly on both tables: the legacy `request_id` spelling is
+  // gone from every deployed shape (confirmed against production 2026-08-29).
+  // The token column still needs probing until migration 030 drops the
+  // plaintext one.
+  const csatTokenTicketColumn = "ticket_id"
+  const csatResponseTicketColumn = "ticket_id"
+  const csatTokenColumn = await getCsatTokenColumn(pool)
   const csatTokenSelectExpressions = getCsatTokenSelectExpressions(csatTokenColumn)
 
   const [tokenRows] = await pool.query<CsatTokenRow[]>(
@@ -296,330 +297,343 @@ export async function PATCH(
   }
   const body = parsedBody.data
 
-  const pool = getPool()
-  const [rows] = await pool.query<TicketDetailRow[]>(
-    `
-    SELECT
-      id,
-      status,
-      hidden,
-      merchant_name,
-      phone_number,
-      fid,
-      oid,
-      source,
-      respondio_contact_id,
-      contact_id,
-      needs_outlet_match,
-      franchise_name_resolved,
-      outlet_name_resolved,
-      issue_type,
-      issue_subcategory1,
-      issue_subcategory2,
-      issue_description,
-      ticket_description,
-      ms_pic_user_id,
-      clickup_task_id,
-      clickup_link,
-      clickup_task_status,
-      clickup_task_status_synced_at,
-      attended_at,
-      merchant_sentiment
-    FROM tickets
-    WHERE id = ?
-    LIMIT 1
-  `,
-    [ticketId]
-  )
-  const current = rows[0]
-  if (!current) {
-    return NextResponse.json({ error: "Ticket not found." }, { status: 404 })
-  }
-
-  const updates: Array<{ column: string; value: string | null | number }> = []
-  const history: Array<{ field: string; oldValue: string | null; newValue: string | null }> = []
-
-  const compareAndPush = (
-    field: string,
-    column: string,
-    oldValue: string | number | null,
-    newValue: string | number | null
-  ) => {
-    const oldNormalized = oldValue == null ? null : String(oldValue)
-    const newNormalized = newValue == null ? null : String(newValue)
-    if (oldNormalized === newNormalized) {
-      return
-    }
-    updates.push({ column, value: newNormalized })
-    history.push({
-      field,
-      oldValue: oldNormalized,
-      newValue: newNormalized,
-    })
-  }
-
-  if (typeof body.status === "string") {
-    compareAndPush("status", "status", current.status, body.status)
-  }
-  if (typeof body.hidden === "boolean") {
-    compareAndPush(
-      "hidden",
-      "hidden",
-      current.hidden ? "1" : "0",
-      body.hidden ? "1" : "0"
-    )
-  }
-  if (typeof body.merchantName === "string") {
-    compareAndPush(
-      "merchant_name",
-      "merchant_name",
-      current.merchant_name,
-      body.merchantName
-    )
-  }
-  if (typeof body.customerPhone === "string") {
-    compareAndPush(
-      "phone_number",
-      "phone_number",
-      current.phone_number,
-      body.customerPhone
-    )
-  }
-
-  // `tickets.fid` / `tickets.oid` are nullable since migration 025, so a cleared
-  // field must be written as NULL rather than the empty string an earlier version of
-  // this route stored. A mixed ''/NULL column is what forced the
-  // `NULLIF(TRIM(fid), '')` guards in the analytics queries; don't add more of them.
-  const submittedFid =
-    typeof body.fid === "string" ? body.fid.trim() || null : undefined
-  const submittedOid =
-    typeof body.oid === "string" ? body.oid.trim() || null : undefined
-
-  const nextFid = submittedFid !== undefined ? submittedFid : current.fid
-  const nextOid = submittedOid !== undefined ? submittedOid : current.oid
-
-  if (submittedFid !== undefined) {
-    compareAndPush("fid", "fid", current.fid, submittedFid)
-  }
-  if (submittedOid !== undefined) {
-    compareAndPush("oid", "oid", current.oid, submittedOid)
-  }
-
-  // Resolve on the franchise alone, not both ids. A Respond.io ticket pre-filled from
-  // a franchise-wide contact mapping has `fid` set and `oid` deliberately unset, and
-  // it still has to show a franchise name.
-  if ((submittedFid !== undefined || submittedOid !== undefined) && nextFid) {
-    const resolved = await resolveMerchantNames(pool, nextFid, nextOid)
-    compareAndPush(
-      "franchise_name_resolved",
-      "franchise_name_resolved",
-      current.franchise_name_resolved,
-      resolved.franchiseName
-    )
-    compareAndPush(
-      "outlet_name_resolved",
-      "outlet_name_resolved",
-      current.outlet_name_resolved,
-      resolved.outletName
-    )
-  }
-
-  // Once both ids are present the ticket is linked, so the manual-match flag clears
-  // itself. This is what the ticket detail page's "Link outlet" action relies on.
-  if (submittedFid !== undefined || submittedOid !== undefined) {
-    const stillNeedsMatch = !(nextFid && nextOid)
-    compareAndPush(
-      "needs_outlet_match",
-      "needs_outlet_match",
-      current.needs_outlet_match ? "1" : "0",
-      stillNeedsMatch ? "1" : "0"
-    )
-  }
-  if (typeof body.category === "string") {
-    compareAndPush("issue_type", "issue_type", current.issue_type, body.category)
-  }
-  if (typeof body.subcategory1 === "string") {
-    compareAndPush(
-      "issue_subcategory1",
-      "issue_subcategory1",
-      current.issue_subcategory1,
-      body.subcategory1
-    )
-  }
-  if (body.subcategory2 !== undefined) {
-    compareAndPush(
-      "issue_subcategory2",
-      "issue_subcategory2",
-      current.issue_subcategory2,
-      body.subcategory2 ?? null
-    )
-  }
-  if (typeof body.issueDescription === "string") {
-    compareAndPush(
-      "issue_description",
-      "issue_description",
-      current.issue_description,
-      body.issueDescription
-    )
-  }
-  if (body.ticketDescription !== undefined) {
-    compareAndPush(
-      "ticket_description",
-      "ticket_description",
-      current.ticket_description,
-      body.ticketDescription ?? null
-    )
-  }
-  if (body.msPicUserId !== undefined) {
-    compareAndPush(
-      "ms_pic_user_id",
-      "ms_pic_user_id",
-      current.ms_pic_user_id,
-      body.msPicUserId ?? null
-    )
-  }
-  if (body.clickupTaskId !== undefined) {
-    compareAndPush(
-      "clickup_task_id",
-      "clickup_task_id",
-      current.clickup_task_id,
-      body.clickupTaskId ?? null
-    )
-  }
-  if (body.clickupLink !== undefined) {
-    compareAndPush(
-      "clickup_link",
-      "clickup_link",
-      current.clickup_link,
-      body.clickupLink ?? null
-    )
-  }
-  if (body.clickupTaskStatus !== undefined) {
-    compareAndPush(
-      "clickup_task_status",
-      "clickup_task_status",
-      current.clickup_task_status,
-      body.clickupTaskStatus ?? null
-    )
-  }
-  if (body.clickupTaskStatusSyncedAt !== undefined) {
-    const normalizedSyncedAt = normalizeDateTimeForMysqlInput(
-      body.clickupTaskStatusSyncedAt
-    )
-    compareAndPush(
-      "clickup_task_status_synced_at",
-      "clickup_task_status_synced_at",
-      current.clickup_task_status_synced_at,
-      normalizedSyncedAt
-    )
-  }
-  if (body.merchantSentiment !== undefined) {
-    compareAndPush(
-      "merchant_sentiment",
-      "merchant_sentiment",
-      current.merchant_sentiment,
-      body.merchantSentiment ?? null
-    )
-  }
-
-  if (body.attend === true && !current.attended_at) {
-    const [nowRows] = await pool.query<RowDataPacket[]>(
-      "SELECT CAST(UTC_TIMESTAMP(3) AS CHAR) AS now_value"
-    )
-    const attendedAtValue = String(nowRows[0]?.now_value ?? "").slice(0, 23)
-    if (attendedAtValue) {
-      compareAndPush(
-        "attended_at",
-        "attended_at",
-        current.attended_at,
-        attendedAtValue
-      )
-    }
-  }
-
-  if (!updates.length) {
-    return NextResponse.json({ ok: true, updated: false })
-  }
-
-  const actorId = resolveTicketHistoryActor(user)
-  const setClauses: string[] = []
-  const paramsList: Array<string | null | number> = []
-
-  updates.forEach((item) => {
-    setClauses.push(`${item.column} = ?`)
-    paramsList.push(item.value)
-  })
-
-  const nextStatus = body.status ?? current.status
-  setClauses.push("updated_by = ?")
-  paramsList.push(actorId)
-
-  const transitionedToClosed = isClosedStatus(nextStatus) && !isClosedStatus(current.status)
-
-  if (transitionedToClosed) {
-    setClauses.push("closed_at = NOW(3)")
-  } else if (!isClosedStatus(nextStatus) && isClosedStatus(current.status)) {
-    setClauses.push("closed_at = NULL")
-  }
-
-  await pool.query(
-    `
-    UPDATE tickets
-    SET ${setClauses.join(", ")}
-    WHERE id = ?
-  `,
-    [...paramsList, ticketId]
-  )
-
-  for (const item of history) {
-    await pool.query(
+  // One transaction from the current-state read to the mapping write. The read
+  // is FOR UPDATE because the diff below computes every old_value from it:
+  // unlocked, two concurrent PATCHes each diff against a stale snapshot and both
+  // record history describing a state the other already replaced. The CSAT
+  // dispatch is deliberately left outside — it makes a network call.
+  const outcome = await withTransaction(async (connection) => {
+    const [rows] = await connection.query<TicketDetailRow[]>(
       `
-      INSERT INTO ticket_history (
-        ticket_id,
-        field_name,
-        old_value,
-        new_value,
-        changed_by
-      )
-      VALUES (?, ?, ?, ?, ?)
+      SELECT
+        id,
+        status,
+        hidden,
+        merchant_name,
+        phone_number,
+        fid,
+        oid,
+        source,
+        respondio_contact_id,
+        contact_id,
+        needs_outlet_match,
+        franchise_name_resolved,
+        outlet_name_resolved,
+        issue_type,
+        issue_subcategory1,
+        issue_subcategory2,
+        issue_description,
+        ticket_description,
+        ms_pic_user_id,
+        clickup_task_id,
+        clickup_link,
+        clickup_task_status,
+        clickup_task_status_synced_at,
+        attended_at,
+        merchant_sentiment
+      FROM tickets
+      WHERE id = ?
+      LIMIT 1
+      FOR UPDATE
     `,
-      [ticketId, item.field, item.oldValue, item.newValue, actorId]
+      [ticketId]
     )
-  }
+    const current = rows[0]
+    if (!current) {
+      return { notFound: true } as const
+    }
 
-  // Manual outlet linking (Respond.io PRD 4.5): confirming an outlet on a flagged
-  // ticket teaches the contact directory, so the next ticket from the same contact
-  // auto-links. Nothing is written when the contact already holds a franchise-wide
-  // mapping covering that franchise — the row would be redundant and the Contacts
-  // overlap rule forbids it (AC13).
-  let mappingWritten = false
-  if (
-    current.contact_id &&
-    nextFid &&
-    nextOid &&
-    (submittedFid !== undefined || submittedOid !== undefined)
-  ) {
-    const connection = await pool.getConnection()
-    try {
-      await connection.beginTransaction()
+    const updates: Array<{ column: string; value: string | null | number }> = []
+    const history: Array<{ field: string; oldValue: string | null; newValue: string | null }> = []
+
+    const compareAndPush = (
+      field: string,
+      column: string,
+      oldValue: string | number | null,
+      newValue: string | number | null
+    ) => {
+      const oldNormalized = oldValue == null ? null : String(oldValue)
+      const newNormalized = newValue == null ? null : String(newValue)
+      if (oldNormalized === newNormalized) {
+        return
+      }
+      updates.push({ column, value: newNormalized })
+      history.push({
+        field,
+        oldValue: oldNormalized,
+        newValue: newNormalized,
+      })
+    }
+
+    if (typeof body.status === "string") {
+      compareAndPush("status", "status", current.status, body.status)
+    }
+    if (typeof body.hidden === "boolean") {
+      compareAndPush(
+        "hidden",
+        "hidden",
+        current.hidden ? "1" : "0",
+        body.hidden ? "1" : "0"
+      )
+    }
+    if (typeof body.merchantName === "string") {
+      compareAndPush(
+        "merchant_name",
+        "merchant_name",
+        current.merchant_name,
+        body.merchantName
+      )
+    }
+    if (typeof body.customerPhone === "string") {
+      compareAndPush(
+        "phone_number",
+        "phone_number",
+        current.phone_number,
+        body.customerPhone
+      )
+    }
+
+    // `tickets.fid` / `tickets.oid` are nullable since migration 025, so a cleared
+    // field must be written as NULL rather than the empty string an earlier version of
+    // this route stored. A mixed ''/NULL column is what forced the
+    // `NULLIF(TRIM(fid), '')` guards in the analytics queries; don't add more of them.
+    const submittedFid =
+      typeof body.fid === "string" ? body.fid.trim() || null : undefined
+    const submittedOid =
+      typeof body.oid === "string" ? body.oid.trim() || null : undefined
+
+    const nextFid = submittedFid !== undefined ? submittedFid : current.fid
+    const nextOid = submittedOid !== undefined ? submittedOid : current.oid
+
+    if (submittedFid !== undefined) {
+      compareAndPush("fid", "fid", current.fid, submittedFid)
+    }
+    if (submittedOid !== undefined) {
+      compareAndPush("oid", "oid", current.oid, submittedOid)
+    }
+
+    // Resolve on the franchise alone, not both ids. A Respond.io ticket pre-filled from
+    // a franchise-wide contact mapping has `fid` set and `oid` deliberately unset, and
+    // it still has to show a franchise name.
+    if ((submittedFid !== undefined || submittedOid !== undefined) && nextFid) {
+      const resolved = await resolveMerchantNames(connection, nextFid, nextOid)
+      compareAndPush(
+        "franchise_name_resolved",
+        "franchise_name_resolved",
+        current.franchise_name_resolved,
+        resolved.franchiseName
+      )
+      compareAndPush(
+        "outlet_name_resolved",
+        "outlet_name_resolved",
+        current.outlet_name_resolved,
+        resolved.outletName
+      )
+    }
+
+    // Once both ids are present the ticket is linked, so the manual-match flag clears
+    // itself. This is what the ticket detail page's "Link outlet" action relies on.
+    if (submittedFid !== undefined || submittedOid !== undefined) {
+      const stillNeedsMatch = !(nextFid && nextOid)
+      compareAndPush(
+        "needs_outlet_match",
+        "needs_outlet_match",
+        current.needs_outlet_match ? "1" : "0",
+        stillNeedsMatch ? "1" : "0"
+      )
+    }
+    if (typeof body.category === "string") {
+      compareAndPush("issue_type", "issue_type", current.issue_type, body.category)
+    }
+    if (typeof body.subcategory1 === "string") {
+      compareAndPush(
+        "issue_subcategory1",
+        "issue_subcategory1",
+        current.issue_subcategory1,
+        body.subcategory1
+      )
+    }
+    if (body.subcategory2 !== undefined) {
+      compareAndPush(
+        "issue_subcategory2",
+        "issue_subcategory2",
+        current.issue_subcategory2,
+        body.subcategory2 ?? null
+      )
+    }
+    if (typeof body.issueDescription === "string") {
+      compareAndPush(
+        "issue_description",
+        "issue_description",
+        current.issue_description,
+        body.issueDescription
+      )
+    }
+    if (body.ticketDescription !== undefined) {
+      compareAndPush(
+        "ticket_description",
+        "ticket_description",
+        current.ticket_description,
+        body.ticketDescription ?? null
+      )
+    }
+    if (body.msPicUserId !== undefined) {
+      compareAndPush(
+        "ms_pic_user_id",
+        "ms_pic_user_id",
+        current.ms_pic_user_id,
+        body.msPicUserId ?? null
+      )
+    }
+    if (body.clickupTaskId !== undefined) {
+      compareAndPush(
+        "clickup_task_id",
+        "clickup_task_id",
+        current.clickup_task_id,
+        body.clickupTaskId ?? null
+      )
+    }
+    if (body.clickupLink !== undefined) {
+      compareAndPush(
+        "clickup_link",
+        "clickup_link",
+        current.clickup_link,
+        body.clickupLink ?? null
+      )
+    }
+    if (body.clickupTaskStatus !== undefined) {
+      compareAndPush(
+        "clickup_task_status",
+        "clickup_task_status",
+        current.clickup_task_status,
+        body.clickupTaskStatus ?? null
+      )
+    }
+    if (body.clickupTaskStatusSyncedAt !== undefined) {
+      const normalizedSyncedAt = normalizeDateTimeForMysqlInput(
+        body.clickupTaskStatusSyncedAt
+      )
+      compareAndPush(
+        "clickup_task_status_synced_at",
+        "clickup_task_status_synced_at",
+        current.clickup_task_status_synced_at,
+        normalizedSyncedAt
+      )
+    }
+    if (body.merchantSentiment !== undefined) {
+      compareAndPush(
+        "merchant_sentiment",
+        "merchant_sentiment",
+        current.merchant_sentiment,
+        body.merchantSentiment ?? null
+      )
+    }
+
+    if (body.attend === true && !current.attended_at) {
+      const [nowRows] = await connection.query<RowDataPacket[]>(
+        "SELECT CAST(UTC_TIMESTAMP(3) AS CHAR) AS now_value"
+      )
+      const attendedAtValue = String(nowRows[0]?.now_value ?? "").slice(0, 23)
+      if (attendedAtValue) {
+        compareAndPush(
+          "attended_at",
+          "attended_at",
+          current.attended_at,
+          attendedAtValue
+        )
+      }
+    }
+
+    if (!updates.length) {
+      return { updated: false } as const
+    }
+
+    const actorId = resolveTicketHistoryActor(user)
+    const setClauses: string[] = []
+    const paramsList: Array<string | null | number> = []
+
+    updates.forEach((item) => {
+      setClauses.push(`${item.column} = ?`)
+      paramsList.push(item.value)
+    })
+
+    const nextStatus = body.status ?? current.status
+    setClauses.push("updated_by = ?")
+    paramsList.push(actorId)
+
+    const transitionedToClosed = isClosedStatus(nextStatus) && !isClosedStatus(current.status)
+
+    if (transitionedToClosed) {
+      setClauses.push("closed_at = NOW(3)")
+    } else if (!isClosedStatus(nextStatus) && isClosedStatus(current.status)) {
+      setClauses.push("closed_at = NULL")
+    }
+
+    await connection.query(
+      `
+      UPDATE tickets
+      SET ${setClauses.join(", ")}
+      WHERE id = ?
+    `,
+      [...paramsList, ticketId]
+    )
+
+    await insertTicketHistory(
+      connection,
+      ticketId,
+      history.map((item) => ({
+        field: item.field,
+        oldValue: item.oldValue,
+        newValue: item.newValue,
+      })),
+      actorId
+    )
+
+    // Manual outlet linking (Respond.io PRD 4.5): confirming an outlet on a flagged
+    // ticket teaches the contact directory, so the next ticket from the same contact
+    // auto-links. Nothing is written when the contact already holds a franchise-wide
+    // mapping covering that franchise — the row would be redundant and the Contacts
+    // overlap rule forbids it (AC13).
+    // Manual outlet linking now shares the ticket update's transaction. Its
+    // failure is therefore fatal, where it used to be swallowed with a
+    // console.error: with the whole PATCH atomic and safe to retry, a mapping the
+    // agent explicitly confirmed silently not persisting is the worse outcome.
+    let mappingWritten = false
+    if (
+      current.contact_id &&
+      nextFid &&
+      nextOid &&
+      (submittedFid !== undefined || submittedOid !== undefined)
+    ) {
       const result = await persistManualOutletMapping(connection, {
         contactId: String(current.contact_id),
         franchiseId: nextFid,
         outletId: nextOid,
         userId: actorId,
       })
-      await connection.commit()
       mappingWritten = result.inserted
-    } catch (error) {
-      await connection.rollback()
-      // The ticket update already succeeded and is the thing the agent asked for.
-      // Failing the whole request now would report a false negative and invite a
-      // retry that re-applies nothing.
-      console.error("Failed to persist contact outlet mapping", error)
-    } finally {
-      connection.release()
     }
+
+    return {
+      updated: true,
+      mappingWritten,
+      transitionedToClosed,
+      actorId,
+      // Carried out of the transaction for the CSAT dispatch below, which runs
+      // outside it.
+      respondioContactId: current.respondio_contact_id,
+      phone: body.customerPhone ?? current.phone_number,
+      merchantName: body.merchantName ?? current.merchant_name,
+    } as const
+  })
+
+  if ("notFound" in outcome) {
+    return NextResponse.json({ error: "Ticket not found." }, { status: 404 })
   }
+  if (!outcome.updated) {
+    return NextResponse.json({ ok: true, updated: false })
+  }
+  const { mappingWritten, transitionedToClosed } = outcome
 
   // CSAT on close (Respond.io outbound): closing a Respond.io-sourced ticket pushes the
   // survey link into the same WhatsApp conversation the merchant already used, so the
@@ -634,12 +648,12 @@ export async function PATCH(
   let csatAutoSend: CsatDispatchResult | null = null
   if (transitionedToClosed) {
     try {
-      csatAutoSend = await sendCsatLinkForClosedTicket(pool, {
+      csatAutoSend = await sendCsatLinkForClosedTicket({
         ticketId: String(ticketId),
-        respondioContactId: current.respondio_contact_id,
-        phone: body.customerPhone ?? current.phone_number,
-        merchantName: body.merchantName ?? current.merchant_name,
-        actorId,
+        respondioContactId: outcome.respondioContactId,
+        phone: outcome.phone,
+        merchantName: outcome.merchantName,
+        actorId: outcome.actorId,
       })
     } catch (error) {
       console.error("Failed to send CSAT link on ticket close", error)

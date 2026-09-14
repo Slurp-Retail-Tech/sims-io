@@ -20,12 +20,13 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2"
 
 import { hashOpaqueToken, resolveAppBaseUrl } from "@/lib/auth"
 import {
-  getCsatReferenceColumn,
   getCsatTokenColumn,
   getCsatTokenSelectExpressions,
   getCsatTokenStorageValue,
 } from "@/lib/csat-schema"
-import type getPool from "@/lib/db"
+import { withTransaction } from "@/lib/db"
+import type { Queryable } from "@/lib/db"
+import { insertTicketHistory } from "@/lib/ticket-history"
 import {
   CSAT_SEND_FAILED_HISTORY_FIELD,
   CSAT_SHARED_HISTORY_FIELD,
@@ -38,7 +39,6 @@ import type { CsatDispatchResult } from "@/lib/respondio-csat"
 /** Days a freshly minted survey token stays valid. Matches the manual share flow. */
 const TOKEN_TTL_DAYS = 3
 
-type Pool = ReturnType<typeof getPool>
 
 type CsatTokenRow = RowDataPacket & {
   id: string
@@ -75,16 +75,17 @@ export type IssuedCsatLink = {
  * "shared" are separate events with different actors.
  */
 export async function issueCsatLink(
-  pool: Pool,
+  db: Queryable,
   ticketId: string
 ): Promise<IssuedCsatLink | null> {
-  const [ticketColumn, tokenColumn] = await Promise.all([
-    getCsatReferenceColumn(pool, "csat_tokens"),
-    getCsatTokenColumn(pool),
-  ])
+  // `ticket_id` directly: the legacy `request_id` spelling is gone from every
+  // deployed shape (confirmed against production 2026-08-29), so probing
+  // information_schema for it on each call bought nothing.
+  const ticketColumn = "ticket_id"
+  const tokenColumn = await getCsatTokenColumn(db)
   const selectExpressions = getCsatTokenSelectExpressions(tokenColumn)
 
-  const [tokenRows] = await pool.query<CsatTokenRow[]>(
+  const [tokenRows] = await db.query<CsatTokenRow[]>(
     `
     SELECT id, ${selectExpressions}, expires_at, used_at
     FROM csat_tokens
@@ -108,7 +109,7 @@ export async function issueCsatLink(
     return { token: existing.token, expiresAt: existing.expires_at, generated: false }
   }
 
-  await pool.query(
+  await db.query(
     `
     UPDATE csat_tokens
     SET used_at = COALESCE(used_at, NOW(3))
@@ -125,7 +126,7 @@ export async function issueCsatLink(
     hashOpaqueToken(rawToken)
   )
 
-  const [insertResult] = await pool.query<ResultSetHeader>(
+  const [insertResult] = await db.query<ResultSetHeader>(
     `
     INSERT INTO csat_tokens (${ticketColumn}, ${tokenColumn}, expires_at)
     VALUES (?, ?, DATE_ADD(NOW(3), INTERVAL ${TOKEN_TTL_DAYS} DAY))
@@ -133,7 +134,7 @@ export async function issueCsatLink(
     [ticketId, tokenValue]
   )
 
-  const [insertedRows] = await pool.query<InsertedTokenRow[]>(
+  const [insertedRows] = await db.query<InsertedTokenRow[]>(
     `
     SELECT expires_at
     FROM csat_tokens
@@ -177,42 +178,62 @@ export function buildCsatUrl(token: string): string {
  *
  * Returns the outcome for the response body; never throws.
  */
-export async function sendCsatLinkForClosedTicket(
-  pool: Pool,
-  params: {
-    ticketId: string
-    respondioContactId: string | null
-    phone: string | null
-    merchantName: string | null
-    actorId: string
-  }
-): Promise<CsatDispatchResult> {
-  const alreadyShared = await hasSharedCsatLink(pool, params.ticketId)
-  const decision = resolveCsatAutoSendDecision({
-    respondioContactId: params.respondioContactId,
-    alreadyShared,
-    configured: isCsatAutoSendConfigured(),
+export async function sendCsatLinkForClosedTicket(params: {
+  ticketId: string
+  respondioContactId: string | null
+  phone: string | null
+  merchantName: string | null
+  actorId: string
+}): Promise<CsatDispatchResult> {
+  // Transaction 1: decide and mint. issueCsatLink supersedes any live token and
+  // then inserts a replacement — two writes that must not be separable, or a
+  // crash between them leaves the ticket with every token consumed and no live
+  // one. The generated-token history row belongs with them.
+  const link = await withTransaction(async (connection) => {
+    const alreadyShared = await hasSharedCsatLink(connection, params.ticketId)
+    const decision = resolveCsatAutoSendDecision({
+      respondioContactId: params.respondioContactId,
+      alreadyShared,
+      configured: isCsatAutoSendConfigured(),
+    })
+
+    if (!decision.send) {
+      return { skipped: decision.reason } as const
+    }
+
+    const issued = await issueCsatLink(connection, params.ticketId)
+    if (!issued) {
+      return null
+    }
+
+    if (issued.generated) {
+      await insertTicketHistory(
+        connection,
+        params.ticketId,
+        [
+          {
+            field: "csat_token_generated",
+            oldValue: null,
+            newValue: "[generated]",
+          },
+        ],
+        params.actorId
+      )
+    }
+
+    return issued
   })
 
-  if (!decision.send) {
-    return { status: "skipped", reason: decision.reason }
+  if (link && "skipped" in link) {
+    return { status: "skipped", reason: link.skipped }
   }
-
-  const link = await issueCsatLink(pool, params.ticketId)
   if (!link) {
     return { status: "failed", error: "Unable to issue a CSAT token." }
   }
 
-  if (link.generated) {
-    await recordHistory(
-      pool,
-      params.ticketId,
-      "csat_token_generated",
-      "[generated]",
-      params.actorId
-    )
-  }
-
+  // The dispatch is a network call and stays outside every transaction: holding
+  // a row lock open across an HTTP round trip is how a slow upstream turns into
+  // database contention.
   const result = await dispatchCsatLink({
     ticketId: params.ticketId,
     // Non-null by the decision above; narrowed here for the type checker.
@@ -223,25 +244,43 @@ export async function sendCsatLinkForClosedTicket(
     expiresAt: link.expiresAt,
   })
 
+  // Transaction 2: record the outcome. Nothing else is in it, so there is
+  // nothing for a swallowed error to protect — a failure here surfaces rather
+  // than leaving the dispatch unrecorded.
   if (result.status === "sent") {
-    // `NOW(3)` rather than a JS timestamp, so the row is byte-identical to the one the
-    // manual share button writes and the audit trail renders them the same way.
-    await recordHistory(
-      pool,
-      params.ticketId,
-      CSAT_SHARED_HISTORY_FIELD,
-      "NOW(3)",
-      params.actorId
+    // NOW(3) rather than a JS timestamp, so the row is byte-identical to the one
+    // the manual share button writes and the audit trail renders them the same.
+    await withTransaction((connection) =>
+      insertTicketHistory(
+        connection,
+        params.ticketId,
+        [
+          {
+            field: CSAT_SHARED_HISTORY_FIELD,
+            oldValue: null,
+            newValue: null,
+            newValueIsNow: true,
+          },
+        ],
+        params.actorId
+      )
     )
   } else if (result.status === "failed") {
-    // Logged rather than swallowed: an agent seeing "Not Sent" on a closed ticket needs
-    // to know the automation tried, so they fall back to the manual share button.
-    await recordHistory(
-      pool,
-      params.ticketId,
-      CSAT_SEND_FAILED_HISTORY_FIELD,
-      result.error.slice(0, 500),
-      params.actorId
+    // Recorded rather than dropped: an agent seeing "Not Sent" on a closed ticket
+    // needs to know the automation tried, so they fall back to manual share.
+    await withTransaction((connection) =>
+      insertTicketHistory(
+        connection,
+        params.ticketId,
+        [
+          {
+            field: CSAT_SEND_FAILED_HISTORY_FIELD,
+            oldValue: null,
+            newValue: result.error.slice(0, 500),
+          },
+        ],
+        params.actorId
+      )
     )
   }
 
@@ -255,8 +294,11 @@ export async function sendCsatLinkForClosedTicket(
  * legacy field names older rows carry, so a link shared before this feature existed
  * still suppresses the automatic send.
  */
-async function hasSharedCsatLink(pool: Pool, ticketId: string): Promise<boolean> {
-  const [rows] = await pool.query<RowDataPacket[]>(
+async function hasSharedCsatLink(
+  db: Queryable,
+  ticketId: string
+): Promise<boolean> {
+  const [rows] = await db.query<RowDataPacket[]>(
     `
     SELECT 1
     FROM ticket_history
@@ -269,30 +311,3 @@ async function hasSharedCsatLink(pool: Pool, ticketId: string): Promise<boolean>
   return rows.length > 0
 }
 
-/**
- * Append one audit row. `newValue` of the literal string `NOW(3)` is written as the SQL
- * function rather than as text, matching the manual share route's timestamp format.
- */
-async function recordHistory(
-  pool: Pool,
-  ticketId: string,
-  field: string,
-  newValue: string,
-  actorId: string
-): Promise<void> {
-  const isTimestamp = newValue === "NOW(3)"
-  await pool
-    .query(
-      `
-      INSERT INTO ticket_history (ticket_id, field_name, old_value, new_value, changed_by)
-      VALUES (?, ?, NULL, ${isTimestamp ? "NOW(3)" : "?"}, ?)
-    `,
-      isTimestamp
-        ? [ticketId, field, actorId]
-        : [ticketId, field, newValue, actorId]
-    )
-    .catch((error) => {
-      // Bookkeeping must not mask the send's own outcome.
-      console.error(`Failed to record ${field} on ticket ${ticketId}`, error)
-    })
-}

@@ -46,6 +46,26 @@ jobs:
             exit 1
           fi
 
+      # Node's fetch has no default timeout, so a bare call can hang a request
+      # or an import job indefinitely. src/lib/http.ts is the only place allowed
+      # to call it directly.
+      # The manifest is only useful if it is exhaustive, and nothing else forces
+      # that: a new process.env read ships green and breaks a feature hours
+      # later in an environment nobody set it in.
+      - name: Assert the env manifest is exhaustive and in sync
+        run: node .github/scripts/check-env-manifest.mjs
+
+      - name: Assert no bare server-side fetch
+        run: |
+          # upload-client.ts is browser-side (it takes a File and posts to a
+          # relative URL); the browser applies its own network handling there.
+          if grep -rn "await fetch(" src/lib src/app/api \
+            | grep -v "^src/lib/http.ts:" \
+            | grep -v "^src/lib/upload-client.ts:"; then
+            echo "::error::Bare 'await fetch(' in server code — use httpFetch from src/lib/http.ts so the call has a timeout."
+            exit 1
+          fi
+
   build:
     name: Docker image build
     runs-on: ubuntu-latest
@@ -68,9 +88,17 @@ jobs:
           build-args: |
             NEXT_PUBLIC_RECAPTCHA_SITE_KEY=ci-placeholder
             NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=ci-placeholder
+            NEXT_PUBLIC_CLICKUP_ENABLED=ci-placeholder
+            NEXT_PUBLIC_GTM_ID=ci-placeholder
+            NEXT_PUBLIC_META_PIXEL_ID=ci-placeholder
+            NEXT_PUBLIC_SENTRY_DSN=ci-placeholder
+            NEXT_PUBLIC_SUPPORT_CONTACT=ci-placeholder
+            NEXT_PUBLIC_SUPPORT_EMAIL=ci-placeholder
+            NEXT_PUBLIC_SUPPORT_PHONE=ci-placeholder
+            NEXT_PUBLIC_SUPPORT_WHATSAPP=ci-placeholder
 
       # This is what stops a silent .dockerignore regression from shipping an
-      # image the pre-deployment migration command cannot run in.
+      # image the post-deployment migration command cannot run in.
       - name: Assert the image contains the migration runner and SQL
         run: |
           docker run --rm --entrypoint sh sims-ci:${{ github.sha }} -c '
@@ -96,10 +124,30 @@ jobs:
       - name: Assert migrations/ is append-only
         run: |
           BASE="$(git merge-base origin/${{ github.base_ref }} HEAD)"
-          VIOLATIONS="$(git diff --name-status "$BASE"...HEAD -- migrations/ | grep -v '^A' || true)"
+          # fixtures/ is excluded: it tracks production's shape and must be
+          # editable as production changes, unlike an applied migration.
+          VIOLATIONS="$(git diff --name-status "$BASE"...HEAD -- migrations/ ':(exclude)migrations/fixtures/' | grep -v '^A' || true)"
           if [ -n "$VIOLATIONS" ]; then
             echo "::error::migrations/ is append-only; applied migrations must never be edited or deleted:"
             echo "$VIOLATIONS"
+            exit 1
+          fi
+
+      # Ratchet, not a sweep: the existing console.* calls in server code are
+      # migrated opportunistically, but a PR may not add new ones. Structured
+      # logging is what makes a failure filterable and tied to a request id.
+      - name: Assert no new console.* in server code
+        run: |
+          BASE="$(git merge-base origin/${{ github.base_ref }} HEAD)"
+          # Strips the leading +, then ignores comment lines so a doc comment
+          # that merely mentions console.error does not trip the guard.
+          ADDED="$(git diff -U0 "$BASE"...HEAD -- src/lib src/app/api \
+            | grep '^+' | grep -v '^+++' | sed 's/^+//' \
+            | grep -vE '^\s*(//|\*|/\*)' \
+            | grep -E 'console\.(log|info|warn|error|debug)' || true)"
+          if [ -n "$ADDED" ]; then
+            echo "::error::New console.* call in server code — use createLogger from src/lib/logger.ts."
+            echo "$ADDED"
             exit 1
           fi
 
@@ -111,9 +159,17 @@ jobs:
         run: node .github/scripts/check-release-metadata.mjs origin/${{ github.base_ref }}
 
   migrations:
-    name: Migration runner (MySQL 8.4)
+    name: Migration runner (${{ matrix.shape }}, MySQL 8.4)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # Two shapes, because loading only schema.sql tested a database that exists
+    # nowhere. `fresh` is a new install; `production` is the shape the live
+    # database actually has, so a migration whose real target is production
+    # (029 converging plaintext CSAT tokens) is exercised against it.
+    strategy:
+      fail-fast: false
+      matrix:
+        shape: [fresh, production]
     services:
       mysql:
         image: mysql:8.4
@@ -142,8 +198,13 @@ jobs:
       - name: Parse-only verify (all DELIMITER files split cleanly)
         run: node scripts/migrate.mjs verify
 
-      - name: Load schema.sql (the semantic state at 025)
-        run: mysql -h127.0.0.1 -uroot -pci-root sims_ci < schema.sql
+      - name: Load the ${{ matrix.shape }} shape (the semantic state at 025)
+        run: |
+          if [ "${{ matrix.shape }}" = "production" ]; then
+            mysql -h127.0.0.1 -uroot -pci-root sims_ci < migrations/fixtures/prod-shape-025.sql
+          else
+            mysql -h127.0.0.1 -uroot -pci-root sims_ci < schema.sql
+          fi
 
       - name: Baseline through 025
         run: node scripts/migrate.mjs baseline --through 025 --yes

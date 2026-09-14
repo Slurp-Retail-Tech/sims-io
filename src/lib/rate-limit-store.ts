@@ -5,6 +5,8 @@
  * Falls back to an in-memory Map for local development only.
  */
 
+import { createLogger } from "./logger.ts"
+
 type InMemoryEntry = {
   count: number
   resetAt: number // Unix ms
@@ -53,7 +55,7 @@ async function getRedisClient(): Promise<import("redis").RedisClientType> {
   const client = createClient({ url: process.env.REDIS_URL }) as import("redis").RedisClientType
 
   client.on("error", (err: unknown) => {
-    console.error("[rate-limit-store] Redis error:", err)
+    createLogger("rate-limit-store").error("Redis error", err)
   })
 
   if (!redisConnectPromise) {
@@ -88,6 +90,16 @@ return {count, ttl}
  * Throws `RateLimitStoreUnavailableError` when Redis is down in production
  * so the caller can fail closed (429) instead of erroring (500).
  */
+/**
+ * Liveness probe for Redis, reusing the same lazily-created client the rate
+ * limiter uses so a health check never opens a second connection. Throws when
+ * Redis is unreachable.
+ */
+export async function pingRedisStore(): Promise<void> {
+  const client = await getRedisClient()
+  await client.ping()
+}
+
 export async function incrementRateLimitKey(
   key: string,
   windowSeconds: number
@@ -116,7 +128,10 @@ export async function incrementRateLimitKey(
       if (process.env.NODE_ENV === "production") {
         throw new RateLimitStoreUnavailableError(err)
       }
-      console.warn("[rate-limit-store] Redis unavailable, falling back to in-memory store:", err)
+      createLogger("rate-limit-store").warn(
+        "Redis unavailable, falling back to in-memory store",
+        { error: err instanceof Error ? err.message : String(err) }
+      )
     }
   }
 

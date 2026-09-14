@@ -2,7 +2,6 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import {
-  assertRateLimitConfig,
   checkRateLimit,
   getRateLimitIp,
 } from "./rate-limit.ts"
@@ -45,17 +44,5 @@ test("ignores x-forwarded-for unless TRUSTED_PROXY is set", () => {
   } finally {
     if (original === undefined) delete process.env.TRUSTED_PROXY
     else process.env.TRUSTED_PROXY = original
-  }
-})
-
-test("assertRateLimitConfig only bites in production", () => {
-  const originalProxy = process.env.TRUSTED_PROXY
-  try {
-    delete process.env.TRUSTED_PROXY
-    // NODE_ENV is not "production" under the test runner.
-    assert.doesNotThrow(() => assertRateLimitConfig())
-  } finally {
-    if (originalProxy === undefined) delete process.env.TRUSTED_PROXY
-    else process.env.TRUSTED_PROXY = originalProxy
   }
 })

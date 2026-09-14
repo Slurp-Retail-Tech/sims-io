@@ -543,19 +543,35 @@ export default function PlusPage() {
     })
 
     try {
-      const response = await fetch(`/api/plus/update/${jobId}/start`, {
-        method: "POST",
-        headers: {
-        },
-      })
-
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { error?: string } | null
-        throw new Error(payload?.error ?? "Unable to start PLUS update.")
-      }
-
       let finished = false
+      // Bounded, unlike the previous `while (!finished)`: a run stranded by a
+      // deploy used to leave this loop polling a status that never changed, so
+      // the tab span forever with no way out. At 1.5s per pass this allows
+      // roughly two hours before giving up and telling the user to reopen.
+      const MAX_POLLS = 4800
+      let polls = 0
+
       while (!finished) {
+        if (polls >= MAX_POLLS) {
+          throw new Error(
+            "PLUS update is taking longer than expected. It is still running in the background — reopen this page to check on it."
+          )
+        }
+        polls += 1
+
+        // `start` is an idempotent advance, so calling it each pass drives the
+        // job while this tab is open. It returns immediately when the cron tick
+        // or another tab already holds the lock.
+        const response = await fetch(`/api/plus/update/${jobId}/start`, {
+          method: "POST",
+        })
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => null)) as {
+            error?: string
+          } | null
+          throw new Error(payload?.error ?? "Unable to advance PLUS update.")
+        }
+
         await new Promise((resolve) => setTimeout(resolve, 1500))
         const statusResponse = await fetch(`/api/plus/update/${jobId}/status`, {
         })
