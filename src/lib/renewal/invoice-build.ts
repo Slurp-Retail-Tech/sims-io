@@ -211,7 +211,11 @@ export function buildInvoiceDraft(input: {
   return {
     groupKey: group.groupKey,
     franchiseId: group.franchiseId,
-    isGrouped: group.isGrouped,
+    // Reflects what the invoice actually bills, not whether the franchise has
+    // grouping switched on. A franchise set to group whose outlets happen not
+    // to share an expiry date produces single-outlet invoices, and calling
+    // those "grouped" tells the reader something untrue.
+    isGrouped: lines.length > 1,
     billingPlan,
     termMonths,
     periodStart,

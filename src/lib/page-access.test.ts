@@ -168,3 +168,32 @@ test("designating a renewal PIC needs its own grant, not the contacts key", () =
     false
   )
 })
+
+test("invoice and queue capability keys stay separate from their view keys", () => {
+  const viewer = [
+    "/renewal-retention/invoices",
+    "/renewal-retention/actions-required",
+  ]
+
+  assert.equal(hasPageAccessForPath("/renewal-retention/invoices", viewer), true)
+  assert.equal(
+    hasPageAccessForPath("/renewal-retention/invoices/manage", viewer),
+    false
+  )
+  assert.equal(
+    hasPageAccessForPath("/renewal-retention/actions-required", viewer),
+    true
+  )
+  assert.equal(
+    hasPageAccessForPath("/renewal-retention/actions-required/manage", viewer),
+    false
+  )
+})
+
+test("an invoice detail path resolves to the invoice view key", () => {
+  // The detail route is /renewal-retention/invoices/<numeric id>, which must
+  // match the view key rather than falling through to the manage mapping.
+  assert.deepEqual(getAccessKeysForPath("/renewal-retention/invoices/34"), [
+    "/renewal-retention/invoices",
+  ])
+})

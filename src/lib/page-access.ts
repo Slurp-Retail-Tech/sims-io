@@ -61,6 +61,22 @@ const accessRouteMappings: { prefix: string; accessKeys: string[] }[] = [
     prefix: "/renewal-retention/subscriptions/manage",
     accessKeys: ["/renewal-retention/subscriptions/manage"],
   },
+  // Same explicit-registration rule as the plan keys: a capability that is not
+  // its own mapping falls back to the longest prefix and a view grant passes
+  // the manage check.
+  {
+    prefix: "/renewal-retention/invoices/manage",
+    accessKeys: ["/renewal-retention/invoices/manage"],
+  },
+  { prefix: "/renewal-retention/invoices", accessKeys: ["/renewal-retention/invoices"] },
+  {
+    prefix: "/renewal-retention/actions-required/manage",
+    accessKeys: ["/renewal-retention/actions-required/manage"],
+  },
+  {
+    prefix: "/renewal-retention/actions-required",
+    accessKeys: ["/renewal-retention/actions-required"],
+  },
   { prefix: "/renewal-retention", accessKeys: ["/renewal-retention"] }, // legacy: workspace-level grant
   { prefix: "/tickets", accessKeys: ["/tickets"] },
   { prefix: "/analytics", accessKeys: ["/analytics"] },

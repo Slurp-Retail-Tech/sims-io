@@ -342,3 +342,25 @@ test("refuses to build an invoice with no lines", () => {
     })
   )
 })
+
+test("an invoice is only grouped when it actually bills more than one outlet", () => {
+  // A franchise with grouping switched on, but only one outlet expiring on
+  // this date. Calling that a grouped invoice tells the reader something
+  // untrue.
+  const single = buildInvoiceDraft({
+    group: groupOf([due()]),
+    lines: [line()],
+    billingPlan: "annually",
+    taxRatePercent: "0.00",
+  })
+  assert.equal(single.isGrouped, false)
+
+  const members = [due({ outletId: "3" }), due({ outletId: "4" })]
+  const many = buildInvoiceDraft({
+    group: groupOf(members),
+    lines: [line({ outletId: "3" }), line({ outletId: "4" })],
+    billingPlan: "annually",
+    taxRatePercent: "0.00",
+  })
+  assert.equal(many.isGrouped, true)
+})
