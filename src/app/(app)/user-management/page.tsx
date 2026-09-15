@@ -84,6 +84,10 @@ const pageAccessGroups: PageAccessGroup[] = [
         label: "Plan Catalog — approve price overrides",
         value: "/renewal-retention/plans/approve-override",
       },
+      {
+        label: "Subscriptions — manage and designate renewal PIC",
+        value: "/renewal-retention/subscriptions/manage",
+      },
     ],
   },
   {

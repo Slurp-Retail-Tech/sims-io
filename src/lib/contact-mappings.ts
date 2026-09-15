@@ -21,6 +21,10 @@ export type ContactMapping = {
   outletId: string | null
   franchiseName?: string | null
   outletName?: string | null
+  /** Accountable for this scope's renewal. At most one per franchise-and-outlet. */
+  isRenewalPic?: boolean
+  /** Copied on the same reminders and receipts as the PIC, on their own channels. */
+  isRenewalCc?: boolean
 }
 
 export type MappingCandidate = {
@@ -58,6 +62,8 @@ export type MappingGroupRow = {
   title: string
   subtitle: string
   franchiseWide: boolean
+  isRenewalPic: boolean
+  isRenewalCc: boolean
 }
 
 const FRANCHISE_WIDE_TITLE = "All outlets under this franchise"
@@ -171,6 +177,8 @@ export function groupMappingsByFranchise(
         title: FRANCHISE_WIDE_TITLE,
         subtitle: "Franchise-wide mapping",
         franchiseWide: true,
+        isRenewalPic: mapping.isRenewalPic ?? false,
+        isRenewalCc: mapping.isRenewalCc ?? false,
       })
     } else {
       group.rows.push({
@@ -178,6 +186,8 @@ export function groupMappingsByFranchise(
         title: mapping.outletName ?? `Outlet ${mapping.outletId}`,
         subtitle: `OID ${mapping.outletId}`,
         franchiseWide: false,
+        isRenewalPic: mapping.isRenewalPic ?? false,
+        isRenewalCc: mapping.isRenewalCc ?? false,
       })
     }
   }

@@ -147,3 +147,24 @@ test("renewal plan routes resolve to their own key, not a parent prefix", () => 
     ["/renewal-retention/plans/approve-override"]
   )
 })
+
+test("designating a renewal PIC needs its own grant, not the contacts key", () => {
+  // Editing the contact directory and deciding who a merchant's invoice is
+  // addressed to are different authorities.
+  const contactsOnly = ["/contacts"]
+  assert.equal(
+    hasPageAccessForPath("/renewal-retention/subscriptions/manage", contactsOnly),
+    false
+  )
+
+  const renewalManager = ["/renewal-retention/subscriptions/manage"]
+  assert.equal(
+    hasPageAccessForPath("/renewal-retention/subscriptions/manage", renewalManager),
+    true
+  )
+  // And it does not leak sideways into the plan catalog.
+  assert.equal(
+    hasPageAccessForPath("/renewal-retention/plans/manage", renewalManager),
+    false
+  )
+})

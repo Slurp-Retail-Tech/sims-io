@@ -54,6 +54,13 @@ const accessRouteMappings: { prefix: string; accessKeys: string[] }[] = [
     accessKeys: ["/renewal-retention/plans/manage"],
   },
   { prefix: "/renewal-retention/plans", accessKeys: ["/renewal-retention/plans"] },
+  // Designating a contact as renewal PIC is a renewal decision recorded on a
+  // contact, so it needs this in addition to the Contacts key. Someone who may
+  // edit the directory is not thereby entitled to redirect an invoice.
+  {
+    prefix: "/renewal-retention/subscriptions/manage",
+    accessKeys: ["/renewal-retention/subscriptions/manage"],
+  },
   { prefix: "/renewal-retention", accessKeys: ["/renewal-retention"] }, // legacy: workspace-level grant
   { prefix: "/tickets", accessKeys: ["/tickets"] },
   { prefix: "/analytics", accessKeys: ["/analytics"] },
