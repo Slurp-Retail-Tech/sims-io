@@ -685,6 +685,13 @@ export const ENV_MANIFEST: readonly EnvSpec[] = [
     buildTime: false,
   },
   {
+    name: "RENEWAL_CYCLE_CRON_SECRET",
+    requirement: { kind: "optional" },
+    why: "is optional — without it the nightly renewal detection can only be run manually by an Admin, so nothing raises renewal invoices on a schedule",
+    public: false,
+    buildTime: false,
+  },
+  {
     name: "RENEWAL_SUBSCRIPTION_SYNC_CRON_SECRET",
     requirement: { kind: "optional" },
     why: "is optional — without it the subscription projection can still be run manually by an Admin, but no scheduler can drive it",

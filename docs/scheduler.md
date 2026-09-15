@@ -111,6 +111,47 @@ Notes:
 - Test and closed merchant accounts are skipped and never enter a renewal
   cadence.
 
+## Renewal cycle endpoint
+
+Nightly renewal detection: finds subscriptions expiring on exactly each
+configured reminder offset (15, 5 and 1 days by default), raises or reuses
+their proforma, and records the specific reason for every one it could not
+invoice.
+
+```
+POST /api/renewals/cycle
+```
+
+Run it **after** the subscription sync, which is itself after the merchants
+import. Recommended cron expression (Asia/Kuala_Lumpur 01:15 daily):
+
+```
+15 17 * * *
+```
+
+Command example:
+
+```
+curl -X POST "https://your-app-domain.com/api/renewals/cycle" -H "x-cron-secret: ${RENEWAL_CYCLE_CRON_SECRET}"
+```
+
+Notes:
+- `RENEWAL_CYCLE_CRON_SECRET` must match the header value.
+- Safe to run repeatedly. Invoice generation races against a unique index
+  rather than checking first, so a second run reuses what the first created
+  and the T-5 and T-1 runs reuse the proforma raised at T-15. Actions Required
+  entries are upserted, not duplicated.
+- Each offset matches an **exact** expiry date, not a range. A run skipped for
+  two days does not suddenly invoice three cohorts at once; it picks up only
+  the cohort due on the offsets it runs for.
+- Outlets that cannot be invoiced are written to Actions Required with the
+  reason, and re-evaluated every night, so closing the underlying gap re-enters
+  them automatically and resolves the entry.
+- Every gap is reported, not just the first: an outlet with no plan *and* no
+  renewal PIC raises both, so one pass through the queue closes both.
+- Nothing is sent to a merchant by this job. Outbound dispatch is behind the
+  `dispatch_enabled` setting, which ships off.
+
 ## Job runner tick (required)
 
 ```
