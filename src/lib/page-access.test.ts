@@ -72,3 +72,78 @@ test("canAccessAnyPath ORs over paths", () => {
 test("trailing slashes normalize", () => {
   assert.equal(hasPageAccessForPath("/tickets/", ["/tickets"]), true)
 })
+
+// ---------------------------------------------------------------------------
+// Renewal capability keys
+//
+// `manage` and `approve-override` are grants, not pages. Each needs its own
+// mapping in accessRouteMappings: without one, getAccessKeysForPath falls back
+// to the longest matching prefix, returns the view key, and silently lets a
+// view-only grant through the manage check.
+// ---------------------------------------------------------------------------
+
+test("a renewal view grant does not confer manage or approve", () => {
+  const viewOnly = ["/renewal-retention/plans"]
+
+  assert.equal(hasPageAccessForPath("/renewal-retention/plans", viewOnly), true)
+  assert.equal(
+    hasPageAccessForPath("/renewal-retention/plans/manage", viewOnly),
+    false
+  )
+  assert.equal(
+    hasPageAccessForPath("/renewal-retention/plans/approve-override", viewOnly),
+    false
+  )
+})
+
+test("a renewal manage grant does not confer override approval", () => {
+  // Approving an override above the variance threshold is a separate control
+  // from editing a plan, and must stay separate.
+  const manager = ["/renewal-retention/plans", "/renewal-retention/plans/manage"]
+
+  assert.equal(
+    hasPageAccessForPath("/renewal-retention/plans/manage", manager),
+    true
+  )
+  assert.equal(
+    hasPageAccessForPath("/renewal-retention/plans/approve-override", manager),
+    false
+  )
+})
+
+test("an override approver holds only what it was granted", () => {
+  const approver = ["/renewal-retention/plans/approve-override"]
+
+  assert.equal(
+    hasPageAccessForPath("/renewal-retention/plans/approve-override", approver),
+    true
+  )
+  assert.equal(
+    hasPageAccessForPath("/renewal-retention/plans/manage", approver),
+    false
+  )
+  // The approve grant alone does not open the page it approves on.
+  assert.equal(hasPageAccessForPath("/renewal-retention/plans", approver), false)
+})
+
+test("the legacy workspace grant still opens the renewal plans page", () => {
+  // /renewal-retention is a pre-existing workspace-level grant, and the new
+  // page must not silently fall outside it.
+  assert.equal(
+    hasPageAccessForPath("/renewal-retention/plans", ["/renewal-retention"]),
+    false
+  )
+})
+
+test("renewal plan routes resolve to their own key, not a parent prefix", () => {
+  assert.deepEqual(getAccessKeysForPath("/renewal-retention/plans"), [
+    "/renewal-retention/plans",
+  ])
+  assert.deepEqual(getAccessKeysForPath("/renewal-retention/plans/manage"), [
+    "/renewal-retention/plans/manage",
+  ])
+  assert.deepEqual(
+    getAccessKeysForPath("/renewal-retention/plans/approve-override"),
+    ["/renewal-retention/plans/approve-override"]
+  )
+})

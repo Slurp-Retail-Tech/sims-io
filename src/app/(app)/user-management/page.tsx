@@ -78,6 +78,12 @@ const pageAccessGroups: PageAccessGroup[] = [
       { label: "Overview", value: "/renewal-retention/overview" },
       { label: "Renewal Due", value: "/renewal-retention/renewal-due" },
       { label: "Analytics", value: "/renewal-retention/analytics" },
+      { label: "Plan Catalog", value: "/renewal-retention/plans" },
+      { label: "Plan Catalog — manage", value: "/renewal-retention/plans/manage" },
+      {
+        label: "Plan Catalog — approve price overrides",
+        value: "/renewal-retention/plans/approve-override",
+      },
     ],
   },
   {

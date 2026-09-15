@@ -16,6 +16,7 @@ import {
   MapPinned,
   MessageSquare,
   Store,
+  Tags,
   Ticket,
   UserPlus,
   Users,
@@ -156,6 +157,11 @@ export const renewalRetentionNav: NavItem[] = [
     title: "Renewal Due",
     url: "/renewal-retention/renewal-due",
     icon: CalendarClock,
+  },
+  {
+    title: "Plan Catalog",
+    url: "/renewal-retention/plans",
+    icon: Tags,
   },
 ]
 

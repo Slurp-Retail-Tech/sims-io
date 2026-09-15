@@ -40,6 +40,20 @@ const accessRouteMappings: { prefix: string; accessKeys: string[] }[] = [
   { prefix: "/renewal-retention/overview", accessKeys: ["/renewal-retention/overview"] },
   { prefix: "/renewal-retention/renewal-due", accessKeys: ["/renewal-retention/renewal-due"] },
   { prefix: "/renewal-retention/analytics", accessKeys: ["/renewal-retention/analytics"] },
+  // Renewal module. The three /plans entries are deliberately separate
+  // mappings rather than one prefix: `manage` and `approve-override` are
+  // capability grants, not pages, and without their own mapping
+  // getAccessKeysForPath would fall back to the longest matching prefix and
+  // hand a view-only grant the manage key. See page-access.test.ts.
+  {
+    prefix: "/renewal-retention/plans/approve-override",
+    accessKeys: ["/renewal-retention/plans/approve-override"],
+  },
+  {
+    prefix: "/renewal-retention/plans/manage",
+    accessKeys: ["/renewal-retention/plans/manage"],
+  },
+  { prefix: "/renewal-retention/plans", accessKeys: ["/renewal-retention/plans"] },
   { prefix: "/renewal-retention", accessKeys: ["/renewal-retention"] }, // legacy: workspace-level grant
   { prefix: "/tickets", accessKeys: ["/tickets"] },
   { prefix: "/analytics", accessKeys: ["/analytics"] },
