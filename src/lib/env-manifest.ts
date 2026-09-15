@@ -685,6 +685,13 @@ export const ENV_MANIFEST: readonly EnvSpec[] = [
     buildTime: false,
   },
   {
+    name: "RENEWAL_SUBSCRIPTION_SYNC_CRON_SECRET",
+    requirement: { kind: "optional" },
+    why: "is optional — without it the subscription projection can still be run manually by an Admin, but no scheduler can drive it",
+    public: false,
+    buildTime: false,
+  },
+  {
     name: "RESPONDIO_CSAT_WEBHOOK_SECRET",
     requirement: { kind: "optional" },
     why: "is optional — dispatchCsatLink only sends the header when it is set",

@@ -4,6 +4,7 @@ import type { JobProgress, JobRunItemInput } from "./job-progress.ts"
 import { clickUpSyncJobHandler } from "./job-handlers/clickup-sync.ts"
 import { merchantImportJobHandler } from "./job-handlers/merchant-import.ts"
 import { plusImportJobHandler } from "./job-handlers/plus-import.ts"
+import { renewalSubscriptionSyncJobHandler } from "./job-handlers/renewal-subscription-sync.ts"
 
 /**
  * What a job handler is handed for one slice of work.
@@ -63,6 +64,7 @@ export const JOB_HANDLERS: Record<string, JobHandler> = {
   [clickUpSyncJobHandler.jobType]: clickUpSyncJobHandler,
   [merchantImportJobHandler.jobType]: merchantImportJobHandler,
   [plusImportJobHandler.jobType]: plusImportJobHandler,
+  [renewalSubscriptionSyncJobHandler.jobType]: renewalSubscriptionSyncJobHandler,
 }
 
 export function registerJobHandler(handler: JobHandler): void {
@@ -73,5 +75,8 @@ export function registerJobHandler(handler: JobHandler): void {
 export const JOB_TYPE_ORDER: readonly string[] = [
   "plus-import",
   "merchant-import",
+  // After merchant-import: the projection reads what that run just wrote, so
+  // running it first would age its own input by a day.
+  "renewal-subscription-sync",
   "clickup-sync",
 ]

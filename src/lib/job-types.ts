@@ -10,3 +10,4 @@
 export const PLUS_IMPORT_JOB_TYPE = "plus-import"
 export const MERCHANT_IMPORT_JOB_TYPE = "merchant-import"
 export const CLICKUP_SYNC_JOB_TYPE = "clickup-sync"
+export const RENEWAL_SUBSCRIPTION_SYNC_JOB_TYPE = "renewal-subscription-sync"
