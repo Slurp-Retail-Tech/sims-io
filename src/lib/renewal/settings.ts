@@ -14,6 +14,7 @@ import getPool, { type Queryable } from "../db.ts"
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise"
 
 import type { BillingTerm } from "./plan-resolution.ts"
+import type { SettingsPatch } from "./settings-validation.ts"
 
 export type RenewalSettings = {
   /** Days before expiry at which reminders fire. */
@@ -117,6 +118,60 @@ export async function loadRenewalSettings(
     bukkuDescriptionFormat: row.bukku_description_format,
     updatedAt: row.updated_at,
   }
+}
+
+/**
+ * Write a validated patch onto the singleton row.
+ *
+ * Column by column from the patch, so an untouched setting is never rewritten
+ * and `updated_at` moves only when something changed. The row is created
+ * first if a fresh environment has none.
+ */
+export async function saveRenewalSettings(
+  patch: SettingsPatch,
+  updatedByUserId: string | null,
+  db: Queryable = getPool()
+): Promise<void> {
+  await ensureRenewalSettingsRow(db)
+
+  const assignments: string[] = []
+  const values: unknown[] = []
+
+  const columns: Array<[keyof SettingsPatch, string, (value: never) => unknown]> = [
+    ["reminderOffsets", "reminder_offsets_json", (value: number[]) => JSON.stringify(value)],
+    ["readinessWindowDays", "readiness_window_days", (value: number) => value],
+    ["defaultBillingPlan", "default_billing_plan", (value: string) => value],
+    ["taxRatePercent", "tax_rate", (value: number) => value.toFixed(2)],
+    ["overrideVarianceThresholdPct", "override_variance_threshold_pct", (value: number) => value.toFixed(2)],
+    ["graceWindowDays", "grace_window_days", (value: number) => value],
+    ["dispatchEnabled", "dispatch_enabled", (value: boolean) => (value ? 1 : 0)],
+    ["sendWindowStart", "send_window_start", (value: string) => value],
+    ["sendWindowEnd", "send_window_end", (value: string) => value],
+    ["sessionExpiryMinutes", "session_expiry_minutes", (value: number) => value],
+    ["maxSessionRetries", "max_session_retries", (value: number) => value],
+    ["receiptPollCeilingSeconds", "receipt_poll_ceiling_seconds", (value: number) => value],
+    ["respondioWhatsappChannelId", "respondio_whatsapp_channel_id", (value: string | null) => value],
+    ["bukkuDescriptionFormat", "bukku_description_format", (value: string | null) => value],
+  ]
+
+  for (const [field, column, encode] of columns) {
+    if (field in patch) {
+      assignments.push(`${column} = ?`)
+      values.push(encode(patch[field] as never))
+    }
+  }
+
+  if (assignments.length === 0) {
+    return
+  }
+
+  assignments.push("updated_by_user_id = ?")
+  values.push(updatedByUserId)
+
+  await db.query<ResultSetHeader>(
+    `UPDATE renewal_settings SET ${assignments.join(", ")} WHERE id = 1`,
+    values
+  )
 }
 
 /** Ensure the singleton exists. Safe to call repeatedly. */

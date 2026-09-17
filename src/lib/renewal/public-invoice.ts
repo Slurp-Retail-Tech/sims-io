@@ -20,6 +20,7 @@ import { addDays } from "./invoice-build.ts"
 import type { InvoiceTotals } from "./invoice-build.ts"
 import { ensureInvoicePdf } from "./invoice-pdf.ts"
 import {
+  getInvoiceById,
   getInvoiceByToken,
   loadInvoiceItems,
   minorToDecimal,
@@ -121,6 +122,25 @@ export async function loadPublicInvoice(
   if (!invoice) {
     return null
   }
+  return loadInvoiceContext(invoice, db)
+}
+
+/** The same context, for staff routes that address the invoice by id. */
+export async function loadInvoiceContextById(
+  invoiceId: string,
+  db: Queryable = getPool()
+): Promise<LoadedPublicInvoice | null> {
+  const invoice = await getInvoiceById(invoiceId, db)
+  if (!invoice) {
+    return null
+  }
+  return loadInvoiceContext(invoice, db)
+}
+
+async function loadInvoiceContext(
+  invoice: InvoiceRecord,
+  db: Queryable
+): Promise<LoadedPublicInvoice> {
   const [items, settings] = await Promise.all([
     loadInvoiceItems(invoice.id, db),
     loadRenewalSettings(db),
@@ -407,6 +427,31 @@ export async function markOpened(invoiceId: string, db: Queryable = getPool()): 
       WHERE id = ?`,
     [invoiceId]
   )
+}
+
+export type LinkEventRecord = {
+  id: string
+  eventType: LinkEventType
+  payload: unknown
+  createdAt: string
+}
+
+/** The merchant's interactions with the link, oldest first, for the timeline. */
+export async function listLinkEvents(
+  invoiceId: string,
+  db: Queryable = getPool()
+): Promise<LinkEventRecord[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id, event_type, payload_json, created_at
+       FROM renewal_link_events WHERE invoice_id = ? ORDER BY id ASC`,
+    [invoiceId]
+  )
+  return (rows as Array<Record<string, unknown>>).map((row) => ({
+    id: String(row.id),
+    eventType: row.event_type as LinkEventType,
+    payload: row.payload_json ?? null,
+    createdAt: String(row.created_at),
+  }))
 }
 
 /** How many merchant opens an invoice has had, for the staff timeline. */

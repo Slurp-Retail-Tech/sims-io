@@ -58,6 +58,9 @@ export type ActionRow = {
   id: string
   franchiseId: string
   outletId: string | null
+  /** Merchant and outlet names, so the queue reads as places rather than ids. */
+  franchiseName: string | null
+  outletName: string | null
   centralId: string | null
   invoiceId: string | null
   reason: ActionReason
@@ -74,6 +77,8 @@ type Row = RowDataPacket & {
   id: string
   franchise_id: string
   outlet_id: string | null
+  franchise_name?: string | null
+  outlet_name?: string | null
   central_id: string | null
   invoice_id: string | null
   reason: ActionReason
@@ -207,25 +212,29 @@ export async function listOpenActions(
   filters: { reason?: ActionReason; franchiseId?: string } = {},
   db: Queryable = getPool()
 ): Promise<ActionRow[]> {
-  const conditions = ["status = 'open'"]
+  const conditions = ["a.status = 'open'"]
   const values: unknown[] = []
 
   if (filters.reason) {
-    conditions.push("reason = ?")
+    conditions.push("a.reason = ?")
     values.push(filters.reason)
   }
   if (filters.franchiseId) {
-    conditions.push("franchise_id = ?")
+    conditions.push("a.franchise_id = ?")
     values.push(filters.franchiseId)
   }
 
   const [rows] = await db.query<Row[]>(
-    `SELECT id, franchise_id, outlet_id, central_id, invoice_id, reason, detail,
-            severity, days_to_expiry, occurrence_count, status,
-            first_detected_at, last_detected_at
-       FROM renewal_actions_required
+    `SELECT a.id, a.franchise_id, a.outlet_id, a.central_id, a.invoice_id, a.reason,
+            a.detail, a.severity, a.days_to_expiry, a.occurrence_count, a.status,
+            a.first_detected_at, a.last_detected_at,
+            m.name AS franchise_name, o.name AS outlet_name
+       FROM renewal_actions_required a
+       LEFT JOIN merchants m ON m.external_id = a.franchise_id
+       LEFT JOIN merchant_outlets o
+         ON o.merchant_external_id = a.franchise_id AND o.external_id = a.outlet_id
       WHERE ${conditions.join(" AND ")}
-      ORDER BY severity ASC, days_to_expiry IS NULL, days_to_expiry ASC, id ASC`,
+      ORDER BY a.severity ASC, a.days_to_expiry IS NULL, a.days_to_expiry ASC, a.id ASC`,
     values
   )
 
@@ -279,6 +288,8 @@ function mapRow(row: Row): ActionRow {
     id: String(row.id),
     franchiseId: row.franchise_id,
     outletId: row.outlet_id,
+    franchiseName: row.franchise_name ?? null,
+    outletName: row.outlet_name ?? null,
     centralId: row.central_id,
     invoiceId: row.invoice_id ? String(row.invoice_id) : null,
     reason: row.reason,

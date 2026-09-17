@@ -16,6 +16,7 @@ import {
   MapPinned,
   MessageSquare,
   Receipt,
+  Settings2,
   Store,
   Tags,
   Ticket,
@@ -155,7 +156,7 @@ export const renewalRetentionNav: NavItem[] = [
     icon: BarChart3,
   },
   {
-    title: "Renewal Due",
+    title: "Renewal List",
     url: "/renewal-retention/renewal-due",
     icon: CalendarClock,
   },
@@ -173,6 +174,11 @@ export const renewalRetentionNav: NavItem[] = [
     title: "Actions Required",
     url: "/renewal-retention/actions-required",
     icon: AlertTriangle,
+  },
+  {
+    title: "Settings",
+    url: "/renewal-retention/settings",
+    icon: Settings2,
   },
 ]
 

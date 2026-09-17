@@ -8,6 +8,8 @@ import {
   loadInvoiceEvents,
   loadInvoiceItems,
 } from "@/lib/renewal/invoices"
+import { listSessions } from "@/lib/renewal/payment-sessions"
+import { listLinkEvents } from "@/lib/renewal/public-invoice"
 
 import { INVOICES_MANAGE_PATH, INVOICES_VIEW_PATH } from "../helpers"
 
@@ -51,12 +53,14 @@ async function handleGet(
       return notFound("Invoice not found.")
     }
 
-    const [items, events] = await Promise.all([
+    const [items, events, linkEvents, sessions] = await Promise.all([
       loadInvoiceItems(invoiceId),
       loadInvoiceEvents(invoiceId),
+      listLinkEvents(invoiceId),
+      listSessions(invoiceId),
     ])
 
-    return NextResponse.json({ invoice, items, events })
+    return NextResponse.json({ invoice, items, events, linkEvents, sessions })
   } catch (error) {
     return serverError(
       "renewals/invoices/[invoiceId]",

@@ -104,6 +104,18 @@ function mapRow(row: Row): PaymentSessionRecord {
   }
 }
 
+/** Every session on an invoice, newest first, for the staff timeline. */
+export async function listSessions(
+  invoiceId: string,
+  db: Queryable = getPool()
+): Promise<PaymentSessionRecord[]> {
+  const [rows] = await db.query<Row[]>(
+    `${SELECT} WHERE invoice_id = ? ORDER BY session_sequence DESC`,
+    [invoiceId]
+  )
+  return rows.map(mapRow)
+}
+
 /** The most recent session, whatever its state. */
 export async function findLatestSession(
   invoiceId: string,

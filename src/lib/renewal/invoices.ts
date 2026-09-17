@@ -59,6 +59,8 @@ export type InvoiceRecord = {
   openCount: number
   paidAt: string | null
   createdAt: string
+  /** Lines on the invoice; one per outlet. */
+  itemCount: number
 }
 
 type InvoiceRow = RowDataPacket & {
@@ -91,16 +93,18 @@ type InvoiceRow = RowDataPacket & {
   open_count: number
   paid_at: string | null
   created_at: string
+  item_count: number | string
 }
 
 const INVOICE_SELECT = `
-  SELECT id, invoice_number, document_type, parent_invoice_id, franchise_id,
-         company_name, group_key, is_grouped, contact_id, billing_plan_selected,
-         term_months, period_start, period_end, issue_date, due_date,
-         currency_code, subtotal_amount, adjustment_amount, tax_rate, tax_amount,
-         total_amount, payment_email, status, renewal_token, pdf_object_key,
-         first_opened_at, open_count, paid_at, created_at
-    FROM renewal_invoices
+  SELECT i.id, i.invoice_number, i.document_type, i.parent_invoice_id, i.franchise_id,
+         i.company_name, i.group_key, i.is_grouped, i.contact_id, i.billing_plan_selected,
+         i.term_months, i.period_start, i.period_end, i.issue_date, i.due_date,
+         i.currency_code, i.subtotal_amount, i.adjustment_amount, i.tax_rate, i.tax_amount,
+         i.total_amount, i.payment_email, i.status, i.renewal_token, i.pdf_object_key,
+         i.first_opened_at, i.open_count, i.paid_at, i.created_at,
+         (SELECT COUNT(*) FROM renewal_invoice_items t WHERE t.invoice_id = i.id) AS item_count
+    FROM renewal_invoices i
 `
 
 export type CreateInvoiceResult = {
@@ -247,7 +251,7 @@ export async function findOpenProforma(
 ): Promise<InvoiceRecord | null> {
   const [rows] = await db.query<InvoiceRow[]>(
     `${INVOICE_SELECT}
-      WHERE group_key = ? AND document_type = 'proforma' AND deleted_at IS NULL`,
+      WHERE i.group_key = ? AND i.document_type = 'proforma' AND i.deleted_at IS NULL`,
     [groupKey]
   )
   const row = rows[0]
@@ -273,7 +277,7 @@ export async function findOpenProformaForOutlets(
     return null
   }
   const [rows] = await db.query<InvoiceRow[]>(
-    `${INVOICE_SELECT.replace("FROM renewal_invoices", "FROM renewal_invoices i")}
+    `${INVOICE_SELECT}
       WHERE i.document_type = 'proforma'
         AND i.deleted_at IS NULL
         AND i.status NOT IN ('cancelled', 'superseded', 'lapsed')
@@ -297,7 +301,7 @@ export async function getInvoiceById(
   db: Queryable = getPool()
 ): Promise<InvoiceRecord | null> {
   const [rows] = await db.query<InvoiceRow[]>(
-    `${INVOICE_SELECT} WHERE id = ? AND deleted_at IS NULL`,
+    `${INVOICE_SELECT} WHERE i.id = ? AND i.deleted_at IS NULL`,
     [invoiceId]
   )
   const row = rows[0]
@@ -309,7 +313,7 @@ export async function getInvoiceByToken(
   db: Queryable = getPool()
 ): Promise<InvoiceRecord | null> {
   const [rows] = await db.query<InvoiceRow[]>(
-    `${INVOICE_SELECT} WHERE renewal_token = ? AND deleted_at IS NULL`,
+    `${INVOICE_SELECT} WHERE i.renewal_token = ? AND i.deleted_at IS NULL`,
     [renewalToken]
   )
   const row = rows[0]
@@ -320,15 +324,15 @@ export async function listInvoices(
   filters: { status?: InvoiceStatus; franchiseId?: string; limit?: number } = {},
   db: Queryable = getPool()
 ): Promise<InvoiceRecord[]> {
-  const conditions = ["deleted_at IS NULL"]
+  const conditions = ["i.deleted_at IS NULL"]
   const values: unknown[] = []
 
   if (filters.status) {
-    conditions.push("status = ?")
+    conditions.push("i.status = ?")
     values.push(filters.status)
   }
   if (filters.franchiseId) {
-    conditions.push("franchise_id = ?")
+    conditions.push("i.franchise_id = ?")
     values.push(filters.franchiseId)
   }
 
@@ -336,7 +340,7 @@ export async function listInvoices(
 
   const [rows] = await db.query<InvoiceRow[]>(
     `${INVOICE_SELECT} WHERE ${conditions.join(" AND ")}
-      ORDER BY id DESC LIMIT ${limit}`,
+      ORDER BY i.id DESC LIMIT ${limit}`,
     values
   )
   return rows.map(mapInvoice)
@@ -497,6 +501,7 @@ function mapInvoice(row: InvoiceRow): InvoiceRecord {
     openCount: Number(row.open_count),
     paidAt: row.paid_at,
     createdAt: row.created_at,
+    itemCount: Number(row.item_count ?? 0),
   }
 }
 

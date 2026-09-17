@@ -2,26 +2,52 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ChevronLeft, FileDown, Link as LinkIcon } from "lucide-react"
+import { ChevronLeft } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { useToast } from "@/components/toast-provider"
 import { cn } from "@/lib/utils"
 
 import {
-  formatDateOnly,
-  formatMinor,
-  STATUS_CLASSES,
-  STATUS_LABELS,
-  TERM_LABELS,
-} from "../invoice-format"
+  INVOICE_STATUS_LABEL,
+  INVOICE_STATUS_TONE,
+  longDate,
+  money,
+  OutlinePill,
+  Pill,
+  plural,
+  shortDateTime,
+  signedMoney,
+  TERM_LABEL,
+  TONE_DOT,
+} from "../../ui"
+import type { Tone } from "../../ui"
 
 type Invoice = {
   id: string
@@ -31,7 +57,8 @@ type Invoice = {
   companyName: string | null
   groupKey: string
   isGrouped: boolean
-  billingPlanSelected: string | null
+  itemCount: number
+  billingPlanSelected: "annually" | "bi_annually" | null
   termMonths: number | null
   periodStart: string | null
   periodEnd: string | null
@@ -43,6 +70,7 @@ type Invoice = {
   taxRatePercent: number
   taxMinor: number
   totalMinor: number
+  paymentEmail: string | null
   status: string
   renewalToken: string | null
   pdfObjectKey: string | null
@@ -62,7 +90,9 @@ type Item = {
   effectiveAmountMinor: number
   adjustmentAmountMinor: number
   priceSource: string
+  cycleOverrideMinor: number | null
   previousValidUntil: string | null
+  newValidUntil: string | null
 }
 
 type Event = {
@@ -73,56 +103,151 @@ type Event = {
   createdAt: string
 }
 
+type LinkEvent = {
+  id: string
+  eventType: string
+  payload: unknown
+  createdAt: string
+}
+
+type Session = {
+  id: string
+  sessionSequence: number
+  referenceCode: string
+  amountMinor: number
+  billingPlan: string
+  status: string
+  capSessionNumber: string | null
+  expiresAt: string | null
+  createdAt: string
+}
+
 const PRICE_SOURCE_LABELS: Record<string, string> = {
   catalog: "Catalog price",
-  assignment_override: "Agreed price",
+  assignment_override: "Assignment price",
   cycle_override: "One-off price",
 }
 
-export function InvoiceDetailView({ invoiceId }: { invoiceId: string }) {
+type TimelineEntry = { key: string; when: string; title: string; actor: string; detail: string; tone: Tone }
+
+function describeEvent(event: Event, invoice: Invoice): TimelineEntry {
+  const payload = (event.payload ?? {}) as Record<string, unknown>
+  const actor = event.actorUserId ? `user ${event.actorUserId}` : "system"
+  const base = { key: `e-${event.id}`, when: shortDateTime(event.createdAt), actor }
+  switch (event.eventType) {
+    case "invoice_created":
+      return { ...base, title: "Invoice created", tone: "blue", detail: `Proforma ${invoice.invoiceNumber} · ${plural(Number(payload.outlets ?? invoice.itemCount), "outlet")} · group ${String(payload.groupKey ?? invoice.groupKey)}` }
+    case "pdf_rendered":
+      return { ...base, title: "PDF rendered", tone: "gray", detail: String(payload.objectKey ?? "") }
+    case "cycle_reused":
+      return { ...base, title: "Reminder run reused this invoice", tone: "blue", detail: payload.daysToExpiry !== undefined && payload.daysToExpiry !== null ? `T-${String(payload.daysToExpiry)} run` : "" }
+    case "term_changed":
+      return { ...base, title: `Term changed to ${TERM_LABEL[String(payload.to)] ?? String(payload.to)}`, actor: payload.by === "merchant" ? "merchant" : actor, tone: "amber", detail: `Total ${money(Number(payload.totalMinor ?? 0), invoice.currencyCode)}` }
+    case "payment_session_created":
+      return { ...base, title: "Payment session opened", actor: "merchant", tone: "amber", detail: `${String(payload.referenceCode ?? "")} · ${money(Number(payload.amountMinor ?? 0), invoice.currencyCode)} · ${TERM_LABEL[String(payload.term)] ?? ""}` }
+    case "payment_session_resumed":
+      return { ...base, title: "Payment session resumed", actor: "merchant", tone: "amber", detail: String(payload.referenceCode ?? "") }
+    case "payment_session_failed":
+      return { ...base, title: "Payment session could not be opened", tone: "red", detail: String(payload.message ?? "") }
+    case "cycle_override_applied":
+      return { ...base, title: payload.amountMinor === null ? "One-off price cleared" : "One-off price applied", tone: "amber", detail: `Outlet ${String(payload.outletId ?? "")} · ${payload.amountMinor === null ? "back to the assignment price" : money(Number(payload.amountMinor), invoice.currencyCode)}${payload.reason ? ` · ${String(payload.reason)}` : ""}${payload.approved ? " · approved" : ""}` }
+    default:
+      if (event.eventType.startsWith("status_")) {
+        const status = event.eventType.slice("status_".length)
+        return { ...base, title: INVOICE_STATUS_LABEL[status] ?? status, tone: INVOICE_STATUS_TONE[status] ?? "gray", detail: String(payload.reason ?? "") }
+      }
+      return { ...base, title: event.eventType, tone: "gray", detail: "" }
+  }
+}
+
+function describeLinkEvent(event: LinkEvent): TimelineEntry {
+  const payload = (event.payload ?? {}) as Record<string, unknown>
+  const base = { key: `l-${event.id}`, when: shortDateTime(event.createdAt), actor: "merchant" }
+  switch (event.eventType) {
+    case "opened":
+      return { ...base, title: "Renewal link opened", tone: "blue", detail: "" }
+    case "term_changed":
+      return { ...base, title: `Switched to ${TERM_LABEL[String(payload.term)] ?? String(payload.term)} on the page`, tone: "amber", detail: "" }
+    case "pay_clicked":
+      return { ...base, title: "Renew now clicked", tone: "amber", detail: "" }
+    case "pdf_downloaded":
+      return { ...base, title: "Proforma printed", tone: "gray", detail: "PDF downloaded from the renewal page" }
+    case "receipt_viewed":
+      return { ...base, title: "Receipt page viewed", tone: "blue", detail: "" }
+    default:
+      return { ...base, title: event.eventType, tone: "gray", detail: "" }
+  }
+}
+
+export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoiceId: string; canManage: boolean; canApprove: boolean }) {
+  const { showToast } = useToast()
   const [invoice, setInvoice] = React.useState<Invoice | null>(null)
   const [items, setItems] = React.useState<Item[]>([])
   const [events, setEvents] = React.useState<Event[]>([])
+  const [linkEvents, setLinkEvents] = React.useState<LinkEvent[]>([])
+  const [sessions, setSessions] = React.useState<Session[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [copied, setCopied] = React.useState(false)
+  const [dialog, setDialog] = React.useState<"override" | "term" | "void" | null>(null)
+  const [busy, setBusy] = React.useState(false)
 
-  React.useEffect(() => {
-    let cancelled = false
-    const load = async () => {
-      setLoading(true)
-      try {
-        const response = await fetch(`/api/renewals/invoices/${invoiceId}`, {
-          cache: "no-store",
-        })
-        if (!response.ok) {
-          throw new Error("Invoice not found.")
-        }
-        const payload = (await response.json()) as {
-          invoice: Invoice
-          items: Item[]
-          events: Event[]
-        }
-        if (cancelled) return
-        setInvoice(payload.invoice)
-        setItems(payload.items ?? [])
-        setEvents(payload.events ?? [])
-        setError(null)
-      } catch (loadError) {
-        if (cancelled) return
-        setInvoice(null)
-        setError(
-          loadError instanceof Error ? loadError.message : "Invoice not found."
-        )
-      } finally {
-        if (!cancelled) setLoading(false)
+  const load = React.useCallback(async () => {
+    setLoading(true)
+    try {
+      const response = await fetch(`/api/renewals/invoices/${invoiceId}`, { cache: "no-store" })
+      if (!response.ok) {
+        throw new Error("Invoice not found.")
       }
-    }
-    void load()
-    return () => {
-      cancelled = true
+      const payload = (await response.json()) as {
+        invoice: Invoice
+        items: Item[]
+        events: Event[]
+        linkEvents?: LinkEvent[]
+        sessions?: Session[]
+      }
+      setInvoice(payload.invoice)
+      setItems(payload.items ?? [])
+      setEvents(payload.events ?? [])
+      setLinkEvents(payload.linkEvents ?? [])
+      setSessions(payload.sessions ?? [])
+      setError(null)
+    } catch (loadError) {
+      setInvoice(null)
+      setError(loadError instanceof Error ? loadError.message : "Invoice not found.")
+    } finally {
+      setLoading(false)
     }
   }, [invoiceId])
+
+  React.useEffect(() => {
+    void load()
+  }, [load])
+
+  async function runAction(body: Record<string, unknown>, success: string) {
+    setBusy(true)
+    try {
+      const response = await fetch(`/api/renewals/invoices/${invoiceId}/actions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const payload = (await response.json().catch(() => ({}))) as { error?: string }
+      if (!response.ok) {
+        showToast(payload.error ?? "The action could not be applied.", "error")
+        return false
+      }
+      showToast(success, "success")
+      setDialog(null)
+      void load()
+      return true
+    } catch {
+      showToast("Unable to reach the server. Try again.", "error")
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
 
   if (loading) {
     return <p className="text-muted-foreground text-sm">Loading invoice…</p>
@@ -139,8 +264,52 @@ export function InvoiceDetailView({ invoiceId }: { invoiceId: string }) {
     )
   }
 
+  const term = invoice.billingPlanSelected ?? items[0]?.billingPlan ?? "annually"
+  const liveSession = sessions.find((session) => session.status === "created" || session.status === "payment_pending") ?? null
+  const isOpen = !["paid", "cancelled", "superseded", "lapsed"].includes(invoice.status)
+  const termLocked = Boolean(liveSession) || !isOpen
+  const renewalLink = invoice.renewalToken ? `/renew/${invoice.renewalToken}` : null
+
+  const timeline: TimelineEntry[] = [
+    ...events.map((event) => describeEvent(event, invoice)),
+    ...linkEvents.map(describeLinkEvent),
+  ].sort((a, b) => a.when.localeCompare(b.when))
+  // Sorting by the formatted string would be wrong across months; sort by the
+  // underlying timestamps instead.
+  const timestamps = new Map<string, string>()
+  events.forEach((event) => timestamps.set(`e-${event.id}`, event.createdAt))
+  linkEvents.forEach((event) => timestamps.set(`l-${event.id}`, event.createdAt))
+  timeline.sort((a, b) => (timestamps.get(a.key) ?? "").localeCompare(timestamps.get(b.key) ?? ""))
+
+  const stats = [
+    {
+      label: "Total due",
+      value: money(invoice.totalMinor, invoice.currencyCode),
+      meta: invoice.taxRatePercent > 0 ? `Includes ${invoice.taxRatePercent}% SST` : "Tax suppressed at 0%",
+    },
+    {
+      label: "Term selected",
+      value: TERM_LABEL[term] ?? term,
+      meta: `Renews to ${longDate(invoice.periodEnd)}`,
+    },
+    {
+      label: "Renewal link",
+      value: invoice.openCount === 0 ? "Never opened" : `Opened ${invoice.openCount}×`,
+      meta: invoice.firstOpenedAt ? `First opened ${shortDateTime(invoice.firstOpenedAt)}` : "No merchant visit yet",
+    },
+    {
+      label: "Payment",
+      value: invoice.status === "paid" ? "Paid" : liveSession ? "At gateway" : sessions.length === 0 ? "Not started" : "No open session",
+      meta: liveSession
+        ? `${liveSession.referenceCode} · expires ${shortDateTime(liveSession.expiresAt)}`
+        : sessions.length > 0
+          ? `${plural(sessions.length, "attempt")} so far`
+          : "The merchant has not clicked Renew now",
+    },
+  ]
+
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6">
+    <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Button variant="outline" size="sm" asChild>
           <Link href="/renewal-retention/invoices">
@@ -148,233 +317,455 @@ export function InvoiceDetailView({ invoiceId }: { invoiceId: string }) {
             Back to invoices
           </Link>
         </Button>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <a
-              href={`/api/renewals/invoices/${invoice.id}/pdf`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <FileDown className="size-4" />
-              PDF
-            </a>
-          </Button>
-          {invoice.renewalToken ? (
+        <div className="flex flex-wrap gap-2">
+          {renewalLink ? (
+            <Button variant="outline" size="sm" asChild>
+              <a href={renewalLink} target="_blank" rel="noreferrer">
+                Open renewal link
+              </a>
+            </Button>
+          ) : null}
+          {renewalLink ? (
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
-                const link = `${window.location.origin}/renew/${invoice.renewalToken}`
-                void navigator.clipboard?.writeText(link).then(
-                  () => setCopied(true),
-                  () => setCopied(false)
-                )
+                const link = `${window.location.origin}${renewalLink}`
+                void navigator.clipboard?.writeText(link).then(() => setCopied(true), () => setCopied(false))
                 window.setTimeout(() => setCopied(false), 2000)
               }}
             >
-              <LinkIcon className="size-4" />
               {copied ? "Link copied" : "Copy renewal link"}
             </Button>
           ) : null}
-          <span
-            className={cn(
-              "rounded-full px-2.5 py-1 text-xs",
-              STATUS_CLASSES[invoice.status] ?? "bg-muted text-muted-foreground"
-            )}
-          >
-            {STATUS_LABELS[invoice.status] ?? invoice.status}
-          </span>
+          <Button variant="outline" size="sm" asChild>
+            <a href={`/api/renewals/invoices/${invoice.id}/pdf`} target="_blank" rel="noreferrer">
+              Download proforma PDF
+            </a>
+          </Button>
+          {canManage ? (
+            <Button size="sm" disabled title="Arrives with the payment callback in the next release">
+              Mark paid offline
+            </Button>
+          ) : null}
         </div>
       </div>
 
       <div>
-        <h1 className="font-mono text-2xl font-semibold tracking-tight">
-          {invoice.invoiceNumber}
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          {invoice.companyName ?? `Franchise ${invoice.franchiseId}`}
-          {invoice.isGrouped
-            ? ` · grouped, ${items.length} ${items.length === 1 ? "outlet" : "outlets"}`
-            : ""}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h1 className="font-mono text-[1.375rem] font-semibold">{invoice.invoiceNumber}</h1>
+          <Pill tone={INVOICE_STATUS_TONE[invoice.status] ?? "gray"}>
+            {INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status}
+          </Pill>
+          {invoice.isGrouped ? (
+            <Pill tone="blue" className="font-medium">
+              Grouped · {plural(invoice.itemCount, "outlet")}
+            </Pill>
+          ) : null}
+          <OutlinePill>{termLocked ? "Term locked" : "Term unlocked"}</OutlinePill>
+        </div>
+        <p className="text-muted-foreground mt-1.5 text-sm">
+          {invoice.companyName ?? `Franchise ${invoice.franchiseId}`} · FID {invoice.franchiseId} · group key{" "}
+          <span className="font-mono text-xs">{invoice.groupKey}</span> · issued {longDate(invoice.issueDate)} · due{" "}
+          {longDate(invoice.dueDate)}
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-        <div className="flex flex-col gap-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Outlets billed</CardTitle>
-              <CardDescription>
-                Every line records the list price, what is actually charged, and
-                which rule produced it.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="flex flex-col">
-                <div className="text-muted-foreground grid grid-cols-[1.6fr_1fr_0.9fr_0.9fr] gap-3 px-1 pb-2 text-xs font-medium">
-                  <span>Outlet</span>
-                  <span>Renews from</span>
-                  <span className="text-right">List</span>
-                  <span className="text-right">Charged</span>
-                </div>
-                <Separator />
-                {items.map((item) => (
-                  <div key={item.id}>
-                    <div className="grid grid-cols-[1.6fr_1fr_0.9fr_0.9fr] items-center gap-3 px-1 py-3 text-sm">
-                      <span className="min-w-0">
-                        <span className="block truncate">
-                          {item.outletName ?? `Outlet ${item.outletId}`}
-                        </span>
-                        <span className="text-muted-foreground text-xs">
-                          OID {item.outletId}
-                          {item.priceSource !== "catalog"
-                            ? ` · ${PRICE_SOURCE_LABELS[item.priceSource] ?? item.priceSource}`
-                            : ""}
-                        </span>
-                      </span>
-                      <span className="text-muted-foreground text-xs">
-                        {formatDateOnly(item.previousValidUntil)}
-                      </span>
-                      <span className="text-muted-foreground text-right text-xs tabular-nums">
-                        {formatMinor(item.catalogAmountMinor)}
-                      </span>
-                      <span className="text-right tabular-nums">
-                        {formatMinor(item.effectiveAmountMinor)}
-                      </span>
-                    </div>
-                    <Separator />
-                  </div>
-                ))}
+      <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr))]">
+        {stats.map((stat) => (
+          <div key={stat.label} className="bg-card rounded-[var(--radius)] border px-4 py-3.5">
+            <div className="text-muted-foreground text-xs">{stat.label}</div>
+            <div className="mt-1 text-lg font-semibold tabular-nums">{stat.value}</div>
+            <div className="text-muted-foreground mt-0.5 text-xs">{stat.meta}</div>
+          </div>
+        ))}
+      </div>
 
-                <div className="flex flex-col items-end gap-1 pt-4 text-sm">
-                  <Row label="Subtotal" value={formatMinor(invoice.subtotalMinor)} />
-                  {invoice.taxRatePercent > 0 ? (
-                    <Row
-                      label={`Tax (${invoice.taxRatePercent}%)`}
-                      value={formatMinor(invoice.taxMinor)}
-                    />
-                  ) : null}
-                  <Row
-                    label="Total"
-                    value={formatMinor(invoice.totalMinor, invoice.currencyCode)}
-                    emphasis
-                  />
+      <div className="grid items-start gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr))]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Line items</CardTitle>
+            <CardDescription>
+              One line per outlet, each carrying its own plan, catalog price, effective price, and price source.
+            </CardDescription>
+            {canManage && isOpen ? (
+              <CardAction>
+                <Button variant="outline" size="sm" onClick={() => setDialog("override")}>
+                  Cycle override
+                </Button>
+              </CardAction>
+            ) : null}
+          </CardHeader>
+          <CardContent>
+            {items.map((item) => (
+              <div key={item.id} className="flex items-center justify-between gap-3 border-b py-2.5">
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <span className="text-sm">{item.outletName ?? `Outlet ${item.outletId}`}</span>
+                  <span className="text-muted-foreground text-xs">
+                    OID {item.outletId}
+                    {item.centralId ? ` · ${item.centralId}` : ""}
+                    {item.licensePlan ? ` · ${item.licensePlan.charAt(0).toUpperCase()}${item.licensePlan.slice(1)}` : ""} ·{" "}
+                    {TERM_LABEL[item.billingPlan] ?? item.billingPlan} · renews to {longDate(item.newValidUntil ?? null) === "—" ? longDate(item.previousValidUntil) : longDate(item.newValidUntil)}
+                  </span>
+                </div>
+                <div className="flex shrink-0 flex-col items-end">
+                  <span className="text-sm tabular-nums">{money(item.effectiveAmountMinor, invoice.currencyCode)}</span>
+                  <span className={cn("text-xs", item.adjustmentAmountMinor !== 0 ? (item.adjustmentAmountMinor < 0 ? "text-amber-700" : "text-sky-700") : "text-muted-foreground")}>
+                    {PRICE_SOURCE_LABELS[item.priceSource] ?? item.priceSource}
+                    {item.adjustmentAmountMinor !== 0 ? ` · ${signedMoney(item.adjustmentAmountMinor, invoice.currencyCode)}` : ""}
+                  </span>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            ))}
+            <div className="flex flex-col gap-1.5 pt-3.5 text-sm">
+              <div className="text-muted-foreground flex justify-between">
+                <span>Subtotal</span>
+                <span className="tabular-nums">{money(invoice.subtotalMinor, invoice.currencyCode)}</span>
+              </div>
+              {invoice.taxRatePercent > 0 ? (
+                <div className="text-muted-foreground flex justify-between">
+                  <span>SST {invoice.taxRatePercent}% (exclusive)</span>
+                  <span className="tabular-nums">{money(invoice.taxMinor, invoice.currencyCode)}</span>
+                </div>
+              ) : null}
+              <div className="flex justify-between border-t pt-1.5 font-semibold">
+                <span>Total</span>
+                <span className="tabular-nums">{money(invoice.totalMinor, invoice.currencyCode)}</span>
+              </div>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {invoice.taxRatePercent > 0
+                  ? "Tax is calculated on the subtotal and added to it. Plan prices are never treated as tax-inclusive."
+                  : "Slurp is not SST-registered, so the rate is 0% and the tax line is suppressed on the document."}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-col gap-6">
+          {canManage ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Manual actions</CardTitle>
+                <CardDescription>Every action is recorded in the timeline with the acting user.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-2">
+                  {invoice.status === "draft" ? (
+                    <Button variant="outline" size="sm" disabled={busy} onClick={() => void runAction({ action: "issue" }, "Invoice issued.")}>
+                      Issue invoice
+                    </Button>
+                  ) : null}
+                  <Button variant="outline" size="sm" disabled={!isOpen || busy} onClick={() => setDialog("term")}>
+                    Override term
+                  </Button>
+                  <Button variant="outline" size="sm" disabled title="Arrives with the payment callback in the next release">
+                    Regenerate payment session
+                  </Button>
+                  <Button variant="outline" size="sm" disabled title="Arrives with Respond.io dispatch">
+                    Resend dispatch
+                  </Button>
+                  <Button variant="outline" size="sm" disabled title="Arrives with the payment callback in the next release">
+                    Re-send payer email
+                  </Button>
+                  <Button variant="outline" size="sm" className="text-destructive" disabled={!isOpen || busy} onClick={() => setDialog("void")}>
+                    Void invoice
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Timeline</CardTitle>
-              <CardDescription>
-                Everything that has happened to this invoice, in order.
-              </CardDescription>
+              <CardDescription>Invoice events, payment sessions, and link events in one chronology.</CardDescription>
             </CardHeader>
             <CardContent>
-              {events.length === 0 ? (
-                <p className="text-muted-foreground text-sm">No events yet.</p>
-              ) : (
-                <ol className="flex flex-col gap-3">
-                  {events.map((event) => (
-                    <li key={event.id} className="flex gap-3 text-sm">
-                      <span className="text-muted-foreground w-40 shrink-0 text-xs">
-                        {event.createdAt.slice(0, 19).replace("T", " ")}
+              <div className="flex flex-col">
+                {timeline.length === 0 ? (
+                  <p className="text-muted-foreground py-4 text-sm">Nothing recorded yet.</p>
+                ) : null}
+                {timeline.map((entry) => (
+                  <div key={entry.key} className="grid grid-cols-[7.5rem_1fr] gap-3 border-b py-2.5">
+                    <span className="text-muted-foreground text-xs">{entry.when}</span>
+                    <span className="flex flex-col gap-0.5">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <span className={cn("size-1.5 rounded-full", TONE_DOT[entry.tone])} />
+                        <span className="text-[0.8125rem] font-medium">{entry.title}</span>
+                        <span className="text-muted-foreground text-[0.6875rem]">{entry.actor}</span>
                       </span>
-                      <span>
-                        {humaniseEvent(event.eventType)}
-                        {event.actorUserId ? null : (
-                          <span className="text-muted-foreground text-xs">
-                            {" "}
-                            · automatic
-                          </span>
-                        )}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              )}
+                      {entry.detail ? <span className="text-muted-foreground text-xs">{entry.detail}</span> : null}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         </div>
-
-        <Card className="h-fit">
-          <CardHeader>
-            <CardTitle className="text-base">Details</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3 text-sm">
-            <Detail label="Issued" value={formatDateOnly(invoice.issueDate)} />
-            <Detail label="Due" value={formatDateOnly(invoice.dueDate)} />
-            <Detail
-              label="Term"
-              value={
-                invoice.billingPlanSelected
-                  ? TERM_LABELS[invoice.billingPlanSelected]
-                  : "Not chosen"
-              }
-            />
-            <Detail
-              label="Renewal period"
-              value={`${formatDateOnly(invoice.periodStart)} → ${formatDateOnly(invoice.periodEnd)}`}
-            />
-            <Detail
-              label="Link opened"
-              value={
-                invoice.firstOpenedAt
-                  ? `${invoice.openCount} ${invoice.openCount === 1 ? "time" : "times"}, first ${formatDateOnly(invoice.firstOpenedAt)}`
-                  : "Not opened"
-              }
-            />
-            <Detail label="Paid" value={formatDateOnly(invoice.paidAt)} />
-          </CardContent>
-        </Card>
       </div>
+
+      <CycleOverrideDialog
+        open={dialog === "override"}
+        onOpenChange={(open) => setDialog(open ? "override" : null)}
+        invoice={invoice}
+        items={items}
+        canApprove={canApprove}
+        onSaved={() => {
+          setDialog(null)
+          void load()
+        }}
+      />
+
+      <Dialog open={dialog === "term"} onOpenChange={(open) => setDialog(open ? "term" : null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Override term</DialogTitle>
+            <DialogDescription>
+              Reprices every line on the chosen term and re-renders the document. An open payment session is
+              superseded because the amount changes.
+            </DialogDescription>
+          </DialogHeader>
+          <TermPicker
+            current={term}
+            currency={invoice.currencyCode}
+            disabled={busy}
+            onPick={(next) => void runAction({ action: "set_term", term: next }, `Term set to ${TERM_LABEL[next]}.`)}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <VoidDialog
+        open={dialog === "void"}
+        onOpenChange={(open) => setDialog(open ? "void" : null)}
+        invoiceNumber={invoice.invoiceNumber}
+        busy={busy}
+        onConfirm={(reason) => void runAction({ action: "void", reason }, "Invoice voided.")}
+      />
     </div>
   )
 }
 
-function Row({
-  label,
-  value,
-  emphasis,
+function TermPicker({
+  current,
+  disabled,
+  onPick,
 }: {
-  label: string
-  value: string
-  emphasis?: boolean
+  current: string
+  currency: string
+  disabled: boolean
+  onPick: (term: "annually" | "bi_annually") => void
 }) {
+  const [term, setTerm] = React.useState<"annually" | "bi_annually">(current === "bi_annually" ? "annually" : "bi_annually")
   return (
-    <div className="flex w-56 justify-between gap-4">
-      <span className={cn("text-muted-foreground", emphasis && "font-medium")}>
-        {label}
-      </span>
-      <span className={cn("tabular-nums", emphasis && "font-semibold")}>
-        {value}
-      </span>
+    <div className="grid gap-4 py-2">
+      <div className="grid gap-2">
+        <Label htmlFor="overrideTerm">New term</Label>
+        <Select value={term} onValueChange={(value) => setTerm(value as "annually" | "bi_annually")}>
+          <SelectTrigger id="overrideTerm" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="annually" disabled={current === "annually"}>1 year{current === "annually" ? " (current)" : ""}</SelectItem>
+            <SelectItem value="bi_annually" disabled={current === "bi_annually"}>6 months{current === "bi_annually" ? " (current)" : ""}</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-muted-foreground text-xs">
+          The term is refused if any line has no price on it, or if the repriced line would need override approval.
+        </p>
+      </div>
+      <DialogFooter>
+        <Button size="sm" disabled={disabled || term === current} onClick={() => onPick(term)}>
+          {disabled ? "Applying…" : `Apply ${TERM_LABEL[term]}`}
+        </Button>
+      </DialogFooter>
     </div>
   )
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function VoidDialog({
+  open,
+  onOpenChange,
+  invoiceNumber,
+  busy,
+  onConfirm,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  invoiceNumber: string
+  busy: boolean
+  onConfirm: (reason: string) => void
+}) {
+  const [reason, setReason] = React.useState("")
+  React.useEffect(() => {
+    if (open) setReason("")
+  }, [open])
   return (
-    <div>
-      <div className="text-muted-foreground text-xs">{label}</div>
-      <div>{value}</div>
-    </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Void {invoiceNumber}</DialogTitle>
+          <DialogDescription>
+            The renewal link stops working and any open payment session is superseded. The nightly run may raise
+            a fresh proforma for these outlets at the next offset. A paid invoice cannot be voided.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2 py-2">
+          <Label htmlFor="voidReason">Why</Label>
+          <Textarea id="voidReason" rows={2} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Recorded in the timeline" />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant="destructive" size="sm" disabled={busy || !reason.trim()} onClick={() => onConfirm(reason.trim())}>
+            {busy ? "Voiding…" : "Void invoice"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
-/** Event types are stored as machine names; this is the reader's version. */
-function humaniseEvent(eventType: string): string {
-  const known: Record<string, string> = {
-    invoice_created: "Invoice raised by the nightly run",
-    cycle_reused: "Reminder cycle reached this invoice again",
-    status_issued: "Marked issued",
-    status_sent: "Sent to the merchant",
-    status_payment_pending: "Awaiting payment at the gateway",
-    status_paid: "Payment confirmed",
-    status_cancelled: "Cancelled",
-    status_superseded: "Superseded by its tax invoice",
-    status_lapsed: "Lapsed",
+function CycleOverrideDialog({
+  open,
+  onOpenChange,
+  invoice,
+  items,
+  canApprove,
+  onSaved,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  invoice: Invoice
+  items: Item[]
+  canApprove: boolean
+  onSaved: () => void
+}) {
+  const { showToast } = useToast()
+  const [itemId, setItemId] = React.useState<string>(items[0]?.id ?? "")
+  const [amount, setAmount] = React.useState("")
+  const [reason, setReason] = React.useState("")
+  const [saving, setSaving] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    if (open) {
+      const first = items[0]
+      setItemId(first?.id ?? "")
+      setAmount(first?.cycleOverrideMinor !== null && first?.cycleOverrideMinor !== undefined ? (first.cycleOverrideMinor / 100).toFixed(2) : "")
+      setReason("")
+      setError(null)
+    }
+  }, [open, items])
+
+  const item = items.find((entry) => entry.id === itemId) ?? null
+  const baseline = item?.catalogAmountMinor ?? null
+  const parsed = amount.trim() ? Math.round(Number(amount.replace(/,/g, "")) * 100) : null
+  const variance =
+    baseline && parsed !== null && Number.isFinite(parsed)
+      ? { deltaMinor: parsed - baseline, pct: ((parsed - baseline) / baseline) * 100 }
+      : null
+
+  async function save(clear: boolean) {
+    if (!item) return
+    setSaving(true)
+    setError(null)
+    try {
+      const response = await fetch(`/api/renewals/invoices/${invoice.id}/items/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: clear ? null : amount.trim(), reason: clear ? null : reason.trim() }),
+      })
+      const payload = (await response.json().catch(() => ({}))) as { error?: string }
+      if (!response.ok) {
+        setError(payload.error ?? "Unable to apply the override.")
+        return
+      }
+      showToast(clear ? "One-off price cleared." : "One-off price applied.", "success")
+      onSaved()
+    } catch {
+      setError("Unable to reach the server. Try again.")
+    } finally {
+      setSaving(false)
+    }
   }
-  return known[eventType] ?? eventType.replace(/_/g, " ")
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Cycle override</DialogTitle>
+          <DialogDescription>
+            Applies to this invoice line only. The assignment is untouched, so the next cycle prices from it again.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-2">
+          <div className="grid gap-2">
+            <Label htmlFor="overrideItem">Line item</Label>
+            <Select value={itemId} onValueChange={setItemId}>
+              <SelectTrigger id="overrideItem" className="w-full">
+                <SelectValue placeholder="Choose an outlet" />
+              </SelectTrigger>
+              <SelectContent>
+                {items.map((entry) => (
+                  <SelectItem key={entry.id} value={entry.id}>
+                    {entry.outletName ?? `Outlet ${entry.outletId}`} · OID {entry.outletId}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label htmlFor="overrideAmount">Override amount (MYR)</Label>
+              <Input id="overrideAmount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="1150.00" />
+              <p className="text-muted-foreground text-xs">
+                {baseline !== null ? `Agreed price ${money(baseline, invoice.currencyCode)}` : "No baseline price on this line"}
+              </p>
+            </div>
+            <div className="grid gap-2">
+              <Label>Adjustment</Label>
+              <div
+                className={cn(
+                  "bg-muted/40 rounded-[calc(var(--radius)-2px)] border px-3 py-2 text-sm",
+                  variance === null ? "text-muted-foreground" : Math.abs(variance.pct) > 15 ? "text-red-700" : variance.deltaMinor < 0 ? "text-amber-700" : "text-sky-700"
+                )}
+              >
+                {variance === null
+                  ? "—"
+                  : variance.deltaMinor === 0
+                    ? "Same as agreed"
+                    : `${signedMoney(variance.deltaMinor, invoice.currencyCode)} (${variance.pct > 0 ? "+" : "−"}${Math.abs(variance.pct).toFixed(1)}%)`}
+              </div>
+            </div>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="overrideReason">Reason</Label>
+            <Input id="overrideReason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Mandatory. Recorded on the line item." />
+          </div>
+          <p className="text-muted-foreground text-xs">
+            {variance && Math.abs(variance.pct) > 15
+              ? canApprove
+                ? "This variance is past the threshold. Your override-approval key lets you apply it; the approval is recorded against you."
+                : "This variance is past the threshold and needs someone with override approval."
+              : "The next cycle prices from the assignment again, with no manual reset."}
+          </p>
+          {error ? <p className="text-destructive text-sm">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          {item?.cycleOverrideMinor !== null && item?.cycleOverrideMinor !== undefined ? (
+            <Button variant="ghost" size="sm" disabled={saving} onClick={() => void save(true)}>
+              Clear override
+            </Button>
+          ) : null}
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={saving || !item || !amount.trim() || !reason.trim()} onClick={() => void save(false)}>
+            {saving ? "Applying…" : "Apply override"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }
