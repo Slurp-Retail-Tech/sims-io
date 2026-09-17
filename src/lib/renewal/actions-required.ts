@@ -132,39 +132,51 @@ export async function raiseAction(
 }
 
 /**
- * Close every open entry for these scopes that the current run did not raise
- * again.
+ * Close every open entry the current run examined and did not raise again.
  *
- * `seen` holds `franchiseId|outletId|reason` for everything still wrong. Any
- * open entry within the scopes the run examined, and not in that set, is
- * resolved — which is what makes fixing the underlying gap enough, with no
- * second action needed to clear the queue.
+ * `examinedScopes` holds `franchiseId|outletId` (or `franchiseId|*` for a
+ * franchise-level entry) for every scope the run actually evaluated. `seen`
+ * holds `franchiseId|outletId|reason` for everything still wrong. An open
+ * entry is resolved only when its scope was examined, its reason is one the
+ * run evaluates, and it is not in `seen` — which is what makes fixing the
+ * underlying gap enough, with no second action needed to clear the queue.
  *
- * Scoped to the franchises the run actually looked at, so a partial run never
- * closes entries it had no opinion about.
+ * Scoped to the exact outlets examined rather than to whole franchises: a run
+ * that looked at one outlet in a franchise has no opinion about the others,
+ * and must not close their entries. Restricted to `reasons` for the same
+ * cause: a dispatch failure is not something the eligibility pass can vouch
+ * for, so it never closes one.
  */
 export async function resolveUnseenActions(
-  franchiseIds: readonly string[],
+  examinedScopes: ReadonlySet<string>,
   seen: ReadonlySet<string>,
+  reasons: readonly ActionReason[],
   db: Queryable = getPool()
 ): Promise<number> {
-  if (franchiseIds.length === 0) {
+  if (examinedScopes.size === 0 || reasons.length === 0) {
     return 0
   }
+
+  const franchiseIds = [
+    ...new Set([...examinedScopes].map((scope) => scope.slice(0, scope.indexOf("|")))),
+  ]
 
   const [rows] = await db.query<Row[]>(
     `SELECT id, franchise_id, outlet_id, reason
        FROM renewal_actions_required
       WHERE status = 'open'
-        AND franchise_id IN (${franchiseIds.map(() => "?").join(", ")})`,
-    [...franchiseIds]
+        AND franchise_id IN (${franchiseIds.map(() => "?").join(", ")})
+        AND reason IN (${reasons.map(() => "?").join(", ")})`,
+    [...franchiseIds, ...reasons]
   )
 
   const stale = rows
-    .filter(
-      (row) =>
-        !seen.has(`${row.franchise_id}|${row.outlet_id ?? "*"}|${row.reason}`)
-    )
+    .filter((row) => {
+      const scope = `${row.franchise_id}|${row.outlet_id ?? "*"}`
+      return (
+        examinedScopes.has(scope) && !seen.has(`${scope}|${row.reason}`)
+      )
+    })
     .map((row) => String(row.id))
 
   if (stale.length === 0) {

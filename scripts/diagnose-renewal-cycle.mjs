@@ -168,6 +168,18 @@ try {
   /* keep the default */
 }
 
+// The readiness column arrives with migration 033; a database that has not
+// run it yet still gets a useful readout using the code default.
+let readinessDays = 30
+try {
+  const row = await one(
+    `SELECT readiness_window_days AS d FROM renewal_settings WHERE id = 1`
+  )
+  if (row && Number.isInteger(Number(row.d))) readinessDays = Number(row.d)
+} catch {
+  /* column missing: pre-033 schema */
+}
+
 const today = (await one(`SELECT CURDATE() AS d`)).d
 console.log(`\n3. Due dates (today is ${today}, offsets ${offsets.join(", ")})`)
 
@@ -182,6 +194,16 @@ for (const offset of offsets) {
   dueTotal += Number(row.n)
   console.log(`   T-${String(offset).padEnd(3)} ${String(row.n).padStart(5)} subscription(s)`)
 }
+
+const inWindow = await one(
+  `SELECT COUNT(*) AS n FROM outlet_subscriptions
+    WHERE deleted_at IS NULL AND is_active = 1
+      AND valid_until_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)`,
+  [readinessDays]
+)
+console.log(
+  `   Readiness sweep (next ${readinessDays} days) ${String(inWindow.n).padStart(5)} subscription(s) checked for plan and PIC nightly`
+)
 
 const horizon = await q(
   `SELECT valid_until_date AS d, COUNT(*) AS n FROM outlet_subscriptions
@@ -203,8 +225,9 @@ if (Number(subs.total) > 0 && dueTotal === 0) {
     horizon.length === 0 ? "blocker" : "info",
     horizon.length === 0
       ? "No outlet expires in the next 45 days. Either the dates are wrong, or this cohort genuinely is not due."
-      : "Nothing falls on an exact offset date today. The cycle is working; today simply has no cohort. " +
-        "Compare the dates above against the offsets."
+      : "Nothing falls on an exact offset date today, so no invoice is raised tonight. " +
+        `The ${inWindow.n} subscription(s) inside the readiness window are still checked for a plan and PIC, ` +
+        "so Actions Required reflects them even with nothing due."
   )
 }
 

@@ -10,6 +10,12 @@
  * Matching an exact expiry date per offset, rather than a range, is deliberate:
  * a run skipped for two days must not suddenly invoice three cohorts at once.
  *
+ * A second pass, the readiness sweep, runs the same eligibility checks over
+ * every subscription expiring inside the readiness window (30 days by
+ * default) without raising anything. A missing plan or PIC therefore appears
+ * in Actions Required weeks before the offset that would need it, and is
+ * re-checked every night until it is fixed, at which point it auto-resolves.
+ *
  * The run never throws on a single subscription. One franchise with a broken
  * plan must not abandon every other franchise's renewals for the night.
  */
@@ -32,6 +38,7 @@ import {
   offsetDates,
 } from "./invoice-build.ts"
 import type { DueSubscription, PricedLine } from "./invoice-build.ts"
+import { addDays, daysBetween } from "./invoice-build.ts"
 import { createProformaForGroup, recordEvent } from "./invoices.ts"
 import { loadAssignmentsForFranchise } from "./plans.ts"
 import {
@@ -40,6 +47,12 @@ import {
 } from "./plan-resolution.ts"
 import type { AssignmentRecord, PlanRecord } from "./plan-resolution.ts"
 import { resolveGroupRenewalPic, resolveRenewalPic } from "./pic-resolution.ts"
+import {
+  CYCLE_EVALUATED_REASONS,
+  cycleHorizonDays,
+  partitionForCycle,
+  scopeKey,
+} from "./readiness.ts"
 import { loadRenewalDirectory } from "./renewal-contacts.ts"
 import { loadRenewalSettings } from "./settings.ts"
 
@@ -47,7 +60,10 @@ const log = createLogger("renewal:cycle")
 
 export type CycleOutcome = {
   offsetsRun: number[]
+  readinessWindowDays: number
   subscriptionsDue: number
+  /** Inside the readiness window but not on an offset: checked, not invoiced. */
+  subscriptionsUpcoming: number
   invoicesCreated: number
   invoicesReused: number
   actionsRaised: number
@@ -80,10 +96,13 @@ export async function runRenewalCycle(
   const settings = await loadRenewalSettings(db)
   const offsets = settings.reminderOffsets
   const targets = offsetDates(today, offsets)
+  const windowDays = settings.readinessWindowDays
 
   const outcome: CycleOutcome = {
     offsetsRun: offsets,
+    readinessWindowDays: windowDays,
     subscriptionsDue: 0,
+    subscriptionsUpcoming: 0,
     invoicesCreated: 0,
     invoicesReused: 0,
     actionsRaised: 0,
@@ -91,13 +110,19 @@ export async function runRenewalCycle(
     franchisesExamined: 0,
   }
 
-  const due = await loadDueSubscriptions(
-    targets.map((target) => target.date),
+  // One read covers both passes: everything from today out to the further of
+  // the readiness window and the furthest offset, then split in memory.
+  const loaded = await loadSubscriptionsExpiringBetween(
+    today,
+    addDays(today, cycleHorizonDays(offsets, windowDays)),
     db
   )
+  const dueDates = new Set(targets.map((target) => target.date))
+  const { due, upcoming } = partitionForCycle(loaded, dueDates, today, windowDays)
   outcome.subscriptionsDue = due.length
+  outcome.subscriptionsUpcoming = upcoming.length
 
-  if (due.length === 0) {
+  if (due.length === 0 && upcoming.length === 0) {
     return outcome
   }
 
@@ -105,9 +130,10 @@ export async function runRenewalCycle(
     targets.map((target) => [target.date, target.offset])
   )
 
-  // Everything still wrong after this run, so anything previously open and not
-  // re-raised can be resolved.
+  // Everything still wrong after this run, so anything previously open, within
+  // an examined scope, and not re-raised can be resolved.
   const seenActions = new Set<string>()
+  const examinedScopes = new Set<string>()
   const raise = async (
     entry: Parameters<typeof raiseAction>[0]
   ): Promise<void> => {
@@ -116,21 +142,40 @@ export async function runRenewalCycle(
     outcome.actionsRaised += 1
   }
 
-  const byFranchise = new Map<string, DueSubscription[]>()
-  for (const subscription of due) {
-    const list = byFranchise.get(subscription.franchiseId) ?? []
-    list.push(subscription)
-    byFranchise.set(subscription.franchiseId, list)
-  }
-  outcome.franchisesExamined = byFranchise.size
+  const dueByFranchise = groupByFranchise(due)
+  const upcomingByFranchise = groupByFranchise(upcoming)
+  const franchiseIds = new Set([
+    ...dueByFranchise.keys(),
+    ...upcomingByFranchise.keys(),
+  ])
+  outcome.franchisesExamined = franchiseIds.size
 
-  const groupingEnabled = await loadGroupingFlags([...byFranchise.keys()], db)
+  const groupingEnabled = await loadGroupingFlags([...dueByFranchise.keys()], db)
   const blockedOutletKeys = await loadBlockedOutletKeys(db)
 
-  for (const [franchiseId, subscriptions] of byFranchise) {
+  // Assignments, plans and contacts are loaded once per franchise and shared
+  // by both passes, so a franchise with outlets in each is not read twice.
+  const contexts = new Map<string, FranchiseContext>()
+  const contextFor = async (franchiseId: string): Promise<FranchiseContext> => {
+    let loadedContext = contexts.get(franchiseId)
+    if (!loadedContext) {
+      loadedContext = await loadFranchiseContext(franchiseId, db)
+      contexts.set(franchiseId, loadedContext)
+    }
+    return loadedContext
+  }
+
+  for (const [franchiseId, subscriptions] of dueByFranchise) {
+    // The due pass has an opinion about every outlet it invoices and about the
+    // franchise-level entries the grouped-invoice rules can raise.
+    examinedScopes.add(scopeKey(franchiseId, null))
+    for (const subscription of subscriptions) {
+      examinedScopes.add(scopeKey(franchiseId, subscription.outletId))
+    }
     try {
       await processFranchise({
         franchiseId,
+        franchise: await contextFor(franchiseId),
         subscriptions,
         groupingEnabled,
         blockedOutletKeys,
@@ -147,17 +192,122 @@ export async function runRenewalCycle(
     }
   }
 
+  for (const [franchiseId, subscriptions] of upcomingByFranchise) {
+    for (const subscription of subscriptions) {
+      examinedScopes.add(scopeKey(franchiseId, subscription.outletId))
+    }
+    try {
+      await checkFranchiseReadiness({
+        franchiseId,
+        franchise: await contextFor(franchiseId),
+        subscriptions,
+        settings,
+        today,
+        raise,
+      })
+    } catch (error) {
+      log.error("Renewal readiness sweep failed for franchise", error, {
+        franchiseId,
+      })
+    }
+  }
+
   outcome.actionsResolved = await resolveUnseenActions(
-    [...byFranchise.keys()],
+    examinedScopes,
     seenActions,
+    CYCLE_EVALUATED_REASONS,
     db
   )
 
   return outcome
 }
 
+/** What both passes need to know about a franchise, loaded once. */
+type FranchiseContext = {
+  assignments: AssignmentRecord[]
+  plans: Map<string, PlanRecord>
+  directory: Awaited<ReturnType<typeof loadRenewalDirectory>>
+}
+
+async function loadFranchiseContext(
+  franchiseId: string,
+  db: Queryable
+): Promise<FranchiseContext> {
+  const assignments = await loadAssignmentsForFranchise(franchiseId, db)
+  const plans = await loadPlansForAssignments(assignments, db)
+  const directory = await loadRenewalDirectory(franchiseId, db)
+  return {
+    assignments: assignments as unknown as AssignmentRecord[],
+    plans,
+    directory,
+  }
+}
+
+function groupByFranchise(
+  subscriptions: readonly DueSubscription[]
+): Map<string, DueSubscription[]> {
+  const byFranchise = new Map<string, DueSubscription[]>()
+  for (const subscription of subscriptions) {
+    const list = byFranchise.get(subscription.franchiseId) ?? []
+    list.push(subscription)
+    byFranchise.set(subscription.franchiseId, list)
+  }
+  return byFranchise
+}
+
+/**
+ * The readiness sweep for one franchise: the same two eligibility checks the
+ * due pass runs, with no invoice at the end.
+ *
+ * Per outlet rather than per group, because what it reports are outlet-level
+ * gaps a person fixes on the plan catalog or the outlet's contact. The grouped
+ * addressee rules only matter once an invoice is actually being raised.
+ */
+async function checkFranchiseReadiness(context: {
+  franchiseId: string
+  franchise: FranchiseContext
+  subscriptions: DueSubscription[]
+  settings: Awaited<ReturnType<typeof loadRenewalSettings>>
+  today: string
+  raise: (entry: Parameters<typeof raiseAction>[0]) => Promise<void>
+}): Promise<void> {
+  const { franchiseId, franchise, subscriptions, settings, today, raise } = context
+
+  for (const subscription of subscriptions) {
+    const daysToExpiry = daysBetween(today, subscription.validUntilDate)
+    const block = async (reason: ActionReason, detail: string) => {
+      await raise({
+        franchiseId,
+        outletId: subscription.outletId,
+        centralId: subscription.centralId,
+        reason,
+        detail,
+        daysToExpiry,
+      })
+    }
+
+    await resolveOutletPrice({
+      subscription,
+      assignments: franchise.assignments,
+      plans: franchise.plans,
+      settings,
+      block,
+    })
+
+    await checkOutletAddressable({
+      subscription,
+      directory: franchise.directory,
+      daysToExpiry,
+      franchiseId,
+      raise,
+      block,
+    })
+  }
+}
+
 async function processFranchise(context: {
   franchiseId: string
+  franchise: FranchiseContext
   subscriptions: DueSubscription[]
   groupingEnabled: Set<string>
   blockedOutletKeys: Set<string>
@@ -170,6 +320,7 @@ async function processFranchise(context: {
 }): Promise<void> {
   const {
     franchiseId,
+    franchise,
     subscriptions,
     groupingEnabled,
     blockedOutletKeys,
@@ -181,9 +332,7 @@ async function processFranchise(context: {
     db,
   } = context
 
-  const assignments = await loadAssignmentsForFranchise(franchiseId, db)
-  const plans = await loadPlansForAssignments(assignments, db)
-  const directory = await loadRenewalDirectory(franchiseId, db)
+  const { assignments, plans, directory } = franchise
 
   // Outlets whose pricing cannot be resolved are blocked for this run, so they
   // are excluded from any group they would otherwise have joined.
@@ -213,7 +362,7 @@ async function processFranchise(context: {
     // This is what AC28 asks for.
     const priced = await resolveOutletPrice({
       subscription,
-      assignments: assignments as unknown as AssignmentRecord[],
+      assignments,
       plans,
       settings,
       block,
@@ -352,24 +501,26 @@ async function processFranchise(context: {
   }
 }
 
-/** Subscriptions expiring on exactly one of the offset dates. */
-async function loadDueSubscriptions(
-  dates: readonly string[],
+/**
+ * Active subscriptions expiring between two dates, inclusive.
+ *
+ * The caller splits these into the due and readiness cohorts in memory; one
+ * indexed range read is cheaper than a read per offset plus one for the window.
+ */
+async function loadSubscriptionsExpiringBetween(
+  from: string,
+  to: string,
   db: Queryable
 ): Promise<DueSubscription[]> {
-  if (dates.length === 0) {
-    return []
-  }
-
   const [rows] = await db.query<DueRow[]>(
     `SELECT id, franchise_id, outlet_id, central_id, outlet_name, company_name,
             valid_until_date, billed_by, billing_hold
        FROM outlet_subscriptions
       WHERE deleted_at IS NULL
         AND is_active = 1
-        AND valid_until_date IN (${dates.map(() => "?").join(", ")})
+        AND valid_until_date BETWEEN ? AND ?
       ORDER BY franchise_id ASC, outlet_id ASC`,
-    [...dates]
+    [from, to]
   )
 
   return rows.map((row) => ({

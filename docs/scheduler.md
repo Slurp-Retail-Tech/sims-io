@@ -118,6 +118,13 @@ configured reminder offset (15, 5 and 1 days by default), raises or reuses
 their proforma, and records the specific reason for every one it could not
 invoice.
 
+The same run also performs a readiness sweep over every subscription
+expiring inside `renewal_settings.readiness_window_days` (30 by default).
+Those are checked for a plan assignment and a reachable renewal PIC and
+nothing else: no invoice is raised. A gap shows up in Actions Required weeks
+before the offset that needs it and auto-resolves the night after it is
+fixed.
+
 ```
 POST /api/renewals/cycle
 ```
