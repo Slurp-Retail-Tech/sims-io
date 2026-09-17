@@ -18,8 +18,12 @@ const URL = "https://staging-payments.commerce.asia/api/services/app/PaymentGate
 // These pin the algorithm's own properties. The vendor's worked example is NOT
 // used as a golden vector: its published hash cannot be reproduced from its
 // published inputs under any of 160 combinations tried, and the example is
-// internally inconsistent. See the module header. The algorithm still has to
-// be confirmed against the staging gateway.
+// internally inconsistent. See the module header.
+//
+// The algorithm itself was confirmed against the staging gateway on
+// 17 September 2026 — three rival readings were refused with `Invalid
+// Signature` and this one validated. These tests guard it from drifting away
+// from that confirmed behaviour.
 // ---------------------------------------------------------------------------
 
 test("sorts properties ascending", () => {

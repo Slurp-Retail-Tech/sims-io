@@ -27,9 +27,23 @@
  * determinism, recursive key sorting, null omission, lower-casing — rather
  * than a vector that does not hold.
  *
- * **The algorithm must be confirmed against the staging gateway before any
- * merchant sees a payment link.** A successful signed call to staging is the
- * only trustworthy vector available.
+ * *** CONFIRMED AGAINST THE STAGING GATEWAY, 17 September 2026 ***
+ *
+ * `scripts/verify-commercepay-signature.mjs` probed four readings against
+ * staging. Three were refused with `Invalid Signature`. This one was not: it
+ * reached the transaction lookup and came back `Transaction Not Found` for the
+ * deliberately non-existent transaction number, which is only reachable once
+ * the signature has validated. The prose was right and the example was wrong.
+ *
+ * The probe also settled a second question. The documentation spells the
+ * timestamp query parameter three ways, and both `timestamp` and `timeStamp`
+ * were accepted — not because the gateway tolerates either, but because step 6
+ * lower-cases the whole string, so the two spellings are the same by the time
+ * they are hashed. That is independent evidence that the lower-casing step is
+ * real and applies to property names, not only to values.
+ *
+ * Re-run that script after a key rotation, and before the first production
+ * call, since production issues separate credentials.
  *
  * Pure and runtime-free so it can be unit-tested under `node --test`.
  */
