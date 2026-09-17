@@ -1,7 +1,7 @@
 import type { Metadata } from "next"
 
 export const metadata: Metadata = {
-  title: "Renewal Due",
+  title: "Renewal – Renewal List",
 }
 
 export default function RenewalDueLayout({

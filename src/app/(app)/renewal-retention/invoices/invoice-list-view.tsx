@@ -76,7 +76,12 @@ function engagement(invoice: Invoice): { label: string; warn: boolean } {
 
 export function InvoiceListView() {
   const [invoices, setInvoices] = React.useState<Invoice[]>([])
-  const [status, setStatus] = React.useState<string>(ALL)
+  // `?status=paid` from the overview tiles pre-filters the list.
+  const [status, setStatus] = React.useState<string>(() => {
+    if (typeof window === "undefined") return ALL
+    const wanted = new URLSearchParams(window.location.search).get("status")
+    return wanted && wanted in INVOICE_STATUS_LABEL ? wanted : ALL
+  })
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
