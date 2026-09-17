@@ -118,9 +118,23 @@ export async function listChannels(): Promise<RespondioResult<RespondioChannel[]
 /**
  * Create the contact if the identifier is unknown, otherwise update it.
  *
- * Used before a payer email, because the person settling an invoice is often
- * not a contact SIMS already knows and the send would otherwise have nobody to
- * address.
+ * *** DO NOT call this to "make sure the contact exists" before sending. ***
+ *
+ * Two reasons, both confirmed against the live workspace on 17 September 2026:
+ *
+ *  1. It is unnecessary. An `email:` or `phone:` identifier creates the contact
+ *     implicitly on first write, so `sendMessage` alone is enough. A test send
+ *     to an address with no prior contact needs no preparation.
+ *
+ *  2. It is destructive. A test send to an address that *did* already have a
+ *     contact resolved to that existing person — the right behaviour, and what
+ *     the payer-email flow depends on when the payer is also the renewal PIC.
+ *     But this endpoint *updates* on a match, so passing a `firstName` here
+ *     would overwrite a real merchant contact's name with whatever SIMS
+ *     happened to know, and Respond.io keeps no previous value to restore.
+ *
+ * Use it only where changing the contact's stored details is the actual
+ * intent, and pass only the fields that should genuinely be overwritten.
  */
 export async function createOrUpdateContact(
   identifier: string,
@@ -138,6 +152,9 @@ export async function createOrUpdateContact(
 
 /**
  * Send one message.
+ *
+ * Creates the contact implicitly where the identifier is unknown, so nothing
+ * needs to exist beforehand — see the warning on `createOrUpdateContact`.
  *
  * Deliberately **not** retried. A timeout here is the dangerous case: the
  * message may well have been delivered, and a retry would send a merchant a
