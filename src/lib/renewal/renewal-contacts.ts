@@ -51,6 +51,43 @@ export type RenewalDirectory = {
 }
 
 /**
+ * Every key a franchise might be recorded under in `contact_outlets`.
+ *
+ * `merchants` carries two business keys, `external_id` and `fid`, and contact
+ * mappings were recorded against whichever one the user picked — which is why
+ * `loadContactMappings` resolves names with `fid = ? OR external_id = ?`.
+ * `outlet_subscriptions` holds only `external_id`, because that is the
+ * canonical, always-present, unique one.
+ *
+ * Matching on `external_id` alone would therefore miss every contact mapped
+ * under a differing `fid`, and the outlet would be reported as having nobody
+ * accountable for its renewal when somebody plainly is. That failure is silent
+ * and looks exactly like a genuine gap, so it is resolved here rather than
+ * left for whoever works the queue to puzzle over.
+ */
+async function franchiseKeyAliases(
+  franchiseId: string,
+  db: Queryable
+): Promise<string[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT external_id, fid FROM merchants
+      WHERE external_id = ? OR fid = ?`,
+    [franchiseId, franchiseId]
+  )
+
+  const keys = new Set<string>([franchiseId])
+  for (const row of rows as Array<{ external_id: string; fid: string | null }>) {
+    if (row.external_id) {
+      keys.add(row.external_id)
+    }
+    if (row.fid) {
+      keys.add(row.fid)
+    }
+  }
+  return [...keys]
+}
+
+/**
  * Load every renewal-relevant mapping under a franchise, with the contacts and
  * channels resolution needs.
  *
@@ -65,6 +102,8 @@ export async function loadRenewalDirectory(
   franchiseId: string,
   db: Queryable = getPool()
 ): Promise<RenewalDirectory> {
+  const keys = await franchiseKeyAliases(franchiseId, db)
+
   const [rows] = await db.query<MappingRow[]>(
     `
     SELECT co.id AS mapping_id, co.contact_id, co.franchise_id, co.outlet_id,
@@ -75,10 +114,10 @@ export async function loadRenewalDirectory(
              ORDER BY p.is_primary DESC, p.id ASC LIMIT 1) AS primary_phone
       FROM contact_outlets co
       INNER JOIN contacts c ON c.id = co.contact_id AND c.deleted_at IS NULL
-     WHERE co.franchise_id = ?
+     WHERE co.franchise_id IN (${keys.map(() => "?").join(", ")})
      ORDER BY co.outlet_id IS NULL DESC, co.outlet_id ASC, co.id ASC
     `,
-    [franchiseId]
+    keys
   )
 
   const contactIds = [...new Set(rows.map((row) => String(row.contact_id)))]
