@@ -18,10 +18,10 @@ type CycleParams = {
  * The nightly renewal cycle.
  *
  * Runs in one slice rather than checkpointing partway. The work is bounded by
- * how many subscriptions expire on three specific dates — tens, not tens of
- * thousands — and a half-finished cycle is harder to reason about than a
- * repeated one: every write it makes is idempotent, so a re-run after an
- * interruption reaches the same state.
+ * how many subscriptions expire inside the readiness window — hundreds at
+ * most, not tens of thousands — and a half-finished cycle is harder to reason
+ * about than a repeated one: every write it makes is idempotent, so a re-run
+ * after an interruption reaches the same state.
  */
 export const renewalCycleJobHandler: JobHandler = {
   jobType: RENEWAL_CYCLE_JOB_TYPE,
@@ -34,17 +34,22 @@ export const renewalCycleJobHandler: JobHandler = {
       log.info("Renewal cycle complete", {
         runDate,
         offsets: outcome.offsetsRun.join(","),
+        readinessWindowDays: outcome.readinessWindowDays,
         due: outcome.subscriptionsDue,
+        upcoming: outcome.subscriptionsUpcoming,
         created: outcome.invoicesCreated,
         reused: outcome.invoicesReused,
         actionsRaised: outcome.actionsRaised,
         actionsResolved: outcome.actionsResolved,
       })
 
+      // Units are every subscription examined, in either pass. `failed` is the
+      // number of Actions Required entries raised, not a job failure.
+      const examined = outcome.subscriptionsDue + outcome.subscriptionsUpcoming
       const progress: JobProgress = {
         ...EMPTY_PROGRESS,
-        totalUnits: outcome.subscriptionsDue,
-        processed: outcome.subscriptionsDue,
+        totalUnits: examined,
+        processed: examined,
         updated: outcome.invoicesCreated,
         skipped: outcome.invoicesReused,
         failed: outcome.actionsRaised,

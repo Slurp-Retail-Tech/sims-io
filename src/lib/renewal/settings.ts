@@ -24,6 +24,11 @@ export type RenewalSettings = {
   /** Absolute variance from catalog, in percent, that needs sign-off. */
   overrideVarianceThresholdPct: number
   graceWindowDays: number
+  /**
+   * Days ahead of expiry the nightly readiness sweep checks plan and PIC
+   * eligibility, so gaps surface long before the first reminder offset.
+   */
+  readinessWindowDays: number
   /** Global kill switch for outbound messaging. */
   dispatchEnabled: boolean
   sendWindowStart: string
@@ -47,6 +52,7 @@ export const DEFAULT_RENEWAL_SETTINGS: RenewalSettings = {
   taxRatePercent: 0,
   overrideVarianceThresholdPct: 15,
   graceWindowDays: 30,
+  readinessWindowDays: 30,
   dispatchEnabled: false,
   sendWindowStart: "09:00:00",
   sendWindowEnd: "18:00:00",
@@ -64,6 +70,7 @@ type SettingsRow = RowDataPacket & {
   tax_rate: string
   override_variance_threshold_pct: string
   grace_window_days: number
+  readiness_window_days: number
   dispatch_enabled: number
   send_window_start: string
   send_window_end: string
@@ -80,7 +87,8 @@ export async function loadRenewalSettings(
 ): Promise<RenewalSettings> {
   const [rows] = await db.query<SettingsRow[]>(
     `SELECT reminder_offsets_json, default_billing_plan, tax_rate,
-            override_variance_threshold_pct, grace_window_days, dispatch_enabled,
+            override_variance_threshold_pct, grace_window_days,
+            readiness_window_days, dispatch_enabled,
             send_window_start, send_window_end, session_expiry_minutes,
             max_session_retries, receipt_poll_ceiling_seconds,
             respondio_whatsapp_channel_id, bukku_description_format, updated_at
@@ -98,6 +106,7 @@ export async function loadRenewalSettings(
     taxRatePercent: Number(row.tax_rate),
     overrideVarianceThresholdPct: Number(row.override_variance_threshold_pct),
     graceWindowDays: row.grace_window_days,
+    readinessWindowDays: Math.max(0, Number(row.readiness_window_days)),
     dispatchEnabled: row.dispatch_enabled === 1,
     sendWindowStart: row.send_window_start,
     sendWindowEnd: row.send_window_end,
