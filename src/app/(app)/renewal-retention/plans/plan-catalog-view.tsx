@@ -1,8 +1,9 @@
 "use client"
 
 import * as React from "react"
-import { AlertTriangle, Check, Pencil, Plus, X } from "lucide-react"
+import { AlertTriangle, Check, Pencil, Plus, Trash2, X } from "lucide-react"
 
+import { useToast } from "@/components/toast-provider"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -15,6 +16,7 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 
+import { AssignmentDialog, type AssignmentSaved } from "./assignment-dialog"
 import { formatMinor } from "./format"
 import { PlanDialog } from "./plan-dialog"
 import { LICENSE_PLAN_LABELS, TERM_LABELS } from "./types"
@@ -36,6 +38,7 @@ type LoadState = "loading" | "ready" | "error"
  * same keys regardless — this only decides what is worth showing.
  */
 export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps) {
+  const { showToast } = useToast()
   const [plans, setPlans] = React.useState<Plan[]>([])
   const [assignments, setAssignments] = React.useState<Assignment[]>([])
   const [pending, setPending] = React.useState<Assignment[]>([])
@@ -46,6 +49,8 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<Plan | null>(null)
+  const [assignOpen, setAssignOpen] = React.useState(false)
+  const [ending, setEnding] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
     setState("loading")
@@ -127,6 +132,55 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
       void load()
     }
   }
+
+  function handleAssigned(result: AssignmentSaved) {
+    const replaced = result.supersededAssignmentId
+      ? " It replaces the previous assignment at this scope."
+      : ""
+    if (result.approvalStatus === "pending") {
+      showToast(
+        `Assigned, but the override waits for approval before it prices anything.${replaced}`,
+        "success"
+      )
+    } else {
+      showToast(`Plan assigned.${replaced}`, "success")
+    }
+    void load()
+  }
+
+  /**
+   * End an assignment. The outlets it covered fall back a scope, or into
+   * Actions Required if nothing remains, which is the honest outcome rather
+   * than a silent one.
+   */
+  async function endAssignment(assignment: Assignment) {
+    const label = scopeLabel(assignment)
+    if (!window.confirm(`End the ${assignment.plan?.planName ?? "plan"} assignment for ${label}?`)) {
+      return
+    }
+    setEnding(assignment.id)
+    try {
+      const response = await fetch(
+        `/api/renewals/plans/assignments/${assignment.id}`,
+        { method: "DELETE" }
+      )
+      if (!response.ok) {
+        showToast("Unable to end the assignment.", "error")
+        return
+      }
+      showToast("Assignment ended.", "success")
+      void load()
+    } catch {
+      showToast("Unable to reach the server. Try again.", "error")
+    } finally {
+      setEnding(null)
+    }
+  }
+
+  const activePlans = React.useMemo(
+    () => plans.filter((plan) => plan.isActive),
+    [plans]
+  )
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6">
@@ -328,18 +382,40 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Assignments</CardTitle>
-          <CardDescription>
-            An outlet-scope assignment overrides the franchise-wide one. An
-            outlet imported later inherits its franchise&rsquo;s plan
-            automatically.
-          </CardDescription>
+        <CardHeader className="gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="grid gap-1.5">
+              <CardTitle className="text-base">Assignments</CardTitle>
+              <CardDescription>
+                An outlet-scope assignment overrides the franchise-wide one. An
+                outlet imported later inherits its franchise&rsquo;s plan
+                automatically.
+              </CardDescription>
+            </div>
+            {canManage ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setAssignOpen(true)}
+                disabled={activePlans.length === 0}
+                title={
+                  activePlans.length === 0
+                    ? "Create an active plan first"
+                    : undefined
+                }
+              >
+                <Plus className="size-4" />
+                Assign plan
+              </Button>
+            ) : null}
+          </div>
         </CardHeader>
         <CardContent>
           {assignments.length === 0 ? (
             <p className="text-muted-foreground py-4 text-sm">
-              Nothing assigned yet.
+              {canManage
+                ? "Nothing assigned yet. Until a franchise or outlet is on a plan, its renewals land in Actions Required instead of being invoiced."
+                : "Nothing assigned yet."}
             </p>
           ) : (
             <div className="flex flex-col">
@@ -361,15 +437,30 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
                           : ""}
                       </div>
                     </div>
-                    {assignment.approvalStatus === "pending" ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
-                        Awaiting approval
-                      </span>
-                    ) : assignment.approvalStatus === "rejected" ? (
-                      <span className="text-destructive text-xs">
-                        Override rejected
-                      </span>
-                    ) : null}
+                    <div className="flex items-center gap-2">
+                      {assignment.approvalStatus === "pending" ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
+                          Awaiting approval
+                        </span>
+                      ) : assignment.approvalStatus === "rejected" ? (
+                        <span className="text-destructive text-xs">
+                          Override rejected
+                        </span>
+                      ) : null}
+                      {canManage ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-destructive"
+                          disabled={ending === assignment.id}
+                          aria-label={`End assignment for ${scopeLabel(assignment)}`}
+                          onClick={() => void endAssignment(assignment)}
+                        >
+                          <Trash2 className="size-3.5" />
+                          {ending === assignment.id ? "Ending…" : "End"}
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
                   <Separator />
                 </div>
@@ -385,14 +476,34 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
         plan={editing}
         onSaved={() => void load()}
       />
+
+      <AssignmentDialog
+        open={assignOpen}
+        onOpenChange={setAssignOpen}
+        plans={activePlans}
+        onSaved={handleAssigned}
+      />
     </div>
   )
 }
 
+/**
+ * Name the scope by merchant and outlet, with the ids alongside.
+ *
+ * The id is what the row is keyed on and what an agent types to reproduce it,
+ * so it stays visible; the name is what makes the row recognisable at a glance.
+ */
 function scopeLabel(assignment: Assignment): string {
-  return assignment.scope === "franchise"
-    ? `Franchise ${assignment.franchiseId}, all outlets`
-    : `Outlet ${assignment.franchiseId}/${assignment.outletId}`
+  const franchise = assignment.franchiseName
+    ? `${assignment.franchiseName} (${assignment.franchiseId})`
+    : `Franchise ${assignment.franchiseId}`
+  if (assignment.scope === "franchise") {
+    return `${franchise}, all outlets`
+  }
+  const outlet = assignment.outletName
+    ? `${assignment.outletName} (${assignment.outletId})`
+    : `outlet ${assignment.outletId}`
+  return `${franchise} · ${outlet}`
 }
 
 /**

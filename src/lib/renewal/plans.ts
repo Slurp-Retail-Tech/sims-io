@@ -66,6 +66,8 @@ type AssignmentRow = RowDataPacket & {
   license_plan: string | null
   plan_price_annually: string | null
   plan_price_bi_annually: string | null
+  franchise_name: string | null
+  outlet_name: string | null
 }
 
 export type PlanSummary = PlanRecord & {
@@ -78,6 +80,9 @@ export type PlanSummary = PlanRecord & {
 }
 
 export type AssignmentSummary = AssignmentRecord & {
+  /** Merchant name for the franchise key, so the UI need not show a bare id. */
+  franchiseName: string | null
+  outletName: string | null
   overrideDirection: "increase" | "decrease" | null
   approvedByUserId: string | null
   approvedAt: string | null
@@ -109,9 +114,14 @@ const ASSIGNMENT_SELECT = `
          a.created_at,
          p.plan_code, p.plan_name, p.license_plan,
          p.price_annually AS plan_price_annually,
-         p.price_bi_annually AS plan_price_bi_annually
+         p.price_bi_annually AS plan_price_bi_annually,
+         m.name AS franchise_name,
+         o.name AS outlet_name
   FROM subscription_plan_assignments a
   LEFT JOIN subscription_plans p ON p.id = a.plan_id
+  LEFT JOIN merchants m ON m.external_id = a.franchise_id
+  LEFT JOIN merchant_outlets o
+    ON o.merchant_external_id = a.franchise_id AND o.external_id = a.outlet_id
 `
 
 function mapPlan(row: PlanRow): PlanSummary {
@@ -152,6 +162,8 @@ function mapAssignment(row: AssignmentRow): AssignmentSummary {
       : null,
     approvedAt: row.approved_at,
     createdAt: row.created_at,
+    franchiseName: row.franchise_name,
+    outletName: row.outlet_name,
     plan: row.plan_code
       ? {
           planCode: row.plan_code,

@@ -31,6 +31,8 @@ export type Assignment = {
   scope: AssignmentScope
   franchiseId: string
   outletId: string | null
+  franchiseName: string | null
+  outletName: string | null
   overridePriceAnnuallyMinor: number | null
   overridePriceBiAnnuallyMinor: number | null
   overrideReason: string | null
