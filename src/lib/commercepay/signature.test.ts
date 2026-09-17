@@ -237,3 +237,18 @@ test("sortAndStripNulls leaves scalars alone", () => {
   assert.equal(sortAndStripNulls("x"), "x")
   assert.equal(sortAndStripNulls(true), true)
 })
+
+test("a PascalCase nested key sorts by its lower-cased name", () => {
+  // The documented InitialSession body spells the nested objects `Customer`,
+  // `SubMerchant`, `PlatformCharge`. A byte-wise sort puts every one of them
+  // before `amount`; the gateway, which lower-cases before comparing, puts
+  // `customer` between `currencyCode` and `description`. Confirmed against
+  // staging: byte-wise ordering is refused as an invalid signature.
+  const sorted = sortAndStripNulls({
+    description: "x",
+    Customer: { name: "n", email: "e" },
+    currencyCode: "MYR",
+    amount: 1,
+  }) as Record<string, unknown>
+  assert.deepEqual(Object.keys(sorted), ["amount", "currencyCode", "Customer", "description"])
+})

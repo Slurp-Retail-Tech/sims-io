@@ -34,7 +34,10 @@ function loadDotEnv() {
     for (const line of readFileSync(".env", "utf8").split("\n")) {
       const match = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim())
       if (match && !process.env[match[1]]) {
-        process.env[match[1]] = match[2]
+        // Strip matching surrounding quotes, as dotenv and Node's --env-file
+        // do. A password holding `#` or `$` has to be quoted for those two
+        // parsers, and this script must read the same value they do.
+        process.env[match[1]] = match[2].replace(/^(['"])(.*)\1$/, "$2")
       }
     }
   } catch {

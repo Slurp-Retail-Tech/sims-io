@@ -152,7 +152,18 @@ export function sortAndStripNulls(value: SignableValue): SignableValue {
 
   if (value && typeof value === "object") {
     const sorted: Record<string, SignableValue> = {}
-    for (const key of Object.keys(value).sort()) {
+    // Sorted by lower-cased name. The whole string is lower-cased before it is
+    // hashed, so the gateway's ordering is the ordering of lower-case names:
+    // a PascalCase nested object such as `Customer` has to sit between
+    // `currencyCode` and `description`, not before `amount` where a byte-wise
+    // sort on the capital C would put it. This is the difference between a
+    // Query that validates and an InitialSession that is refused.
+    const keys = Object.keys(value).sort((left, right) => {
+      const a = left.toLowerCase()
+      const b = right.toLowerCase()
+      return a < b ? -1 : a > b ? 1 : left < right ? -1 : left > right ? 1 : 0
+    })
+    for (const key of keys) {
       const entry = (value as Record<string, SignableValue>)[key]
       if (entry === null || entry === undefined) {
         continue

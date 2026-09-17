@@ -344,16 +344,21 @@ export async function listInvoices(
 
 export type InvoiceItemRecord = {
   id: string
+  outletSubscriptionId: string | null
   outletId: string
   centralId: string | null
   outletName: string | null
+  planId: string | null
+  assignmentId: string | null
   licensePlan: string | null
   billingPlan: BillingTerm
   catalogAmountMinor: number | null
   effectiveAmountMinor: number
   adjustmentAmountMinor: number
   priceSource: string
+  cycleOverrideMinor: number | null
   previousValidUntil: string | null
+  newValidUntil: string | null
 }
 
 export async function loadInvoiceItems(
@@ -361,9 +366,10 @@ export async function loadInvoiceItems(
   db: Queryable = getPool()
 ): Promise<InvoiceItemRecord[]> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, outlet_id, central_id, outlet_name, license_plan, billing_plan,
+    `SELECT id, outlet_subscription_id, outlet_id, central_id, outlet_name,
+            plan_id, assignment_id, license_plan, billing_plan,
             catalog_amount, effective_amount, adjustment_amount, price_source,
-            previous_valid_until
+            cycle_override_amount, previous_valid_until, new_valid_until
        FROM renewal_invoice_items
       WHERE invoice_id = ? ORDER BY sort_order ASC, id ASC`,
     [invoiceId]
@@ -371,17 +377,29 @@ export async function loadInvoiceItems(
 
   return (rows as Array<Record<string, string | null>>).map((row) => ({
     id: String(row.id),
+    outletSubscriptionId: row.outlet_subscription_id
+      ? String(row.outlet_subscription_id)
+      : null,
     outletId: String(row.outlet_id),
     centralId: row.central_id,
     outletName: row.outlet_name,
+    planId: row.plan_id ? String(row.plan_id) : null,
+    assignmentId: row.assignment_id ? String(row.assignment_id) : null,
     licensePlan: row.license_plan,
     billingPlan: row.billing_plan as BillingTerm,
     catalogAmountMinor: parseAmountToMinor(row.catalog_amount),
     effectiveAmountMinor: parseAmountToMinor(row.effective_amount) ?? 0,
     adjustmentAmountMinor: parseAmountToMinor(row.adjustment_amount) ?? 0,
     priceSource: String(row.price_source),
+    cycleOverrideMinor: parseAmountToMinor(row.cycle_override_amount),
     previousValidUntil: row.previous_valid_until,
+    newValidUntil: row.new_valid_until,
   }))
+}
+
+/** `toDecimal`, for the modules that write amounts alongside this one. */
+export function minorToDecimal(minor: number | null): string | null {
+  return toDecimal(minor)
 }
 
 /**
