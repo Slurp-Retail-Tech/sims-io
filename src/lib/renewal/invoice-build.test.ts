@@ -8,6 +8,7 @@ import {
   buildInvoiceDraft,
   daysBetween,
   groupDueSubscriptions,
+  splitGroupByTerm,
   offsetDates,
 } from "./invoice-build.ts"
 import type { DueSubscription, PricedLine } from "./invoice-build.ts"
@@ -363,4 +364,88 @@ test("an invoice is only grouped when it actually bills more than one outlet", (
     taxRatePercent: "0.00",
   })
   assert.equal(many.isGrouped, true)
+})
+
+// ---------------------------------------------------------------------------
+// Mixed terms inside one group
+// ---------------------------------------------------------------------------
+
+test("a grouped invoice with two terms becomes two invoices, one per term", () => {
+  // Outlet 3 is on the franchise default (a year); outlet 4 has an
+  // outlet-scope assignment set to six months. Billing both on one document
+  // would state a 12-month period against a 6-month price for outlet 4.
+  const [group] = groupDueSubscriptions(
+    [due({ outletId: "3" }), due({ outletId: "4", outletSubscriptionId: "2" })],
+    new Set(["501"])
+  )
+  const parts = splitGroupByTerm(group, [
+    line({ outletId: "3" }),
+    line({ outletId: "4", billingPlan: "bi_annually", effectiveAmountMinor: 70000, catalogAmountMinor: 70000 }),
+  ])
+
+  assert.equal(parts.length, 2)
+  assert.deepEqual(
+    parts.map((part) => part.group.groupKey),
+    ["501|2026-10-15|annually", "501|2026-10-15|bi_annually"]
+  )
+  assert.deepEqual(parts[0].group.members.map((member) => member.outletId), ["3"])
+  assert.deepEqual(parts[1].group.members.map((member) => member.outletId), ["4"])
+
+  // Each part builds cleanly on its own term.
+  const annual = buildInvoiceDraft({ group: parts[0].group, lines: parts[0].lines, billingPlan: "annually", taxRatePercent: 0 })
+  const biAnnual = buildInvoiceDraft({ group: parts[1].group, lines: parts[1].lines, billingPlan: "bi_annually", taxRatePercent: 0 })
+  assert.equal(annual.periodEnd, "2027-10-15")
+  assert.equal(biAnnual.periodEnd, "2027-04-15")
+})
+
+test("a grouped key always carries the term, so it is stable across offsets", () => {
+  const [group] = groupDueSubscriptions(
+    [due({ outletId: "3" }), due({ outletId: "4", outletSubscriptionId: "2" })],
+    new Set(["501"])
+  )
+  const parts = splitGroupByTerm(group, [line({ outletId: "3" }), line({ outletId: "4" })])
+  assert.equal(parts.length, 1)
+  assert.equal(parts[0].group.groupKey, "501|2026-10-15|annually")
+  assert.equal(parts[0].group.members.length, 2)
+})
+
+test("an ungrouped single-outlet group keeps its key untouched", () => {
+  const [group] = groupDueSubscriptions([due({ outletId: "3" })], new Set())
+  const parts = splitGroupByTerm(group, [line({ outletId: "3", billingPlan: "bi_annually" })])
+  assert.equal(parts.length, 1)
+  assert.equal(parts[0].group.groupKey, "501|2026-10-15|3")
+})
+
+test("exclusions are recorded on one part only, never duplicated", () => {
+  const [group] = groupDueSubscriptions(
+    [
+      due({ outletId: "3" }),
+      due({ outletId: "4", outletSubscriptionId: "2" }),
+      due({ outletId: "5", outletSubscriptionId: "3", billingHold: true }),
+    ],
+    new Set(["501"])
+  )
+  const parts = splitGroupByTerm(group, [
+    line({ outletId: "3" }),
+    line({ outletId: "4", billingPlan: "bi_annually" }),
+  ])
+  assert.equal(parts[0].group.excluded.length, 1)
+  assert.equal(parts[1].group.excluded.length, 0)
+})
+
+test("building a draft with a line on a different term is refused", () => {
+  const [group] = groupDueSubscriptions(
+    [due({ outletId: "3" }), due({ outletId: "4", outletSubscriptionId: "2" })],
+    new Set(["501"])
+  )
+  assert.throws(
+    () =>
+      buildInvoiceDraft({
+        group,
+        lines: [line({ outletId: "3" }), line({ outletId: "4", billingPlan: "bi_annually" })],
+        billingPlan: "annually",
+        taxRatePercent: 0,
+      }),
+    /priced on bi_annually but the invoice term is annually/
+  )
 })

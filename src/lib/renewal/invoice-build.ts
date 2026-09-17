@@ -156,6 +156,55 @@ export function groupDueSubscriptions(
   return [...groups.values()].filter((group) => group.members.length > 0)
 }
 
+/**
+ * Split a group whose priced lines resolved to different terms.
+ *
+ * An invoice has one term: one period, one expiry arithmetic. Two outlets in
+ * the same franchise can legitimately resolve to different default terms (an
+ * outlet-scope assignment set to six months beside a franchise default of a
+ * year), and billing both on one document would state a single period that is
+ * wrong for one of them. Each term therefore becomes its own invoice.
+ *
+ * A grouped key always carries the term, even when only one term is present,
+ * so the key an outlet lands under does not change between offsets just
+ * because a sibling's assignment changed. Single-outlet keys already carry the
+ * outlet id and are left alone.
+ */
+export function splitGroupByTerm(
+  group: InvoiceGroup,
+  lines: readonly PricedLine[]
+): Array<{ group: InvoiceGroup; lines: PricedLine[] }> {
+  if (!group.isGrouped) {
+    return lines.length > 0 ? [{ group, lines: [...lines] }] : []
+  }
+
+  const byTerm = new Map<BillingTerm, PricedLine[]>()
+  for (const line of lines) {
+    const list = byTerm.get(line.billingPlan) ?? []
+    list.push(line)
+    byTerm.set(line.billingPlan, list)
+  }
+
+  const parts: Array<{ group: InvoiceGroup; lines: PricedLine[] }> = []
+  let first = true
+  for (const [term, termLines] of byTerm) {
+    const outletIds = new Set(termLines.map((line) => line.outletId))
+    parts.push({
+      group: {
+        ...group,
+        groupKey: `${group.groupKey}|${term}`,
+        members: group.members.filter((member) => outletIds.has(member.outletId)),
+        // Exclusions belong to the franchise-and-date, not to a term; record
+        // them once rather than on every part.
+        excluded: first ? group.excluded : [],
+      },
+      lines: termLines,
+    })
+    first = false
+  }
+  return parts
+}
+
 function exclusionFor(
   subscription: DueSubscription,
   blockedOutletKeys: ReadonlySet<string>
@@ -199,6 +248,17 @@ export function buildInvoiceDraft(input: {
 
   if (lines.length === 0) {
     throw new Error(`Cannot build an invoice with no lines: ${group.groupKey}`)
+  }
+
+  // The invoice-level period is derived from one term, so every line must
+  // have been priced on that term. `splitGroupByTerm` guarantees this for the
+  // cycle; the check is here so no other caller can produce a document whose
+  // amounts and period disagree.
+  const mismatched = lines.find((line) => line.billingPlan !== billingPlan)
+  if (mismatched) {
+    throw new Error(
+      `Line for outlet ${mismatched.outletId} is priced on ${mismatched.billingPlan} but the invoice term is ${billingPlan}: ${group.groupKey}`
+    )
   }
 
   const termMonths = TERM_MONTHS[billingPlan]

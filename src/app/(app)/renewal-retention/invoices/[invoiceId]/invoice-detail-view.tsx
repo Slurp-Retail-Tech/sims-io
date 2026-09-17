@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { ChevronLeft } from "lucide-react"
+import { ChevronLeft, FileDown, Link as LinkIcon } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -44,6 +44,8 @@ type Invoice = {
   taxMinor: number
   totalMinor: number
   status: string
+  renewalToken: string | null
+  pdfObjectKey: string | null
   firstOpenedAt: string | null
   openCount: number
   paidAt: string | null
@@ -83,6 +85,7 @@ export function InvoiceDetailView({ invoiceId }: { invoiceId: string }) {
   const [events, setEvents] = React.useState<Event[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [copied, setCopied] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
@@ -145,14 +148,43 @@ export function InvoiceDetailView({ invoiceId }: { invoiceId: string }) {
             Back to invoices
           </Link>
         </Button>
-        <span
-          className={cn(
-            "rounded-full px-2.5 py-1 text-xs",
-            STATUS_CLASSES[invoice.status] ?? "bg-muted text-muted-foreground"
-          )}
-        >
-          {STATUS_LABELS[invoice.status] ?? invoice.status}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" asChild>
+            <a
+              href={`/api/renewals/invoices/${invoice.id}/pdf`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <FileDown className="size-4" />
+              PDF
+            </a>
+          </Button>
+          {invoice.renewalToken ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const link = `${window.location.origin}/renew/${invoice.renewalToken}`
+                void navigator.clipboard?.writeText(link).then(
+                  () => setCopied(true),
+                  () => setCopied(false)
+                )
+                window.setTimeout(() => setCopied(false), 2000)
+              }}
+            >
+              <LinkIcon className="size-4" />
+              {copied ? "Link copied" : "Copy renewal link"}
+            </Button>
+          ) : null}
+          <span
+            className={cn(
+              "rounded-full px-2.5 py-1 text-xs",
+              STATUS_CLASSES[invoice.status] ?? "bg-muted text-muted-foreground"
+            )}
+          >
+            {STATUS_LABELS[invoice.status] ?? invoice.status}
+          </span>
+        </div>
       </div>
 
       <div>

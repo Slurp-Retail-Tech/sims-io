@@ -254,6 +254,44 @@ export async function findOpenProforma(
   return row ? mapInvoice(row) : null
 }
 
+/**
+ * The open proforma already billing any of these outlets for this expiry.
+ *
+ * A safety net under the group-key match. The key encodes the franchise, the
+ * expiry date and the term, and the term can change between offsets if an
+ * assignment is edited; without this, the T-5 run would mint a second invoice
+ * for outlets the T-15 run already billed. Matching on the outlet and the
+ * expiry it is renewing from is the fact that actually matters.
+ */
+export async function findOpenProformaForOutlets(
+  franchiseId: string,
+  outletIds: readonly string[],
+  validUntilDate: string,
+  db: Queryable = getPool()
+): Promise<InvoiceRecord | null> {
+  if (outletIds.length === 0) {
+    return null
+  }
+  const [rows] = await db.query<InvoiceRow[]>(
+    `${INVOICE_SELECT.replace("FROM renewal_invoices", "FROM renewal_invoices i")}
+      WHERE i.document_type = 'proforma'
+        AND i.deleted_at IS NULL
+        AND i.status NOT IN ('cancelled', 'superseded', 'lapsed')
+        AND i.franchise_id = ?
+        AND EXISTS (
+          SELECT 1 FROM renewal_invoice_items t
+           WHERE t.invoice_id = i.id
+             AND t.outlet_id IN (${outletIds.map(() => "?").join(", ")})
+             AND DATE(t.previous_valid_until) = ?
+        )
+      ORDER BY i.id ASC
+      LIMIT 1`,
+    [franchiseId, ...outletIds, validUntilDate]
+  )
+  const row = rows[0]
+  return row ? mapInvoice(row) : null
+}
+
 export async function getInvoiceById(
   invoiceId: string,
   db: Queryable = getPool()

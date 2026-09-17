@@ -27,6 +27,7 @@ export const ACTION_REASONS = {
   no_plan_assigned: "blocking",
   plan_missing_term_price: "blocking",
   override_pending_approval: "blocking",
+  override_rejected: "blocking",
   no_renewal_pic: "blocking",
   ambiguous_renewal_pic: "blocking",
   unreachable_renewal_pic: "blocking",

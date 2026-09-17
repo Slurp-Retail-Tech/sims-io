@@ -153,7 +153,9 @@ test("an unapproved override blocks pricing with its own reason", () => {
   )
 })
 
-test("a rejected override blocks pricing too", () => {
+test("a rejected override blocks pricing with its own reason", () => {
+  // Not "pending": somebody decided, and the queue must say so rather than
+  // look as though the approval simply has not happened yet.
   const rejected = assignment({
     id: "10",
     overridePriceAnnuallyMinor: 72000,
@@ -161,7 +163,7 @@ test("a rejected override blocks pricing too", () => {
   })
   assert.equal(
     resolvePlanForOutlet([rejected], "3").status,
-    "override_pending_approval"
+    "override_rejected"
   )
 })
 

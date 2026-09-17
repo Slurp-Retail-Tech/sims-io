@@ -36,10 +36,16 @@ import {
   buildInvoiceDraft,
   groupDueSubscriptions,
   offsetDates,
+  splitGroupByTerm,
 } from "./invoice-build.ts"
-import type { DueSubscription, PricedLine } from "./invoice-build.ts"
+import type { DueSubscription, InvoiceGroup, PricedLine } from "./invoice-build.ts"
 import { addDays, daysBetween } from "./invoice-build.ts"
-import { createProformaForGroup, recordEvent } from "./invoices.ts"
+import { renderInvoicePdfSafely } from "./invoice-pdf.ts"
+import {
+  createProformaForGroup,
+  findOpenProformaForOutlets,
+  recordEvent,
+} from "./invoices.ts"
 import { loadAssignmentsForFranchise } from "./plans.ts"
 import {
   resolvePlanForOutlet,
@@ -405,15 +411,25 @@ async function processFranchise(context: {
     locallyBlocked
   )
 
-  for (const group of groups) {
-    const lines = group.members
+  for (const wholeGroup of groups) {
+    const groupLines = wholeGroup.members
       .map((member) => pricedByOutlet.get(member.outletId))
       .filter((line): line is PricedLine => Boolean(line))
 
-    if (lines.length === 0) {
+    if (groupLines.length === 0) {
       continue
     }
 
+    // One invoice, one term. Outlets that resolved to different terms are
+    // billed on separate documents rather than sharing a period that is wrong
+    // for one of them.
+    for (const { group, lines } of splitGroupByTerm(wholeGroup, groupLines)) {
+      await invoiceGroup({ group, lines })
+    }
+  }
+
+  async function invoiceGroup(part: { group: InvoiceGroup; lines: PricedLine[] }) {
+    const { group, lines } = part
     const outletIds = lines.map((line) => line.outletId)
     const daysToExpiry = daysToExpiryByDate.get(group.validUntilDate) ?? null
 
@@ -437,7 +453,7 @@ async function processFranchise(context: {
           "No contact is designated renewal PIC for this outlet or its franchise.",
         daysToExpiry,
       })
-      continue
+      return
     }
     if (pic.status === "ambiguous_renewal_pic") {
       await raise({
@@ -447,7 +463,7 @@ async function processFranchise(context: {
         detail: `Outlets on this grouped invoice resolve to different renewal PICs (contacts ${pic.contactIds.join(", ")}) and the franchise has none.`,
         daysToExpiry,
       })
-      continue
+      return
     }
     if (pic.status === "unreachable_renewal_pic") {
       await raise({
@@ -457,7 +473,7 @@ async function processFranchise(context: {
         detail: `${pic.pic.name} is the renewal PIC but no enabled channel has a usable address.`,
         daysToExpiry,
       })
-      continue
+      return
     }
 
     // Reachable on some channels but not all: the reminder still goes out on
@@ -479,17 +495,37 @@ async function processFranchise(context: {
       taxRatePercent: settings.taxRatePercent,
     })
 
-    const result = await createProformaForGroup({
-      draft,
-      companyName: group.members[0]?.companyName ?? null,
-      contactId: pic.pic.contactId,
-      taxRatePercent: settings.taxRatePercent,
-      issueDate: today,
-      excludedOutlets: group.excluded,
-    })
+    // Before racing the group key, look for a proforma already billing any of
+    // these outlets for this expiry. The key carries the term, and the term
+    // can change between offsets; the outlet-and-expiry match cannot.
+    const existing = await findOpenProformaForOutlets(
+      franchiseId,
+      outletIds,
+      group.validUntilDate,
+      db
+    )
+
+    const result = existing
+      ? {
+          invoiceId: existing.id,
+          invoiceNumber: existing.invoiceNumber,
+          renewalToken: existing.renewalToken ?? "",
+          created: false,
+        }
+      : await createProformaForGroup({
+          draft,
+          companyName: group.members[0]?.companyName ?? null,
+          contactId: pic.pic.contactId,
+          taxRatePercent: settings.taxRatePercent,
+          issueDate: today,
+          excludedOutlets: group.excluded,
+        })
 
     if (result.created) {
       outcome.invoicesCreated += 1
+      // Best-effort: a storage outage must not stop the cycle. The staff and
+      // public routes render on demand if nothing is stored.
+      await renderInvoicePdfSafely(result.invoiceId)
     } else {
       outcome.invoicesReused += 1
       // The later offsets reuse the proforma raised at the first one; the
@@ -630,6 +666,13 @@ async function resolveOutletPrice(context: {
     await block(
       "override_pending_approval",
       "The assignment's price override is beyond the variance threshold and has not been approved."
+    )
+    return null
+  }
+  if (planResolution.status === "override_rejected") {
+    await block(
+      "override_rejected",
+      "The assignment's price override was rejected. Assign the plan again at an acceptable price, or without an override."
     )
     return null
   }

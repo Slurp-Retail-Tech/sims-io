@@ -31,6 +31,7 @@ export const CYCLE_EVALUATED_REASONS = [
   "no_plan_assigned",
   "plan_missing_term_price",
   "override_pending_approval",
+  "override_rejected",
   "no_renewal_pic",
   "ambiguous_renewal_pic",
   "unreachable_renewal_pic",
