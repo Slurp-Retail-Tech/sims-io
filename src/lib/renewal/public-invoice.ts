@@ -67,10 +67,22 @@ export type PublicPaymentState = {
   paidAt: string | null
 }
 
+/** What each offered term would cost, so the page can show both prices. */
+export type TermQuote = {
+  term: BillingTerm
+  termMonths: number
+  totalMinor: number
+  periodEnd: string | null
+}
+
 export type PublicInvoiceView = {
   invoiceNumber: string
   status: InvoiceStatus
   payability: Payability
+  outletCount: number
+  termQuotes: TermQuote[]
+  /** Which documents exist for download. Receipt and tax invoice arrive on payment. */
+  documents: { proforma: boolean; receipt: boolean; taxInvoice: boolean }
   companyName: string | null
   franchiseId: string
   issueDate: string | null
@@ -166,10 +178,46 @@ export function buildPublicView(
   const available = availableTermsForInvoice(lineContexts, term)
   const termLocked = payability !== "payable" || payment.state === "pending" || available.length <= 1
 
+  // Quote every offered term from the same resolution a switch would use, so
+  // the price shown before switching is the price charged after.
+  const termQuotes: TermQuote[] = []
+  for (const candidate of available) {
+    if (candidate === term) {
+      termQuotes.push({
+        term,
+        termMonths: invoice.termMonths ?? 0,
+        totalMinor: invoice.totalMinor,
+        periodEnd: invoice.periodEnd,
+      })
+      continue
+    }
+    const quote = repriceInvoiceForTerm({
+      lines: lineContexts,
+      term: candidate,
+      taxRatePercent: settings.taxRatePercent,
+      thresholdPercent: settings.overrideVarianceThresholdPct,
+    })
+    if (quote.ok) {
+      termQuotes.push({
+        term: candidate,
+        termMonths: quote.termMonths,
+        totalMinor: quote.totals.totalMinor,
+        periodEnd: quote.periodEnd,
+      })
+    }
+  }
+
   return {
     invoiceNumber: invoice.invoiceNumber,
     status: invoice.status,
     payability,
+    outletCount: items.length,
+    termQuotes,
+    documents: {
+      proforma: true,
+      receipt: false,
+      taxInvoice: false,
+    },
     companyName: invoice.companyName,
     franchiseId: invoice.franchiseId,
     issueDate: invoice.issueDate,
