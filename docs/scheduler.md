@@ -71,6 +71,87 @@ Notes:
 - `curl: (3) URL rejected: Malformed input to a URL function`
   This is usually caused by shell parsing or missing quotes. Re-enter the command as a single line and wrap the URL and header in double quotes.
 
+## Renewal subscription sync endpoint
+
+Projects POS outlets into `outlet_subscriptions`, the SIMS-owned record of
+`valid_until`.
+
+```
+POST /api/renewals/subscriptions/sync
+```
+
+Run it **after** the merchants import, since it reads what that import just
+wrote. Recommended cron expression (Asia/Kuala_Lumpur 00:45 daily):
+
+```
+45 16 * * *
+```
+
+Command example:
+
+```
+curl -X POST "https://your-app-domain.com/api/renewals/subscriptions/sync" -H "x-cron-secret: ${RENEWAL_SUBSCRIPTION_SYNC_CRON_SECRET}"
+```
+
+Notes:
+- `RENEWAL_SUBSCRIPTION_SYNC_CRON_SECRET` must match the header value.
+- Enqueues a durable job and returns 202 immediately, driving one bounded slice
+  inline. The job runner tick (below) carries the rest.
+- Safe to run repeatedly: every write is an upsert keyed on
+  `(franchise_id, outlet_id)`, and the job is keyed so a second call joins the
+  run already in flight.
+- **This is what makes SIMS the system of record for `valid_until`.** The
+  merchants import rewrites `merchant_outlets.raw_payload` wholesale, so an
+  expiry date SIMS extended could never survive there. The projection seeds
+  `valid_until` from POS the first time it sees an outlet and stops taking the
+  POS value once a renewal has been applied.
+- Where POS reports a date *later* than the one SIMS extended to, somebody
+  renewed that outlet outside SIMS. The run logs it rather than picking a
+  winner.
+- Test and closed merchant accounts are skipped and never enter a renewal
+  cadence.
+
+## Renewal cycle endpoint
+
+Nightly renewal detection: finds subscriptions expiring on exactly each
+configured reminder offset (15, 5 and 1 days by default), raises or reuses
+their proforma, and records the specific reason for every one it could not
+invoice.
+
+```
+POST /api/renewals/cycle
+```
+
+Run it **after** the subscription sync, which is itself after the merchants
+import. Recommended cron expression (Asia/Kuala_Lumpur 01:15 daily):
+
+```
+15 17 * * *
+```
+
+Command example:
+
+```
+curl -X POST "https://your-app-domain.com/api/renewals/cycle" -H "x-cron-secret: ${RENEWAL_CYCLE_CRON_SECRET}"
+```
+
+Notes:
+- `RENEWAL_CYCLE_CRON_SECRET` must match the header value.
+- Safe to run repeatedly. Invoice generation races against a unique index
+  rather than checking first, so a second run reuses what the first created
+  and the T-5 and T-1 runs reuse the proforma raised at T-15. Actions Required
+  entries are upserted, not duplicated.
+- Each offset matches an **exact** expiry date, not a range. A run skipped for
+  two days does not suddenly invoice three cohorts at once; it picks up only
+  the cohort due on the offsets it runs for.
+- Outlets that cannot be invoiced are written to Actions Required with the
+  reason, and re-evaluated every night, so closing the underlying gap re-enters
+  them automatically and resolves the entry.
+- Every gap is reported, not just the first: an outlet with no plan *and* no
+  renewal PIC raises both, so one pass through the queue closes both.
+- Nothing is sent to a merchant by this job. Outbound dispatch is behind the
+  `dispatch_enabled` setting, which ships off.
+
 ## Job runner tick (required)
 
 ```

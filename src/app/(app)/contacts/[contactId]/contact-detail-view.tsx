@@ -24,7 +24,9 @@ import { formatContactSource } from "@/lib/contacts"
 
 import { ContactDialog } from "../contact-dialog"
 import { MappingScopeBadge } from "../mapping-scope-badge"
+import { ContactChannelsCard } from "./contact-channels-card"
 import { MappingDialog } from "./mapping-dialog"
+import { RenewalDesignation } from "./renewal-designation"
 import type { Contact, ContactMappingRow } from "../types"
 
 export function ContactDetailView({ contactId }: { contactId: string }) {
@@ -73,6 +75,30 @@ export function ContactDetailView({ contactId }: { contactId: string }) {
       )
     } finally {
       setLoading(false)
+    }
+  }, [contactId])
+
+  /**
+   * Re-read the mappings without the page-level loading state.
+   *
+   * Toggling a renewal designation changes one row; running the full
+   * `loadContact` would blank the whole record and flash the header for a
+   * change the user made in place.
+   */
+  const refreshMappings = React.useCallback(async () => {
+    try {
+      const response = await fetch(`/api/contacts/${contactId}`, {
+        cache: "no-store",
+      })
+      if (!response.ok) {
+        return
+      }
+      const payload = (await response.json()) as {
+        mappings: ContactMappingRow[]
+      }
+      setMappings(payload.mappings ?? [])
+    } catch {
+      // The row keeps its previous state; the next load corrects it.
     }
   }, [contactId])
 
@@ -232,6 +258,13 @@ export function ContactDetailView({ contactId }: { contactId: string }) {
           </CardContent>
         </Card>
 
+        <ContactChannelsCard
+          contactId={contactId}
+          email={contact.email}
+          hasPhone={contact.phones.length > 0}
+          onError={(message) => showToast(message, "error")}
+        />
+
         <Card>
           <CardHeader>
             <CardTitle>Outlet &amp; franchise mapping</CardTitle>
@@ -278,23 +311,33 @@ export function ContactDetailView({ contactId }: { contactId: string }) {
                               {row.subtitle}
                             </span>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={removingMappingId === row.mappingId}
-                            onClick={() =>
-                              setPendingRemoval({
-                                mappingId: row.mappingId,
-                                title: row.title,
-                                franchiseLabel:
-                                  group.franchiseName ?? `FID ${group.franchiseId}`,
-                              })
-                            }
-                          >
-                            {removingMappingId === row.mappingId
-                              ? "Removing..."
-                              : "Remove"}
-                          </Button>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <RenewalDesignation
+                              mappingId={row.mappingId}
+                              contactId={contactId}
+                              isRenewalPic={row.isRenewalPic}
+                              isRenewalCc={row.isRenewalCc}
+                              onChanged={() => void refreshMappings()}
+                              onError={(message) => showToast(message, "error")}
+                            />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={removingMappingId === row.mappingId}
+                              onClick={() =>
+                                setPendingRemoval({
+                                  mappingId: row.mappingId,
+                                  title: row.title,
+                                  franchiseLabel:
+                                    group.franchiseName ?? `FID ${group.franchiseId}`,
+                                })
+                              }
+                            >
+                              {removingMappingId === row.mappingId
+                                ? "Removing..."
+                                : "Remove"}
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -302,6 +345,8 @@ export function ContactDetailView({ contactId }: { contactId: string }) {
                 ))}
                 <p className="text-muted-foreground text-xs">
                   Removing a mapping leaves the contact and its other mappings untouched.
+                  PIC marks who is accountable for that scope&apos;s renewal — one
+                  contact per scope. CC copies them on the same messages.
                 </p>
               </div>
             ) : (

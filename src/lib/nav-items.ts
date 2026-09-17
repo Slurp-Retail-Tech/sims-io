@@ -15,7 +15,9 @@ import {
   ListTree,
   MapPinned,
   MessageSquare,
+  Receipt,
   Store,
+  Tags,
   Ticket,
   UserPlus,
   Users,
@@ -156,6 +158,21 @@ export const renewalRetentionNav: NavItem[] = [
     title: "Renewal Due",
     url: "/renewal-retention/renewal-due",
     icon: CalendarClock,
+  },
+  {
+    title: "Plan Catalog",
+    url: "/renewal-retention/plans",
+    icon: Tags,
+  },
+  {
+    title: "Invoices",
+    url: "/renewal-retention/invoices",
+    icon: Receipt,
+  },
+  {
+    title: "Actions Required",
+    url: "/renewal-retention/actions-required",
+    icon: AlertTriangle,
   },
 ]
 
