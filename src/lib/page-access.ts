@@ -77,6 +77,12 @@ const accessRouteMappings: { prefix: string; accessKeys: string[] }[] = [
     prefix: "/renewal-retention/actions-required",
     accessKeys: ["/renewal-retention/actions-required"],
   },
+  { prefix: "/renewal-retention/templates", accessKeys: ["/renewal-retention/templates"] },
+  {
+    prefix: "/renewal-retention/exports/manage",
+    accessKeys: ["/renewal-retention/exports/manage"],
+  },
+  { prefix: "/renewal-retention/exports", accessKeys: ["/renewal-retention/exports"] },
   {
     prefix: "/renewal-retention/settings/manage",
     accessKeys: ["/renewal-retention/settings/manage"],

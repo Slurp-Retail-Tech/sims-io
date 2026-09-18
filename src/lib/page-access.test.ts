@@ -208,3 +208,10 @@ test("a settings view grant does not confer the settings manage key", () => {
   const manager = ["/renewal-retention/settings/manage"]
   assert.equal(hasPageAccessForPath("/renewal-retention/settings/manage", manager), true)
 })
+
+test("an exports view grant does not confer the generate key", () => {
+  const viewOnly = ["/renewal-retention/exports"]
+  assert.equal(hasPageAccessForPath("/renewal-retention/exports", viewOnly), true)
+  assert.equal(hasPageAccessForPath("/renewal-retention/exports/manage", viewOnly), false)
+  assert.equal(hasPageAccessForPath("/renewal-retention/templates", ["/renewal-retention/templates"]), true)
+})
