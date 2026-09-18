@@ -347,3 +347,23 @@ export async function findSessionByReference(
   ])
   return rows[0] ? mapRow(rows[0]) : null
 }
+
+/**
+ * The callback URL a session was opened with, as recorded on its request.
+ *
+ * The gateway signs a callback over the URL it was given, so verification
+ * must use that exact string rather than whatever this deployment now thinks
+ * its own origin is.
+ */
+export async function findSessionCallbackUrl(
+  referenceCode: string,
+  db: Queryable = getPool()
+): Promise<string | null> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT JSON_UNQUOTE(JSON_EXTRACT(request_json, '$.callbackUrl')) AS callback_url
+       FROM renewal_payment_sessions WHERE reference_code = ? LIMIT 1`,
+    [referenceCode]
+  )
+  const value = (rows[0] as { callback_url?: string | null } | undefined)?.callback_url
+  return value && value !== "null" ? value : null
+}

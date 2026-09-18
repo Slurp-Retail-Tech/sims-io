@@ -20,13 +20,14 @@ import { addDays } from "./invoice-build.ts"
 import type { InvoiceTotals } from "./invoice-build.ts"
 import { ensureInvoicePdf } from "./invoice-pdf.ts"
 import {
+  findTaxInvoiceForProforma,
   getInvoiceById,
   getInvoiceByToken,
   loadInvoiceItems,
   minorToDecimal,
   recordEvent,
 } from "./invoices.ts"
-import type { InvoiceItemRecord, InvoiceRecord, InvoiceStatus } from "./invoices.ts"
+import type { ExtensionStatus, InvoiceItemRecord, InvoiceRecord, InvoiceStatus } from "./invoices.ts"
 import { getPlan, listAssignments } from "./plans.ts"
 import type { BillingTerm } from "./plan-resolution.ts"
 import { loadRenewalSettings } from "./settings.ts"
@@ -84,6 +85,11 @@ export type PublicInvoiceView = {
   termQuotes: TermQuote[]
   /** Which documents exist for download. Receipt and tax invoice arrive on payment. */
   documents: { proforma: boolean; receipt: boolean; taxInvoice: boolean }
+  /** The tax invoice number once issued, for the receipt page. */
+  taxInvoiceNumber: string | null
+  /** Whether the licence dates have moved yet after payment. */
+  extension: ExtensionStatus
+  paidVia: "commercepay" | "manual" | null
   companyName: string | null
   franchiseId: string
   issueDate: string | null
@@ -109,6 +115,8 @@ export type LoadedPublicInvoice = {
   items: InvoiceItemRecord[]
   lineContexts: LineContext[]
   settings: RenewalSettings
+  /** Issued on payment; null until then. */
+  taxInvoice: InvoiceRecord | null
 }
 
 export async function loadPublicInvoice(
@@ -141,12 +149,15 @@ async function loadInvoiceContext(
   invoice: InvoiceRecord,
   db: Queryable
 ): Promise<LoadedPublicInvoice> {
-  const [items, settings] = await Promise.all([
+  const [items, settings, taxInvoice] = await Promise.all([
     loadInvoiceItems(invoice.id, db),
     loadRenewalSettings(db),
+    invoice.status === "paid" && invoice.documentType === "proforma"
+      ? findTaxInvoiceForProforma(invoice.id, db)
+      : Promise.resolve(null),
   ])
   const lineContexts = await loadLineContexts(invoice, items, db)
-  return { invoice, items, lineContexts, settings }
+  return { invoice, items, lineContexts, settings, taxInvoice }
 }
 
 /**
@@ -192,7 +203,7 @@ export function buildPublicView(
   payment: PublicPaymentState,
   today: string = todayInAppZone()
 ): PublicInvoiceView {
-  const { invoice, items, lineContexts, settings } = loaded
+  const { invoice, items, lineContexts, settings, taxInvoice } = loaded
   const term: BillingTerm = invoice.billingPlanSelected ?? items[0]?.billingPlan ?? "annually"
   const payability = payabilityOf(invoice, settings.graceWindowDays, today)
   const available = availableTermsForInvoice(lineContexts, term)
@@ -235,9 +246,12 @@ export function buildPublicView(
     termQuotes,
     documents: {
       proforma: true,
-      receipt: false,
-      taxInvoice: false,
+      receipt: invoice.status === "paid" && Boolean(invoice.receiptPdfObjectKey),
+      taxInvoice: Boolean(taxInvoice?.pdfObjectKey),
     },
+    taxInvoiceNumber: taxInvoice?.invoiceNumber ?? null,
+    extension: invoice.extensionStatus,
+    paidVia: invoice.paidVia,
     companyName: invoice.companyName,
     franchiseId: invoice.franchiseId,
     issueDate: invoice.issueDate,

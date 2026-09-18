@@ -2,11 +2,19 @@ import "server-only"
 
 import nodemailer from "nodemailer"
 
+export type MailAttachment = {
+  filename: string
+  content: Buffer
+  contentType: string
+}
+
 type SendMailInput = {
   to: string | string[]
   subject: string
   html: string
   text: string
+  /** PDFs and the like. Kept small; a receipt and a tax invoice, not a batch. */
+  attachments?: MailAttachment[]
 }
 
 let cachedTransporter: nodemailer.Transporter | null = null
@@ -83,6 +91,11 @@ export async function sendMail(input: SendMailInput) {
     subject: input.subject,
     html: input.html,
     text: input.text,
+    attachments: input.attachments?.map((attachment) => ({
+      filename: attachment.filename,
+      content: attachment.content,
+      contentType: attachment.contentType,
+    })),
   })
 }
 

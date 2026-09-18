@@ -80,6 +80,21 @@ export function resolvePosMerchantIdApiUrl(path: string) {
   return resolvePosApiUrl(path)
 }
 
+/**
+ * `PATCH /api/outlet-valid-until/:fid/:oid`, the POS write that carries a
+ * renewed expiry date back. Documented in docs/valid_until API.md.
+ * `POS_OUTLET_VALID_UNTIL_URL` overrides the base, following the other
+ * `resolvePos*Url` helpers; the documented path is the default.
+ */
+export function resolvePosOutletValidUntilUrl(franchiseId: string, outletId: string) {
+  const path = `/api/outlet-valid-until/${encodeURIComponent(franchiseId)}/${encodeURIComponent(outletId)}`
+  const configuredUrl = process.env.POS_OUTLET_VALID_UNTIL_URL?.trim()
+  if (configuredUrl) {
+    return new URL(path, configuredUrl).toString()
+  }
+  return resolvePosApiUrl(path)
+}
+
 export function resolvePosCategoryBusinessApiUrl(path: string) {
   const configuredUrl = process.env.POS_CATEGORY_BUSINESS_BASE_URL?.trim()
   if (configuredUrl) {

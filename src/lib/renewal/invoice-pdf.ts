@@ -20,6 +20,7 @@ import type { DocumentLine, RenewalDocument } from "../pdf/renewal-documents.ts"
 import { getObjectBuffer, uploadObject } from "../storage.ts"
 import { addMonths } from "./invoice-build.ts"
 import {
+  findTaxInvoiceForProforma,
   getInvoiceById,
   loadInvoiceItems,
   recordEvent,
@@ -70,24 +71,44 @@ const TERM_LABELS: Record<string, string> = {
   bi_annually: "6 months",
 }
 
+export type DocumentOptions = {
+  payLink: string | null
+  /** Force the document kind; defaults to the invoice's own type. */
+  kind?: RenewalDocument["kind"]
+  /** The proforma a tax invoice or receipt settles, or the tax invoice a receipt cites. */
+  referenceNumber?: string | null
+  /** Gateway transaction number or the bank reference of an offline payment. */
+  paymentReference?: string | null
+}
+
 /** Shape database rows into the document model the renderer takes. */
 export function buildProformaDocument(
   invoice: InvoiceRecord,
   items: readonly InvoiceItemRecord[],
-  options: { payLink: string | null }
+  options: DocumentOptions
 ): RenewalDocument {
+  const kind: RenewalDocument["kind"] =
+    options.kind ?? (invoice.documentType === "tax_invoice" ? "tax_invoice" : "proforma")
+
   const lines: DocumentLine[] = items.map((item) => {
     const periodStart = item.previousValidUntil
       ? item.previousValidUntil.slice(0, 10)
       : null
     const months = TERM_MONTHS[item.billingPlan]
+    // Once extended, the line carries the date the licence actually moved to;
+    // before that the period end is projected from the previous expiry.
+    const periodEnd = item.newValidUntil
+      ? item.newValidUntil.slice(0, 10)
+      : periodStart
+        ? addMonths(periodStart, months)
+        : null
     return {
       outletName: item.outletName,
       outletId: item.outletId,
       licensePlan: item.licensePlan,
       termLabel: TERM_LABELS[item.billingPlan] ?? item.billingPlan,
       periodStart,
-      periodEnd: periodStart ? addMonths(periodStart, months) : null,
+      periodEnd,
       catalogMinor: item.catalogAmountMinor,
       adjustmentMinor: item.adjustmentAmountMinor,
       amountMinor: item.effectiveAmountMinor,
@@ -98,16 +119,20 @@ export function buildProformaDocument(
   if (invoice.taxRatePercent === 0) {
     notes.push("Prices are exclusive of tax. No tax is charged on this document.")
   }
-  notes.push(
-    "The new expiry date for each outlet is counted from its previous expiry, not from the payment date."
-  )
+  if (kind === "proforma") {
+    notes.push(
+      "The new expiry date for each outlet is counted from its previous expiry, not from the payment date."
+    )
+  }
 
   return {
-    kind: invoice.documentType === "tax_invoice" ? "tax_invoice" : "proforma",
+    kind,
     invoiceNumber: invoice.invoiceNumber,
+    referenceNumber: options.referenceNumber ?? null,
     issueDate: invoice.issueDate,
     dueDate: invoice.dueDate,
     paidAt: invoice.paidAt,
+    paymentReference: options.paymentReference ?? null,
     currencyCode: invoice.currencyCode,
     billTo: {
       companyName: invoice.companyName,
@@ -123,9 +148,14 @@ export function buildProformaDocument(
       taxMinor: invoice.taxMinor,
       totalMinor: invoice.totalMinor,
     },
-    payLink: options.payLink,
+    payLink: kind === "proforma" ? options.payLink : null,
     notes,
   }
+}
+
+/** What a paid document cites as its payment reference. */
+export function paymentReferenceOf(invoice: InvoiceRecord): string | null {
+  return invoice.capTransactionNumber ?? invoice.paidReference ?? null
 }
 
 function storageBucket(): string {
@@ -163,8 +193,15 @@ export async function ensureInvoicePdf(
   }
 
   const items = await loadInvoiceItems(invoiceId, db)
+  // A tax invoice cites the proforma it settles and the payment that settled it.
+  const parent =
+    invoice.documentType === "tax_invoice" && invoice.parentInvoiceId
+      ? await getInvoiceById(invoice.parentInvoiceId, db)
+      : null
   const document = buildProformaDocument(invoice, items, {
     payLink: invoice.renewalToken ? buildRenewalLink(invoice.renewalToken) : null,
+    referenceNumber: parent?.invoiceNumber ?? null,
+    paymentReference: invoice.documentType === "tax_invoice" ? paymentReferenceOf(invoice) : null,
   })
   const bytes = await renderRenewalDocument(document)
 
@@ -187,6 +224,76 @@ export async function ensureInvoicePdf(
   })
 
   return { objectKey, rendered: true }
+}
+
+/** `renewal-invoices/2026/PI-2026-09-014-receipt.pdf`, beside the proforma. */
+export function receiptPdfObjectKey(invoiceNumber: string, issueDate: string | null): string {
+  return invoicePdfObjectKey(invoiceNumber, issueDate).replace(/\.pdf$/, "-receipt.pdf")
+}
+
+/**
+ * Make sure a paid proforma has its receipt rendered and stored.
+ *
+ * The receipt is the merchant's document: the proforma number they were
+ * chasing all along, the amount, the payment reference, and every outlet's
+ * new expiry. It cites the tax invoice number where one has been issued.
+ */
+export async function ensureReceiptPdf(
+  invoiceId: string,
+  options: { force?: boolean } = {},
+  db: Queryable = getPool()
+): Promise<EnsurePdfResult> {
+  const invoice = await getInvoiceById(invoiceId, db)
+  if (!invoice) {
+    throw new Error(`Invoice ${invoiceId} not found.`)
+  }
+  if (invoice.status !== "paid") {
+    throw new Error(`Invoice ${invoiceId} is not paid; no receipt to render.`)
+  }
+  if (invoice.receiptPdfObjectKey && !options.force) {
+    return { objectKey: invoice.receiptPdfObjectKey, rendered: false }
+  }
+
+  const [items, taxInvoice] = await Promise.all([
+    loadInvoiceItems(invoiceId, db),
+    findTaxInvoiceForProforma(invoiceId, db),
+  ])
+  const document = buildProformaDocument(invoice, items, {
+    payLink: null,
+    kind: "receipt",
+    referenceNumber: taxInvoice ? `Tax invoice ${taxInvoice.invoiceNumber}` : null,
+    paymentReference: paymentReferenceOf(invoice),
+  })
+  const bytes = await renderRenewalDocument(document)
+
+  const objectKey = invoice.receiptPdfObjectKey ?? receiptPdfObjectKey(invoice.invoiceNumber, invoice.issueDate)
+  await uploadObject({
+    bucket: storageBucket(),
+    key: objectKey,
+    body: Buffer.from(bytes),
+    contentType: "application/pdf",
+  })
+  await db.query<ResultSetHeader>(
+    `UPDATE renewal_invoices SET receipt_pdf_object_key = ? WHERE id = ?`,
+    [objectKey, invoiceId]
+  )
+  await recordEvent(db, invoiceId, "receipt_rendered", null, {
+    objectKey,
+    bytes: bytes.byteLength,
+    forced: Boolean(options.force),
+  })
+  return { objectKey, rendered: true }
+}
+
+/** The stored receipt bytes, rendering first if nothing is stored yet. */
+export async function loadReceiptPdf(
+  invoiceId: string,
+  db: Queryable = getPool()
+): Promise<{ bytes: Buffer; fileName: string }> {
+  const { objectKey } = await ensureReceiptPdf(invoiceId, {}, db)
+  const bytes = await getObjectBuffer(storageBucket(), objectKey)
+  const fileName = objectKey.slice(objectKey.lastIndexOf("/") + 1)
+  return { bytes: Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes), fileName }
 }
 
 /**

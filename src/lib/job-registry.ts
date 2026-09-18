@@ -5,6 +5,8 @@ import { clickUpSyncJobHandler } from "./job-handlers/clickup-sync.ts"
 import { merchantImportJobHandler } from "./job-handlers/merchant-import.ts"
 import { plusImportJobHandler } from "./job-handlers/plus-import.ts"
 import { renewalCycleJobHandler } from "./job-handlers/renewal-cycle.ts"
+import { renewalPaymentReconcileJobHandler } from "./job-handlers/renewal-payment-reconcile.ts"
+import { renewalPostPaymentJobHandler } from "./job-handlers/renewal-post-payment.ts"
 import { renewalSubscriptionSyncJobHandler } from "./job-handlers/renewal-subscription-sync.ts"
 
 /**
@@ -67,6 +69,8 @@ export const JOB_HANDLERS: Record<string, JobHandler> = {
   [plusImportJobHandler.jobType]: plusImportJobHandler,
   [renewalSubscriptionSyncJobHandler.jobType]: renewalSubscriptionSyncJobHandler,
   [renewalCycleJobHandler.jobType]: renewalCycleJobHandler,
+  [renewalPostPaymentJobHandler.jobType]: renewalPostPaymentJobHandler,
+  [renewalPaymentReconcileJobHandler.jobType]: renewalPaymentReconcileJobHandler,
 }
 
 export function registerJobHandler(handler: JobHandler): void {
@@ -75,6 +79,8 @@ export function registerJobHandler(handler: JobHandler): void {
 
 /** Order is deliberate; see JOB_HANDLERS. */
 export const JOB_TYPE_ORDER: readonly string[] = [
+  // First: a merchant is sitting on the receipt page waiting for this.
+  "renewal-post-payment",
   "plus-import",
   "merchant-import",
   // After merchant-import: the projection reads what that run just wrote, so
@@ -82,5 +88,6 @@ export const JOB_TYPE_ORDER: readonly string[] = [
   "renewal-subscription-sync",
   // And the cycle after the projection, for the same reason.
   "renewal-cycle",
+  "renewal-payment-reconcile",
   "clickup-sync",
 ]

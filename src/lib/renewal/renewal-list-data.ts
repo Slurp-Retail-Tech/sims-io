@@ -95,6 +95,7 @@ type InvoiceRow = RowDataPacket & {
   status: string
   open_count: number
   billing_plan_selected: string | null
+  extension_status: string
 }
 
 export type LoadListOptions = {
@@ -249,7 +250,7 @@ export async function loadRenewalList(
           hasBlockingAction: blockingReasons.length > 0,
           invoiceStatus: invoice?.status ?? null,
           reminderSent: false,
-          extended: invoice?.status === "paid",
+          extended: invoice?.status === "paid" && invoice.extension_status === "applied",
         },
         today
       )
@@ -322,10 +323,11 @@ export async function loadRenewalList(
 async function loadLatestInvoices(franchiseIds: readonly string[], db: Queryable): Promise<InvoiceRow[]> {
   const [rows] = await db.query<InvoiceRow[]>(
     `SELECT t.franchise_id, t.outlet_id, i.id AS invoice_id, i.invoice_number, i.status,
-            i.open_count, i.billing_plan_selected
+            i.open_count, i.billing_plan_selected, i.extension_status
        FROM renewal_invoice_items t
        INNER JOIN renewal_invoices i ON i.id = t.invoice_id
       WHERE i.deleted_at IS NULL
+        AND i.document_type = 'proforma'
         AND i.status NOT IN ('cancelled', 'superseded')
         AND t.franchise_id IN (${franchiseIds.map(() => "?").join(", ")})
       ORDER BY i.id DESC`,

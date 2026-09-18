@@ -71,6 +71,7 @@ async function loadLines(
        INNER JOIN renewal_invoice_items t ON t.invoice_id = i.id
        LEFT JOIN subscription_plans p ON p.id = t.plan_id
       WHERE i.deleted_at IS NULL
+        AND i.document_type = 'proforma'
         AND i.status = 'paid'
         AND DATE(i.paid_at) BETWEEN ? AND ?
         ${includeExported ? "" : "AND i.bukku_export_id IS NULL"}

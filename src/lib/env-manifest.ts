@@ -704,6 +704,13 @@ export const ENV_MANIFEST: readonly EnvSpec[] = [
     buildTime: false,
   },
   {
+    name: "POS_OUTLET_VALID_UNTIL_URL",
+    requirement: { kind: "optional" },
+    why: "is optional — it overrides the base of PATCH /api/outlet-valid-until/{fid}/{oid}, which otherwise follows the POS API base URL",
+    public: false,
+    buildTime: false,
+  },
+  {
     name: "POS_MERCHANT_ID_BASE_URL",
     requirement: { kind: "optional" },
     why: "is optional",
@@ -735,6 +742,13 @@ export const ENV_MANIFEST: readonly EnvSpec[] = [
     name: "RENEWAL_CYCLE_CRON_SECRET",
     requirement: { kind: "optional" },
     why: "is optional — without it the nightly renewal detection can only be run manually by an Admin, so nothing raises renewal invoices on a schedule",
+    public: false,
+    buildTime: false,
+  },
+  {
+    name: "RENEWAL_PAYMENT_RECONCILE_CRON_SECRET",
+    requirement: { kind: "optional" },
+    why: "is optional — without it the hourly payment sweep can only be run manually by an Admin, so a payment whose gateway callback never arrived waits for a person",
     public: false,
     buildTime: false,
   },

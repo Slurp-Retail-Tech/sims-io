@@ -3,7 +3,7 @@ import { NextRequest } from "next/server"
 import { resolveApiUser } from "@/lib/api-auth"
 import { notFound, serverError } from "@/lib/api-errors"
 import { withRequestContext } from "@/lib/api-request-context"
-import { loadInvoicePdf } from "@/lib/renewal/invoice-pdf"
+import { loadInvoicePdf, loadReceiptPdf } from "@/lib/renewal/invoice-pdf"
 import { getInvoiceById } from "@/lib/renewal/invoices"
 
 import { INVOICES_MANAGE_PATH, INVOICES_VIEW_PATH } from "../../helpers"
@@ -48,8 +48,14 @@ async function handleGet(
       return notFound("Invoice not found.")
     }
 
-    const { bytes, fileName } = await loadInvoicePdf(invoiceId)
-    const download = new URL(request.url).searchParams.get("download") === "1"
+    const url = new URL(request.url)
+    const requested = url.searchParams.get("document") ?? "invoice"
+    if (requested === "receipt" && invoice.status !== "paid") {
+      return notFound("No receipt exists until the invoice is paid.")
+    }
+    const { bytes, fileName } =
+      requested === "receipt" ? await loadReceiptPdf(invoiceId) : await loadInvoicePdf(invoiceId)
+    const download = url.searchParams.get("download") === "1"
 
     return new Response(new Uint8Array(bytes), {
       status: 200,

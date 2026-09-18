@@ -43,12 +43,26 @@ test("a session at the gateway is awaiting payment", () => {
   assert.equal(deriveOutletState(facts({ invoiceStatus: "payment_pending" }), today), "awaiting_payment")
 })
 
-test("paid beats everything except reseller and hold", () => {
-  assert.equal(deriveOutletState(facts({ invoiceStatus: "paid", hasBlockingAction: true }), today), "renewed")
+test("paid and extended beats everything except reseller and hold", () => {
   assert.equal(
-    deriveOutletState(facts({ invoiceStatus: "paid", validUntilDate: "2026-08-01" }), today),
+    deriveOutletState(facts({ invoiceStatus: "paid", extended: true, hasBlockingAction: true }), today),
     "renewed"
   )
+  assert.equal(
+    deriveOutletState(facts({ invoiceStatus: "paid", extended: true, validUntilDate: "2026-08-01" }), today),
+    "renewed"
+  )
+})
+
+test("paid but the extension failed is held short of renewed while the queue holds it", () => {
+  // The money is real, the licence date has not moved. The blocking
+  // extension_failed entry keeps the outlet visible as work to do.
+  assert.equal(
+    deriveOutletState(facts({ invoiceStatus: "paid", extended: false, hasBlockingAction: true }), today),
+    "action_required"
+  )
+  // In flight for a minute between callback and job: reads renewed.
+  assert.equal(deriveOutletState(facts({ invoiceStatus: "paid", extended: false }), today), "renewed")
 })
 
 test("a blocking Actions Required entry wins over an invoice", () => {

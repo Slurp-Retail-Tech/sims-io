@@ -40,6 +40,7 @@ export const ACTION_REASONS = {
   pos_valid_until_drift: "informational",
   payer_email_failed: "blocking",
   overpayment: "blocking",
+  payment_refunded: "blocking",
 } as const
 
 export type ActionReason = keyof typeof ACTION_REASONS
@@ -265,6 +266,30 @@ export async function loadBlockedOutletKeys(
       (row) => `${row.franchise_id}|${row.outlet_id}`
     )
   )
+}
+
+/**
+ * Close the open entries an invoice's own follow-up work has just cleared,
+ * such as a POS push that finally landed. Scoped to the invoice and to the
+ * reasons the caller can vouch for, for the same reason `resolveUnseenActions`
+ * is: no step closes an entry it did not evaluate.
+ */
+export async function resolveActionsForInvoice(
+  invoiceId: string,
+  reasons: readonly ActionReason[],
+  db: Queryable = getPool()
+): Promise<number> {
+  if (reasons.length === 0) {
+    return 0
+  }
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE renewal_actions_required
+        SET status = 'resolved', resolved_at = NOW(3)
+      WHERE invoice_id = ? AND status = 'open'
+        AND reason IN (${reasons.map(() => "?").join(", ")})`,
+    [invoiceId, ...reasons]
+  )
+  return result.affectedRows
 }
 
 export async function dismissAction(

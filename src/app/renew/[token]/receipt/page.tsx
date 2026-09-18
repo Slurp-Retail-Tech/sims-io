@@ -56,10 +56,15 @@ export default function RenewalReceiptPage() {
   }, [load])
 
   const pending = view?.payment.state === "pending" && view.payability !== "paid"
+  // Paid, but the documents or the licence dates are still being produced by
+  // the post-payment job; keep asking for a bounded time.
+  const settling =
+    view?.payability === "paid" &&
+    (view.extension === "pending" || !view.documents.receipt || !view.documents.taxInvoice)
 
-  // Bounded polling while the confirmation is in flight.
+  // Bounded polling while the confirmation, or its paperwork, is in flight.
   React.useEffect(() => {
-    if (!pending || waitedMs >= POLL_CEILING_MS) {
+    if ((!pending && !settling) || waitedMs >= POLL_CEILING_MS) {
       return
     }
     const handle = window.setTimeout(async () => {
@@ -67,7 +72,7 @@ export default function RenewalReceiptPage() {
       setWaitedMs((current) => current + POLL_INTERVAL_MS)
     }, POLL_INTERVAL_MS)
     return () => window.clearTimeout(handle)
-  }, [pending, waitedMs, load])
+  }, [pending, settling, waitedMs, load])
 
   if (loadState === "loading") {
     return (
@@ -118,7 +123,11 @@ export default function RenewalReceiptPage() {
                 {view.outletCount === 1
                   ? `${view.companyName ?? "Your outlet"} is renewed for ${TERM_LABELS[view.term]}.`
                   : `All ${plural(view.outletCount, "outlet")} of ${view.companyName ?? `franchise ${view.franchiseId}`} are renewed for ${TERM_LABELS[view.term]}.`}
-                {email ? ` Your receipt and tax invoice have been emailed to ${email}.` : ""}
+                {email
+                  ? view.documents.receipt && view.documents.taxInvoice
+                    ? ` Your receipt and tax invoice have been emailed to ${email}.`
+                    : ` Your receipt and tax invoice will be emailed to ${email} in a moment.`
+                  : ""}
               </p>
               <div className="mt-3.5 text-3xl font-semibold tracking-[-0.02em] tabular-nums">
                 {money(view.totals.totalMinor, view.currencyCode)}
@@ -127,8 +136,8 @@ export default function RenewalReceiptPage() {
 
             <div className="grid gap-4 border-b py-4.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))]">
               <Meta label="Paid on" value={longDateTime(view.payment.paidAt)} />
-              <Meta label="Method" value="CommercePay" />
-              <Meta label="Reference" value={view.invoiceNumber} mono />
+              <Meta label="Method" value={view.paidVia === "manual" ? "Bank transfer" : "CommercePay"} />
+              <Meta label="Reference" value={view.taxInvoiceNumber ?? view.invoiceNumber} mono />
               <Meta label="Term" value={TERM_LABELS[view.term]} />
             </div>
 
@@ -148,7 +157,11 @@ export default function RenewalReceiptPage() {
                     </span>
                   </span>
                   <span className="text-muted-foreground shrink-0 text-right text-[0.8125rem] whitespace-nowrap">
-                    Valid until {longDate(line.newValidUntil)}
+                    {view.extension === "applied"
+                      ? `Valid until ${longDate(line.newValidUntil)}`
+                      : view.extension === "failed"
+                        ? "Extension being checked"
+                        : `Extending to ${longDate(line.newValidUntil)}`}
                   </span>
                 </div>
               ))}
@@ -168,13 +181,17 @@ export default function RenewalReceiptPage() {
                   </Button>
                 ) : null}
                 {!view.documents.receipt && !view.documents.taxInvoice ? (
-                  <Button variant="outline" className="h-10 flex-1" asChild>
-                    <a href={pdfHref} target="_blank" rel="noreferrer">
-                      Print proforma
-                    </a>
+                  <Button variant="outline" className="h-10 flex-1" disabled>
+                    {settling && waitedMs < POLL_CEILING_MS ? "Preparing your documents…" : "Documents will arrive by email"}
                   </Button>
                 ) : null}
               </div>
+              {view.extension === "failed" ? (
+                <p className="text-muted-foreground mt-3.5 text-xs text-pretty">
+                  Your payment is confirmed. We are checking one of the expiry dates by hand and will confirm the new
+                  dates shortly; nothing is needed from you.
+                </p>
+              ) : null}
               <p className="text-muted-foreground mt-3.5 text-xs text-pretty">
                 This link stays available as your permanent record. The renewal covers{" "}
                 {longDate(view.periodStart)} to {longDate(view.periodEnd)}.

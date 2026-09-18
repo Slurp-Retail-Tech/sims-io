@@ -266,7 +266,7 @@ export async function renderRenewalDocument(
     )
   }
   writer.keyValue(
-    document.kind === "receipt" ? "Total paid" : "Total due",
+    document.kind === "proforma" ? "Total due" : "Total paid",
     formatMoney(document.totals.totalMinor, currency),
     totalsX,
     writer.right,

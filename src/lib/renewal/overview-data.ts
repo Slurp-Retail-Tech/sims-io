@@ -62,7 +62,7 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
               i.extension_status,
               (SELECT COUNT(*) FROM renewal_invoice_items t WHERE t.invoice_id = i.id) AS outlets
          FROM renewal_invoices i
-        WHERE i.deleted_at IS NULL AND i.status = 'paid'
+        WHERE i.deleted_at IS NULL AND i.document_type = 'proforma' AND i.status = 'paid'
         ORDER BY i.paid_at DESC, i.id DESC LIMIT 6`
     ),
     db.query<RowDataPacket[]>(
@@ -75,7 +75,7 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
          SUM(CASE WHEN i.status = 'paid' AND DATE(i.paid_at) >= ? AND DATE(i.paid_at) < ? THEN i.total_amount ELSE 0 END) AS paid_this_month,
          SUM(i.status = 'paid' AND DATE(i.paid_at) >= ? AND DATE(i.paid_at) < ?) AS paid_count_this_month
        FROM renewal_invoices i
-      WHERE i.deleted_at IS NULL`,
+      WHERE i.deleted_at IS NULL AND i.document_type = 'proforma'`,
       [monthStart, monthEnd, monthStart, monthEnd]
     ),
   ])

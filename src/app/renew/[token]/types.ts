@@ -37,6 +37,9 @@ export type PublicInvoice = {
   outletCount: number
   termQuotes: TermQuote[]
   documents: { proforma: boolean; receipt: boolean; taxInvoice: boolean }
+  taxInvoiceNumber: string | null
+  extension: "not_applicable" | "pending" | "applied" | "failed"
+  paidVia: "commercepay" | "manual" | null
   companyName: string | null
   franchiseId: string
   issueDate: string | null

@@ -68,11 +68,15 @@ export function deriveOutletState(facts: OutletFacts, today: string): RenewalSta
   if (facts.billingHold) {
     return "on_hold"
   }
-  if (facts.invoiceStatus === "paid") {
+  if (facts.invoiceStatus === "paid" && facts.extended) {
     return "renewed"
   }
   if (facts.hasBlockingAction) {
     return "action_required"
+  }
+  if (facts.invoiceStatus === "paid") {
+    // Paid, extension still in flight (or failed without a queue entry yet).
+    return "renewed"
   }
   if (facts.validUntilDate && daysBetween(today, facts.validUntilDate) < 0) {
     return "non_renewed"

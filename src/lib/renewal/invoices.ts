@@ -55,13 +55,27 @@ export type InvoiceRecord = {
   status: InvoiceStatus
   renewalToken: string | null
   pdfObjectKey: string | null
+  receiptPdfObjectKey: string | null
   firstOpenedAt: string | null
   openCount: number
   paidAt: string | null
+  paidVia: "commercepay" | "manual" | null
+  capTransactionNumber: string | null
+  paidSessionId: string | null
+  paidReference: string | null
+  extensionStatus: ExtensionStatus
+  posPushStatus: PosPushStatus
+  payerEmailStatus: PayerEmailStatus
+  payerEmailSentAt: string | null
+  payerEmailError: string | null
   createdAt: string
   /** Lines on the invoice; one per outlet. */
   itemCount: number
 }
+
+export type ExtensionStatus = "not_applicable" | "pending" | "applied" | "failed"
+export type PosPushStatus = "not_applicable" | "pending" | "pushed" | "failed"
+export type PayerEmailStatus = "not_applicable" | "pending" | "sent" | "failed"
 
 type InvoiceRow = RowDataPacket & {
   id: string
@@ -89,9 +103,19 @@ type InvoiceRow = RowDataPacket & {
   status: InvoiceStatus
   renewal_token: string | null
   pdf_object_key: string | null
+  receipt_pdf_object_key: string | null
   first_opened_at: string | null
   open_count: number
   paid_at: string | null
+  paid_via: "commercepay" | "manual" | null
+  cap_transaction_number: string | null
+  paid_session_id: string | null
+  paid_reference: string | null
+  extension_status: ExtensionStatus
+  pos_push_status: PosPushStatus
+  payer_email_status: PayerEmailStatus
+  payer_email_sent_at: string | null
+  payer_email_error: string | null
   created_at: string
   item_count: number | string
 }
@@ -102,7 +126,10 @@ const INVOICE_SELECT = `
          i.term_months, i.period_start, i.period_end, i.issue_date, i.due_date,
          i.currency_code, i.subtotal_amount, i.adjustment_amount, i.tax_rate, i.tax_amount,
          i.total_amount, i.payment_email, i.status, i.renewal_token, i.pdf_object_key,
-         i.first_opened_at, i.open_count, i.paid_at, i.created_at,
+         i.receipt_pdf_object_key, i.first_opened_at, i.open_count, i.paid_at, i.paid_via,
+         i.cap_transaction_number, i.paid_session_id, i.paid_reference, i.extension_status,
+         i.pos_push_status, i.payer_email_status, i.payer_email_sent_at, i.payer_email_error,
+         i.created_at,
          (SELECT COUNT(*) FROM renewal_invoice_items t WHERE t.invoice_id = i.id) AS item_count
     FROM renewal_invoices i
 `
@@ -308,6 +335,26 @@ export async function getInvoiceById(
   return row ? mapInvoice(row) : null
 }
 
+/**
+ * The tax invoice that settles a proforma, if one has been issued.
+ *
+ * At most one live row: the tax invoice shares the proforma's group key, so
+ * `open_guard` on `(group_key, 'tax_invoice')` refuses a second.
+ */
+export async function findTaxInvoiceForProforma(
+  proformaId: string,
+  db: Queryable = getPool()
+): Promise<InvoiceRecord | null> {
+  const [rows] = await db.query<InvoiceRow[]>(
+    `${INVOICE_SELECT}
+      WHERE i.parent_invoice_id = ? AND i.document_type = 'tax_invoice' AND i.deleted_at IS NULL
+      ORDER BY i.id ASC LIMIT 1`,
+    [proformaId]
+  )
+  const row = rows[0]
+  return row ? mapInvoice(row) : null
+}
+
 export async function getInvoiceByToken(
   renewalToken: string,
   db: Queryable = getPool()
@@ -497,9 +544,19 @@ function mapInvoice(row: InvoiceRow): InvoiceRecord {
     status: row.status,
     renewalToken: row.renewal_token,
     pdfObjectKey: row.pdf_object_key,
+    receiptPdfObjectKey: row.receipt_pdf_object_key,
     firstOpenedAt: row.first_opened_at,
     openCount: Number(row.open_count),
     paidAt: row.paid_at,
+    paidVia: row.paid_via,
+    capTransactionNumber: row.cap_transaction_number,
+    paidSessionId: row.paid_session_id ? String(row.paid_session_id) : null,
+    paidReference: row.paid_reference,
+    extensionStatus: row.extension_status,
+    posPushStatus: row.pos_push_status,
+    payerEmailStatus: row.payer_email_status,
+    payerEmailSentAt: row.payer_email_sent_at,
+    payerEmailError: row.payer_email_error,
     createdAt: row.created_at,
     itemCount: Number(row.item_count ?? 0),
   }

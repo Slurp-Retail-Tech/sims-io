@@ -74,9 +74,44 @@ type Invoice = {
   status: string
   renewalToken: string | null
   pdfObjectKey: string | null
+  receiptPdfObjectKey: string | null
   firstOpenedAt: string | null
   openCount: number
   paidAt: string | null
+  paidVia: "commercepay" | "manual" | null
+  capTransactionNumber: string | null
+  paidReference: string | null
+  parentInvoiceId: string | null
+  extensionStatus: "not_applicable" | "pending" | "applied" | "failed"
+  posPushStatus: "not_applicable" | "pending" | "pushed" | "failed"
+  payerEmailStatus: "not_applicable" | "pending" | "sent" | "failed"
+  payerEmailSentAt: string | null
+  payerEmailError: string | null
+}
+
+type Extension = {
+  id: string
+  outletId: string
+  previousValidUntil: string | null
+  newValidUntil: string
+  termMonths: number
+  linePreviousValidUntil: string | null
+  appliedAt: string
+  posPushStatus: "pending" | "pushed" | "failed"
+  posPushAttempts: number
+  posPushedAt: string | null
+  posPushLastError: string | null
+}
+
+type Callback = {
+  id: string
+  receivedAt: string
+  referenceCode: string | null
+  gatewayStatusCode: number | null
+  amountMinor: number | null
+  outcome: string | null
+  note: string | null
+  signatureValid: boolean
 }
 
 type Item = {
@@ -149,6 +184,42 @@ function describeEvent(event: Event, invoice: Invoice): TimelineEntry {
       return { ...base, title: "Payment session resumed", actor: "merchant", tone: "amber", detail: String(payload.referenceCode ?? "") }
     case "payment_session_failed":
       return { ...base, title: "Payment session could not be opened", tone: "red", detail: String(payload.message ?? "") }
+    case "payment_confirmed":
+      return { ...base, title: "Payment confirmed", tone: "green", detail: [payload.paidVia === "manual" ? "Recorded by staff" : payload.source === "sweep" ? "Found by the hourly gateway query" : "Gateway callback", payload.capTransactionNumber ? `txn ${String(payload.capTransactionNumber)}` : null, payload.reference ? String(payload.reference) : null].filter(Boolean).join(" · ") }
+    case "offline_payment_recorded":
+      return { ...base, title: "Offline payment recorded", tone: "green", detail: [payload.reference ? `Ref ${String(payload.reference)}` : null, payload.note ? String(payload.note) : null].filter(Boolean).join(" · ") }
+    case "extension_applied":
+      return { ...base, title: "Licence extended", tone: "green", detail: `${plural(Number(payload.outlets ?? 0), "outlet")} moved to the new expiry${Array.isArray(payload.drifted) && payload.drifted.length ? ` · ${payload.drifted.length} had moved since the invoice was raised` : ""}` }
+    case "extension_failed":
+      return { ...base, title: "Licence extension failed", tone: "red", detail: String(payload.detail ?? "") }
+    case "tax_invoice_issued":
+      return { ...base, title: "Tax invoice issued", tone: "green", detail: String(payload.taxInvoiceNumber ?? "") }
+    case "receipt_rendered":
+      return { ...base, title: "Receipt rendered", tone: "gray", detail: String(payload.objectKey ?? "") }
+    case "pos_push_succeeded":
+      return { ...base, title: "New expiry pushed to the POS", tone: "green", detail: plural(Number(payload.outlets ?? 0), "outlet") }
+    case "pos_push_failed":
+      return { ...base, title: "POS did not accept the new expiry", tone: "red", detail: Array.isArray(payload.failures) ? payload.failures.map(String).join("; ") : "" }
+    case "payer_email_sent":
+      return { ...base, title: "Documents emailed to the payer", tone: "green", detail: String(payload.to ?? "") }
+    case "payer_email_failed":
+      return { ...base, title: "Payer email failed", tone: "red", detail: `${String(payload.to ?? "")} · ${String(payload.message ?? "")}` }
+    case "payer_email_resend_requested":
+      return { ...base, title: "Payer email re-send requested", tone: "amber", detail: String(payload.to ?? "") }
+    case "post_payment_retry_requested":
+      return { ...base, title: "Post-payment steps queued again", tone: "amber", detail: "" }
+    case "payment_session_reset":
+      return { ...base, title: "Payment session reset", tone: "amber", detail: `${plural(Number(payload.superseded ?? 0), "open session")} superseded` }
+    case "payment_session_failed_gateway":
+    case "payment_session_cancelled":
+    case "payment_session_expired":
+      return { ...base, title: `Payment attempt ${event.eventType.slice("payment_session_".length)}`, actor: "gateway", tone: "amber", detail: String(payload.referenceCode ?? "") }
+    case "payment_amount_mismatch":
+      return { ...base, title: "Payment did not match the invoice", actor: "gateway", tone: "red", detail: `${String(payload.referenceCode ?? "")} · gateway ${money(Number(payload.amount ?? 0), invoice.currencyCode)} vs invoice ${money(Number(payload.invoiceTotalMinor ?? 0), invoice.currencyCode)}` }
+    case "payment_overpayment":
+      return { ...base, title: "Second payment received", actor: "gateway", tone: "red", detail: String(payload.referenceCode ?? "") }
+    case "payment_refunded":
+      return { ...base, title: "Refund reported by the gateway", actor: "gateway", tone: "red", detail: String(payload.referenceCode ?? "") }
     case "cycle_override_applied":
       return { ...base, title: payload.amountMinor === null ? "One-off price cleared" : "One-off price applied", tone: "amber", detail: `Outlet ${String(payload.outletId ?? "")} · ${payload.amountMinor === null ? "back to the assignment price" : money(Number(payload.amountMinor), invoice.currencyCode)}${payload.reason ? ` · ${String(payload.reason)}` : ""}${payload.approved ? " · approved" : ""}` }
     default:
@@ -186,10 +257,13 @@ export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoic
   const [events, setEvents] = React.useState<Event[]>([])
   const [linkEvents, setLinkEvents] = React.useState<LinkEvent[]>([])
   const [sessions, setSessions] = React.useState<Session[]>([])
+  const [extensions, setExtensions] = React.useState<Extension[]>([])
+  const [taxInvoice, setTaxInvoice] = React.useState<Invoice | null>(null)
+  const [callbacks, setCallbacks] = React.useState<Callback[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [copied, setCopied] = React.useState(false)
-  const [dialog, setDialog] = React.useState<"override" | "term" | "void" | null>(null)
+  const [dialog, setDialog] = React.useState<"override" | "term" | "void" | "markPaid" | "resendEmail" | null>(null)
   const [busy, setBusy] = React.useState(false)
 
   const load = React.useCallback(async () => {
@@ -205,12 +279,18 @@ export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoic
         events: Event[]
         linkEvents?: LinkEvent[]
         sessions?: Session[]
+        extensions?: Extension[]
+        taxInvoice?: Invoice | null
+        callbacks?: Callback[]
       }
       setInvoice(payload.invoice)
       setItems(payload.items ?? [])
       setEvents(payload.events ?? [])
       setLinkEvents(payload.linkEvents ?? [])
       setSessions(payload.sessions ?? [])
+      setExtensions(payload.extensions ?? [])
+      setTaxInvoice(payload.taxInvoice ?? null)
+      setCallbacks(payload.callbacks ?? [])
       setError(null)
     } catch (loadError) {
       setInvoice(null)
@@ -269,6 +349,12 @@ export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoic
   const isOpen = !["paid", "cancelled", "superseded", "lapsed"].includes(invoice.status)
   const termLocked = Boolean(liveSession) || !isOpen
   const renewalLink = invoice.renewalToken ? `/renew/${invoice.renewalToken}` : null
+  const isPaid = invoice.status === "paid"
+  const canMarkPaid = canManage && invoice.documentType === "proforma" && !["paid", "cancelled", "superseded"].includes(invoice.status)
+  const postPaymentIncomplete =
+    isPaid &&
+    invoice.documentType === "proforma" &&
+    (invoice.extensionStatus !== "applied" || invoice.posPushStatus !== "pushed" || !invoice.receiptPdfObjectKey || !taxInvoice)
 
   const timeline: TimelineEntry[] = [
     ...events.map((event) => describeEvent(event, invoice)),
@@ -283,7 +369,7 @@ export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoic
 
   const stats = [
     {
-      label: "Total due",
+      label: isPaid ? "Total paid" : "Total due",
       value: money(invoice.totalMinor, invoice.currencyCode),
       meta: invoice.taxRatePercent > 0 ? `Includes ${invoice.taxRatePercent}% SST` : "Tax suppressed at 0%",
     },
@@ -299,12 +385,14 @@ export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoic
     },
     {
       label: "Payment",
-      value: invoice.status === "paid" ? "Paid" : liveSession ? "At gateway" : sessions.length === 0 ? "Not started" : "No open session",
-      meta: liveSession
-        ? `${liveSession.referenceCode} · expires ${shortDateTime(liveSession.expiresAt)}`
-        : sessions.length > 0
-          ? `${plural(sessions.length, "attempt")} so far`
-          : "The merchant has not clicked Renew now",
+      value: isPaid ? "Paid" : liveSession ? "At gateway" : sessions.length === 0 ? "Not started" : "No open session",
+      meta: isPaid
+        ? `${invoice.paidVia === "manual" ? "Bank transfer" : "CommercePay"} · ${shortDateTime(invoice.paidAt)}${invoice.capTransactionNumber ? ` · ${invoice.capTransactionNumber}` : invoice.paidReference ? ` · ${invoice.paidReference}` : ""}`
+        : liveSession
+          ? `${liveSession.referenceCode} · expires ${shortDateTime(liveSession.expiresAt)}`
+          : sessions.length > 0
+            ? `${plural(sessions.length, "attempt")} so far`
+            : "The merchant has not clicked Renew now",
     },
   ]
 
@@ -340,11 +428,25 @@ export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoic
           ) : null}
           <Button variant="outline" size="sm" asChild>
             <a href={`/api/renewals/invoices/${invoice.id}/pdf`} target="_blank" rel="noreferrer">
-              Download proforma PDF
+              {invoice.documentType === "tax_invoice" ? "Download tax invoice PDF" : "Download proforma PDF"}
             </a>
           </Button>
-          {canManage ? (
-            <Button size="sm" disabled title="Arrives with the payment callback in the next release">
+          {isPaid && invoice.receiptPdfObjectKey ? (
+            <Button variant="outline" size="sm" asChild>
+              <a href={`/api/renewals/invoices/${invoice.id}/pdf?document=receipt`} target="_blank" rel="noreferrer">
+                Download receipt
+              </a>
+            </Button>
+          ) : null}
+          {taxInvoice ? (
+            <Button variant="outline" size="sm" asChild>
+              <a href={`/api/renewals/invoices/${taxInvoice.id}/pdf`} target="_blank" rel="noreferrer">
+                Download tax invoice {taxInvoice.invoiceNumber}
+              </a>
+            </Button>
+          ) : null}
+          {canMarkPaid ? (
+            <Button size="sm" disabled={busy} onClick={() => setDialog("markPaid")}>
               Mark paid offline
             </Button>
           ) : null}
@@ -442,6 +544,77 @@ export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoic
         </Card>
 
         <div className="flex flex-col gap-6">
+          {isPaid && invoice.documentType === "proforma" ? (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">After payment</CardTitle>
+                <CardDescription>
+                  Each step is recorded on its own. A failure here never touches the payment.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col">
+                  <StepRow
+                    label="Licence extension"
+                    tone={invoice.extensionStatus === "applied" ? "green" : invoice.extensionStatus === "failed" ? "red" : "amber"}
+                    value={invoice.extensionStatus === "applied" ? "Applied" : invoice.extensionStatus === "failed" ? "Failed" : "Pending"}
+                    detail={
+                      extensions.length > 0
+                        ? extensions
+                            .map((extension) => `${items.find((item) => item.outletId === extension.outletId)?.outletName ?? `Outlet ${extension.outletId}`}: ${longDate(extension.previousValidUntil)} → ${longDate(extension.newValidUntil)}${extension.linePreviousValidUntil ? " (had moved since invoicing)" : ""}`)
+                            .join(" · ")
+                        : "Every outlet moves from its previous expiry by the paid term."
+                    }
+                  />
+                  <StepRow
+                    label="Tax invoice"
+                    tone={taxInvoice ? "green" : "amber"}
+                    value={taxInvoice ? taxInvoice.invoiceNumber : "Pending"}
+                    detail={taxInvoice ? `Issued ${longDate(taxInvoice.issueDate)}${taxInvoice.pdfObjectKey ? " · PDF stored" : " · PDF renders on first download"}` : "Issued by the post-payment job."}
+                    href={taxInvoice ? `/renewal-retention/invoices/${taxInvoice.id}` : undefined}
+                  />
+                  <StepRow
+                    label="Receipt"
+                    tone={invoice.receiptPdfObjectKey ? "green" : "amber"}
+                    value={invoice.receiptPdfObjectKey ? "Rendered" : "Pending"}
+                    detail={invoice.receiptPdfObjectKey ?? "Rendered by the post-payment job."}
+                  />
+                  <StepRow
+                    label="POS expiry push"
+                    tone={invoice.posPushStatus === "pushed" ? "green" : invoice.posPushStatus === "failed" ? "red" : "amber"}
+                    value={invoice.posPushStatus === "pushed" ? "Pushed" : invoice.posPushStatus === "failed" ? "Failed" : "Pending"}
+                    detail={
+                      extensions.length > 0
+                        ? extensions
+                            .map((extension) => `${extension.outletId}: ${extension.posPushStatus}${extension.posPushLastError ? ` (${extension.posPushLastError})` : ""}${extension.posPushAttempts > 1 ? ` · ${extension.posPushAttempts} attempts` : ""}`)
+                            .join(" · ")
+                        : "PATCH /api/outlet-valid-until per outlet, after the extension lands."
+                    }
+                  />
+                  <StepRow
+                    label="Payer email"
+                    tone={invoice.payerEmailStatus === "sent" ? "green" : invoice.payerEmailStatus === "failed" ? "red" : invoice.payerEmailStatus === "not_applicable" ? "gray" : "amber"}
+                    value={invoice.payerEmailStatus === "sent" ? "Sent" : invoice.payerEmailStatus === "failed" ? "Failed" : invoice.payerEmailStatus === "not_applicable" ? "No address" : "Pending"}
+                    detail={
+                      invoice.payerEmailStatus === "sent"
+                        ? `${invoice.paymentEmail ?? ""} · ${shortDateTime(invoice.payerEmailSentAt)}`
+                        : invoice.payerEmailStatus === "failed"
+                          ? `${invoice.paymentEmail ?? ""} · ${invoice.payerEmailError ?? ""}`
+                          : invoice.paymentEmail ?? "No payer email was entered at payment."
+                    }
+                  />
+                  {callbacks.length > 0 ? (
+                    <StepRow
+                      label="Gateway callbacks"
+                      tone={callbacks.some((callback) => callback.outcome === "rejected_signature") ? "red" : "gray"}
+                      value={plural(callbacks.length, "callback")}
+                      detail={callbacks.map((callback) => `${shortDateTime(callback.receivedAt)} ${callback.outcome ?? "?"}${callback.signatureValid ? "" : " (unsigned)"}`).join(" · ")}
+                    />
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
           {canManage ? (
             <Card>
               <CardHeader>
@@ -458,15 +631,37 @@ export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoic
                   <Button variant="outline" size="sm" disabled={!isOpen || busy} onClick={() => setDialog("term")}>
                     Override term
                   </Button>
-                  <Button variant="outline" size="sm" disabled title="Arrives with the payment callback in the next release">
-                    Regenerate payment session
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!liveSession || busy}
+                    title={liveSession ? "Supersede the open gateway session so the merchant starts a fresh one" : "No open payment session"}
+                    onClick={() => void runAction({ action: "reset_session" }, "Payment session reset. The merchant's next Renew now opens a fresh one.")}
+                  >
+                    Reset payment session
                   </Button>
                   <Button variant="outline" size="sm" disabled title="Arrives with Respond.io dispatch">
                     Resend dispatch
                   </Button>
-                  <Button variant="outline" size="sm" disabled title="Arrives with the payment callback in the next release">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!isPaid || busy}
+                    title={isPaid ? "Email the receipt and tax invoice again" : "Available once the invoice is paid"}
+                    onClick={() => setDialog("resendEmail")}
+                  >
                     Re-send payer email
                   </Button>
+                  {postPaymentIncomplete ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy}
+                      onClick={() => void runAction({ action: "retry_post_payment" }, "Post-payment steps queued and run.")}
+                    >
+                      Retry post-payment steps
+                    </Button>
+                  ) : null}
                   <Button variant="outline" size="sm" className="text-destructive" disabled={!isOpen || busy} onClick={() => setDialog("void")}>
                     Void invoice
                   </Button>
@@ -533,6 +728,22 @@ export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoic
           />
         </DialogContent>
       </Dialog>
+
+      <MarkPaidDialog
+        open={dialog === "markPaid"}
+        onOpenChange={(open) => setDialog(open ? "markPaid" : null)}
+        invoice={invoice}
+        busy={busy}
+        onConfirm={(input) => void runAction({ action: "mark_paid_offline", ...input }, "Payment recorded. Extension, tax invoice and documents follow.")}
+      />
+
+      <ResendEmailDialog
+        open={dialog === "resendEmail"}
+        onOpenChange={(open) => setDialog(open ? "resendEmail" : null)}
+        currentEmail={invoice.paymentEmail}
+        busy={busy}
+        onConfirm={(email) => void runAction({ action: "resend_payer_email", ...(email ? { payerEmail: email } : {}) }, "Documents sent.")}
+      />
 
       <VoidDialog
         open={dialog === "void"}
@@ -763,6 +974,155 @@ function CycleOverrideDialog({
           </Button>
           <Button size="sm" disabled={saving || !item || !amount.trim() || !reason.trim()} onClick={() => void save(false)}>
             {saving ? "Applying…" : "Apply override"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function StepRow({
+  label,
+  value,
+  tone,
+  detail,
+  href,
+}: {
+  label: string
+  value: string
+  tone: Tone
+  detail: string
+  href?: string
+}) {
+  return (
+    <div className="grid grid-cols-[8.5rem_1fr] gap-3 border-b py-2.5 last:border-b-0">
+      <span className="text-muted-foreground text-xs">{label}</span>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="flex items-center gap-1.5">
+          <span className={cn("size-1.5 rounded-full", TONE_DOT[tone])} />
+          {href ? (
+            <Link href={href} className="text-[0.8125rem] font-medium underline-offset-2 hover:underline">
+              {value}
+            </Link>
+          ) : (
+            <span className="text-[0.8125rem] font-medium">{value}</span>
+          )}
+        </span>
+        <span className="text-muted-foreground text-xs break-words">{detail}</span>
+      </span>
+    </div>
+  )
+}
+
+function MarkPaidDialog({
+  open,
+  onOpenChange,
+  invoice,
+  busy,
+  onConfirm,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  invoice: Invoice
+  busy: boolean
+  onConfirm: (input: { reference: string; note?: string; payerEmail?: string }) => void
+}) {
+  const [reference, setReference] = React.useState("")
+  const [note, setNote] = React.useState("")
+  const [email, setEmail] = React.useState(invoice.paymentEmail ?? "")
+  React.useEffect(() => {
+    if (open) {
+      setReference("")
+      setNote("")
+      setEmail(invoice.paymentEmail ?? "")
+    }
+  }, [open, invoice.paymentEmail])
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Mark {invoice.invoiceNumber} paid</DialogTitle>
+          <DialogDescription>
+            For a bank transfer or other payment made outside the gateway. Settles the invoice for{" "}
+            {money(invoice.totalMinor, invoice.currencyCode)}, extends every outlet from its previous expiry, issues the
+            tax invoice and pushes the new dates to the POS. Any open gateway session is superseded.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 py-2">
+          <div className="grid gap-2">
+            <Label htmlFor="paidReference">Payment reference</Label>
+            <Input id="paidReference" value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Bank reference or receipt number" maxLength={120} />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="paidEmail">Email the documents to</Label>
+            <Input id="paidEmail" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Optional" maxLength={255} />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="paidNote">Note</Label>
+            <Textarea id="paidNote" rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Recorded in the timeline" maxLength={500} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={busy || !reference.trim()}
+            onClick={() =>
+              onConfirm({
+                reference: reference.trim(),
+                ...(note.trim() ? { note: note.trim() } : {}),
+                ...(email.trim() ? { payerEmail: email.trim().toLowerCase() } : {}),
+              })
+            }
+          >
+            {busy ? "Recording…" : "Record payment"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ResendEmailDialog({
+  open,
+  onOpenChange,
+  currentEmail,
+  busy,
+  onConfirm,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  currentEmail: string | null
+  busy: boolean
+  onConfirm: (email: string | null) => void
+}) {
+  const [email, setEmail] = React.useState(currentEmail ?? "")
+  React.useEffect(() => {
+    if (open) setEmail(currentEmail ?? "")
+  }, [open, currentEmail])
+  const changed = email.trim().toLowerCase() !== (currentEmail ?? "")
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Re-send the receipt and tax invoice</DialogTitle>
+          <DialogDescription>
+            Sends both PDFs again. Change the address to correct a typo the merchant made at payment; the new address
+            is kept on the invoice.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2 py-2">
+          <Label htmlFor="resendEmail">Send to</Label>
+          <Input id="resendEmail" type="email" value={email} onChange={(event) => setEmail(event.target.value)} maxLength={255} />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={busy || !email.trim()} onClick={() => onConfirm(changed ? email.trim().toLowerCase() : null)}>
+            {busy ? "Sending…" : "Send"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -15,7 +15,9 @@ import { ensureInvoicePdf } from "./invoice-pdf.ts"
 import { minorToDecimal, recordEvent, setInvoiceStatus } from "./invoices.ts"
 import type { InvoiceRecord } from "./invoices.ts"
 import { applyTaxExclusive, sumMinor } from "./money.ts"
+import { confirmPayment, enqueuePostPayment } from "./payment-confirmation.ts"
 import { findLiveSession, supersedeOpenSessions } from "./payment-sessions.ts"
+import { runPostPayment } from "./post-payment.ts"
 import { requiresOverrideApproval, resolvePriceForLine } from "./plan-resolution.ts"
 import type { BillingTerm } from "./plan-resolution.ts"
 import { applyTermChange, loadInvoiceContextById } from "./public-invoice.ts"
@@ -268,6 +270,152 @@ export async function issueInvoice(
     return { ok: false, status: 409, message: "Only a draft can be issued." }
   }
   await setInvoiceStatus(invoiceId, "issued", actorUserId, "Issued by staff", db)
+  return { ok: true }
+}
+
+/**
+ * Record a payment that arrived outside the gateway: a bank transfer, a
+ * cheque. The reference is the audit trail, so it is required. Settles the
+ * invoice through the same path as the callback, so the extension, tax
+ * invoice, documents, POS push and payer email all follow.
+ */
+export async function markPaidOffline(
+  invoiceId: string,
+  input: { reference: string; note: string | null; payerEmail: string | null },
+  actorUserId: string,
+  db: Queryable = getPool()
+): Promise<ActionOutcome> {
+  const loaded = await loadInvoiceContextById(invoiceId, db)
+  if (!loaded) {
+    return { ok: false, status: 404, message: "Invoice not found." }
+  }
+  if (loaded.invoice.status === "paid") {
+    return { ok: false, status: 409, message: "This invoice is already paid." }
+  }
+  if (loaded.invoice.status === "cancelled" || loaded.invoice.status === "superseded") {
+    return { ok: false, status: 409, message: "This invoice is closed." }
+  }
+  if (loaded.invoice.documentType !== "proforma") {
+    return { ok: false, status: 409, message: "Only a proforma can be marked paid." }
+  }
+  const reference = input.reference.trim()
+  if (!reference) {
+    return { ok: false, status: 422, message: "Give the bank or payment reference." }
+  }
+
+  if (input.payerEmail && input.payerEmail !== loaded.invoice.paymentEmail) {
+    await db.query<ResultSetHeader>(
+      `UPDATE renewal_invoices SET payment_email = ? WHERE id = ?`,
+      [input.payerEmail, invoiceId]
+    )
+  }
+  await recordEvent(db, invoiceId, "offline_payment_recorded", actorUserId, {
+    reference,
+    note: input.note?.trim() || null,
+    payerEmail: input.payerEmail ?? loaded.invoice.paymentEmail,
+  })
+
+  const outcome = await confirmPayment({
+    invoiceId,
+    sessionId: null,
+    paidVia: "manual",
+    capTransactionNumber: null,
+    gatewayStatusCode: null,
+    // ASCII separator: this string is printed on the receipt PDF, whose
+    // standard fonts cannot be trusted with every glyph.
+    paidReference: [reference, input.note?.trim()].filter(Boolean).join(" - ").slice(0, 120),
+    actorUserId,
+    source: "manual",
+  })
+  if (!outcome.ok) {
+    return { ok: false, status: outcome.status, message: outcome.message }
+  }
+  return { ok: true }
+}
+
+/**
+ * Close the open payment session so the merchant starts a fresh one.
+ *
+ * For when the gateway's copy is stuck or the merchant reports the payment
+ * page will not open. SIMS cannot open a session on the merchant's behalf,
+ * because the session carries their IP and browser; it can only clear the
+ * way for the next Pay click.
+ */
+export async function resetPaymentSession(
+  invoiceId: string,
+  actorUserId: string,
+  db: Queryable = getPool()
+): Promise<ActionOutcome> {
+  const loaded = await loadInvoiceContextById(invoiceId, db)
+  if (!loaded) {
+    return { ok: false, status: 404, message: "Invoice not found." }
+  }
+  if (!isOpen(loaded.invoice)) {
+    return { ok: false, status: 409, message: "This invoice is closed." }
+  }
+  const superseded = await supersedeOpenSessions(invoiceId, db)
+  if (superseded === 0) {
+    return { ok: false, status: 409, message: "There is no open payment session to reset." }
+  }
+  await recordEvent(db, invoiceId, "payment_session_reset", actorUserId, { superseded })
+  if (loaded.invoice.status === "payment_pending") {
+    await setInvoiceStatus(invoiceId, "issued", actorUserId, "Payment session reset by staff", db)
+  }
+  return { ok: true }
+}
+
+/** Send the receipt and tax invoice again, optionally to a corrected address. */
+export async function resendPayerEmail(
+  invoiceId: string,
+  payerEmail: string | null,
+  actorUserId: string,
+  db: Queryable = getPool()
+): Promise<ActionOutcome> {
+  const loaded = await loadInvoiceContextById(invoiceId, db)
+  if (!loaded) {
+    return { ok: false, status: 404, message: "Invoice not found." }
+  }
+  if (loaded.invoice.status !== "paid") {
+    return { ok: false, status: 409, message: "The documents exist only once the invoice is paid." }
+  }
+  const target = payerEmail ?? loaded.invoice.paymentEmail
+  if (!target) {
+    return { ok: false, status: 422, message: "There is no payer email on this invoice. Enter one." }
+  }
+  if (target !== loaded.invoice.paymentEmail) {
+    await db.query<ResultSetHeader>(
+      `UPDATE renewal_invoices SET payment_email = ?, payer_email_status = 'pending' WHERE id = ?`,
+      [target, invoiceId]
+    )
+  }
+  await recordEvent(db, invoiceId, "payer_email_resend_requested", actorUserId, { to: target })
+
+  const report = await runPostPayment(invoiceId, { forcePayerEmail: true })
+  const email = report.steps.find((step) => step.step === "payer_email")
+  if (!email || email.outcome === "failed") {
+    return { ok: false, status: 502, message: email?.note ?? "The email could not be sent." }
+  }
+  if (email.outcome === "skipped") {
+    return { ok: false, status: 409, message: email.note ?? "Nothing was sent." }
+  }
+  return { ok: true }
+}
+
+/** Queue the post-payment steps again after a person has fixed the cause. */
+export async function retryPostPayment(
+  invoiceId: string,
+  actorUserId: string,
+  db: Queryable = getPool()
+): Promise<ActionOutcome> {
+  const loaded = await loadInvoiceContextById(invoiceId, db)
+  if (!loaded) {
+    return { ok: false, status: 404, message: "Invoice not found." }
+  }
+  if (loaded.invoice.status !== "paid") {
+    return { ok: false, status: 409, message: "Only a paid invoice has post-payment steps." }
+  }
+  await recordEvent(db, invoiceId, "post_payment_retry_requested", actorUserId, null)
+  await enqueuePostPayment(invoiceId, actorUserId, db)
   return { ok: true }
 }
 

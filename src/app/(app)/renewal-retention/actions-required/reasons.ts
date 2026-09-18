@@ -21,6 +21,7 @@ export const REASON_LABELS: Record<string, string> = {
   pos_valid_until_drift: "Renewed outside SIMS",
   payer_email_failed: "Documents could not be emailed",
   overpayment: "Paid more than once",
+  payment_refunded: "Payment was refunded",
 }
 
 export const REASON_FIXES: Record<string, string> = {
@@ -49,4 +50,6 @@ export const REASON_FIXES: Record<string, string> = {
     "The POS shows a later expiry than SIMS. Decide which is right.",
   payer_email_failed: "Resend the documents to a corrected address.",
   overpayment: "Review both payments before refunding either.",
+  payment_refunded:
+    "The gateway reports money going back. Check the licence dates against what was actually paid.",
 }
