@@ -79,7 +79,16 @@ export function ContactsView() {
 
   // Read from the cookie in a lazy initialiser, not an effect, so the persisted filter
   // is applied on the very first render and the list does not flash unfiltered.
-  const [filters, setFilters] = React.useState(() => readContactsFilterCookie())
+  // A `?fid=` in the URL (a deep link from Actions Required) wins over the
+  // remembered filter for this visit only; the cookie is rewritten from it.
+  const [filters, setFilters] = React.useState(() => {
+    const remembered = readContactsFilterCookie()
+    if (typeof window === "undefined") {
+      return remembered
+    }
+    const fid = new URLSearchParams(window.location.search).get("fid")?.trim()
+    return fid ? { franchiseId: fid, outletId: "", role: "" } : remembered
+  })
   const [page, setPage] = React.useState(1)
   const [perPage, setPerPage] = React.useState(25)
 

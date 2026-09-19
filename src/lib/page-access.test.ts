@@ -197,3 +197,21 @@ test("an invoice detail path resolves to the invoice view key", () => {
     "/renewal-retention/invoices",
   ])
 })
+
+test("a settings view grant does not confer the settings manage key", () => {
+  // Same explicit-registration rule as the plan and invoice keys: without its
+  // own mapping the manage capability would fall back to the settings prefix.
+  const viewOnly = ["/renewal-retention/settings"]
+  assert.equal(hasPageAccessForPath("/renewal-retention/settings", viewOnly), true)
+  assert.equal(hasPageAccessForPath("/renewal-retention/settings/manage", viewOnly), false)
+
+  const manager = ["/renewal-retention/settings/manage"]
+  assert.equal(hasPageAccessForPath("/renewal-retention/settings/manage", manager), true)
+})
+
+test("an exports view grant does not confer the generate key", () => {
+  const viewOnly = ["/renewal-retention/exports"]
+  assert.equal(hasPageAccessForPath("/renewal-retention/exports", viewOnly), true)
+  assert.equal(hasPageAccessForPath("/renewal-retention/exports/manage", viewOnly), false)
+  assert.equal(hasPageAccessForPath("/renewal-retention/templates", ["/renewal-retention/templates"]), true)
+})

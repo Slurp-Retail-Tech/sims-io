@@ -8,6 +8,7 @@ export const REASON_LABELS: Record<string, string> = {
   no_plan_assigned: "No plan assigned",
   plan_missing_term_price: "Plan has no price for this term",
   override_pending_approval: "Price override awaiting approval",
+  override_rejected: "Price override was rejected",
   no_renewal_pic: "Nobody accountable for the renewal",
   ambiguous_renewal_pic: "Outlets disagree on who is accountable",
   unreachable_renewal_pic: "Renewal contact cannot be reached",
@@ -20,6 +21,7 @@ export const REASON_LABELS: Record<string, string> = {
   pos_valid_until_drift: "Renewed outside SIMS",
   payer_email_failed: "Documents could not be emailed",
   overpayment: "Paid more than once",
+  payment_refunded: "Payment was refunded",
 }
 
 export const REASON_FIXES: Record<string, string> = {
@@ -27,6 +29,8 @@ export const REASON_FIXES: Record<string, string> = {
   plan_missing_term_price: "Add the missing price to the plan.",
   override_pending_approval:
     "Someone with override approval needs to accept or reject the price.",
+  override_rejected:
+    "Assign the plan again at an acceptable price, or without an override.",
   no_renewal_pic:
     "Mark a contact as renewal PIC for this outlet or its franchise.",
   ambiguous_renewal_pic:
@@ -46,4 +50,6 @@ export const REASON_FIXES: Record<string, string> = {
     "The POS shows a later expiry than SIMS. Decide which is right.",
   payer_email_failed: "Resend the documents to a corrected address.",
   overpayment: "Review both payments before refunding either.",
+  payment_refunded:
+    "The gateway reports money going back. Check the licence dates against what was actually paid.",
 }

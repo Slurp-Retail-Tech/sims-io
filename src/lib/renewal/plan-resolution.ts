@@ -72,6 +72,8 @@ export type PlanResolution =
     }
   | { status: "no_plan_assigned" }
   | { status: "override_pending_approval"; assignment: AssignmentRecord }
+  /** Somebody looked and said no. Distinct so the queue does not read as stale. */
+  | { status: "override_rejected"; assignment: AssignmentRecord }
 
 export type PriceResolution =
   | {
@@ -183,6 +185,9 @@ export function resolvePlanForOutlet(
   }
 
   if (hasOverride(winner) && winner.approvalStatus !== "not_required") {
+    if (winner.approvalStatus === "rejected") {
+      return { status: "override_rejected", assignment: winner }
+    }
     if (winner.approvalStatus !== "approved") {
       return { status: "override_pending_approval", assignment: winner }
     }

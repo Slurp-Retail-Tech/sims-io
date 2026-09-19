@@ -36,7 +36,7 @@ src/app/
 ├── (app)/          # Protected routes — require sims-auth cookie
 │   ├── tickets/, merchants/, sales/, overview/, maps/
 │   ├── merchant-success/, clickup-tasks/, plus/
-│   ├── renewal-retention/   # Preview-only; not live analytics
+│   ├── renewal-retention/   # Renewal lifecycle: plans, invoices, payments, analytics
 │   ├── knowledge-base/, release-notes/
 │   └── user-management/, preferences/, profile/
 ├── api/            # Route handlers (thin — delegate to src/lib/)
@@ -100,7 +100,7 @@ When changing behavior, architecture, or env variables, update the relevant doc 
 
 Every new or removed env var must be reflected in `.env.example`. Leave values blank or as a safe placeholder — never commit real secrets.
 
-The **Renewal & Retention overview** is preview-only (sample data). Do not describe it as live analytics.
+The **Renewal & Retention** module computes its overview and analytics from live rows (`src/lib/renewal/metrics.ts`); nothing in it is sample data any more. Outbound messaging (Respond.io dispatch) is still behind the `dispatch_enabled` setting and ships off.
 
 ## Commit Style
 

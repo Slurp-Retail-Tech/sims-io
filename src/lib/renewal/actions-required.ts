@@ -27,6 +27,7 @@ export const ACTION_REASONS = {
   no_plan_assigned: "blocking",
   plan_missing_term_price: "blocking",
   override_pending_approval: "blocking",
+  override_rejected: "blocking",
   no_renewal_pic: "blocking",
   ambiguous_renewal_pic: "blocking",
   unreachable_renewal_pic: "blocking",
@@ -39,6 +40,7 @@ export const ACTION_REASONS = {
   pos_valid_until_drift: "informational",
   payer_email_failed: "blocking",
   overpayment: "blocking",
+  payment_refunded: "blocking",
 } as const
 
 export type ActionReason = keyof typeof ACTION_REASONS
@@ -57,6 +59,9 @@ export type ActionRow = {
   id: string
   franchiseId: string
   outletId: string | null
+  /** Merchant and outlet names, so the queue reads as places rather than ids. */
+  franchiseName: string | null
+  outletName: string | null
   centralId: string | null
   invoiceId: string | null
   reason: ActionReason
@@ -73,6 +78,8 @@ type Row = RowDataPacket & {
   id: string
   franchise_id: string
   outlet_id: string | null
+  franchise_name?: string | null
+  outlet_name?: string | null
   central_id: string | null
   invoice_id: string | null
   reason: ActionReason
@@ -206,25 +213,29 @@ export async function listOpenActions(
   filters: { reason?: ActionReason; franchiseId?: string } = {},
   db: Queryable = getPool()
 ): Promise<ActionRow[]> {
-  const conditions = ["status = 'open'"]
+  const conditions = ["a.status = 'open'"]
   const values: unknown[] = []
 
   if (filters.reason) {
-    conditions.push("reason = ?")
+    conditions.push("a.reason = ?")
     values.push(filters.reason)
   }
   if (filters.franchiseId) {
-    conditions.push("franchise_id = ?")
+    conditions.push("a.franchise_id = ?")
     values.push(filters.franchiseId)
   }
 
   const [rows] = await db.query<Row[]>(
-    `SELECT id, franchise_id, outlet_id, central_id, invoice_id, reason, detail,
-            severity, days_to_expiry, occurrence_count, status,
-            first_detected_at, last_detected_at
-       FROM renewal_actions_required
+    `SELECT a.id, a.franchise_id, a.outlet_id, a.central_id, a.invoice_id, a.reason,
+            a.detail, a.severity, a.days_to_expiry, a.occurrence_count, a.status,
+            a.first_detected_at, a.last_detected_at,
+            m.name AS franchise_name, o.name AS outlet_name
+       FROM renewal_actions_required a
+       LEFT JOIN merchants m ON m.external_id = a.franchise_id
+       LEFT JOIN merchant_outlets o
+         ON o.merchant_external_id = a.franchise_id AND o.external_id = a.outlet_id
       WHERE ${conditions.join(" AND ")}
-      ORDER BY severity ASC, days_to_expiry IS NULL, days_to_expiry ASC, id ASC`,
+      ORDER BY a.severity ASC, a.days_to_expiry IS NULL, a.days_to_expiry ASC, a.id ASC`,
     values
   )
 
@@ -257,6 +268,30 @@ export async function loadBlockedOutletKeys(
   )
 }
 
+/**
+ * Close the open entries an invoice's own follow-up work has just cleared,
+ * such as a POS push that finally landed. Scoped to the invoice and to the
+ * reasons the caller can vouch for, for the same reason `resolveUnseenActions`
+ * is: no step closes an entry it did not evaluate.
+ */
+export async function resolveActionsForInvoice(
+  invoiceId: string,
+  reasons: readonly ActionReason[],
+  db: Queryable = getPool()
+): Promise<number> {
+  if (reasons.length === 0) {
+    return 0
+  }
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE renewal_actions_required
+        SET status = 'resolved', resolved_at = NOW(3)
+      WHERE invoice_id = ? AND status = 'open'
+        AND reason IN (${reasons.map(() => "?").join(", ")})`,
+    [invoiceId, ...reasons]
+  )
+  return result.affectedRows
+}
+
 export async function dismissAction(
   actionId: string,
   reason: string,
@@ -278,6 +313,8 @@ function mapRow(row: Row): ActionRow {
     id: String(row.id),
     franchiseId: row.franchise_id,
     outletId: row.outlet_id,
+    franchiseName: row.franchise_name ?? null,
+    outletName: row.outlet_name ?? null,
     centralId: row.central_id,
     invoiceId: row.invoice_id ? String(row.invoice_id) : null,
     reason: row.reason,

@@ -77,6 +77,17 @@ const accessRouteMappings: { prefix: string; accessKeys: string[] }[] = [
     prefix: "/renewal-retention/actions-required",
     accessKeys: ["/renewal-retention/actions-required"],
   },
+  { prefix: "/renewal-retention/templates", accessKeys: ["/renewal-retention/templates"] },
+  {
+    prefix: "/renewal-retention/exports/manage",
+    accessKeys: ["/renewal-retention/exports/manage"],
+  },
+  { prefix: "/renewal-retention/exports", accessKeys: ["/renewal-retention/exports"] },
+  {
+    prefix: "/renewal-retention/settings/manage",
+    accessKeys: ["/renewal-retention/settings/manage"],
+  },
+  { prefix: "/renewal-retention/settings", accessKeys: ["/renewal-retention/settings"] },
   { prefix: "/renewal-retention", accessKeys: ["/renewal-retention"] }, // legacy: workspace-level grant
   { prefix: "/tickets", accessKeys: ["/tickets"] },
   { prefix: "/analytics", accessKeys: ["/analytics"] },

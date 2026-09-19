@@ -33,6 +33,8 @@ type AssignmentDialogProps = {
   onOpenChange: (open: boolean) => void
   /** Active plans only; a retired plan cannot take new assignments. */
   plans: Plan[]
+  /** Pre-selected plan, when opened from a plan's own row. */
+  initialPlanId?: string | null
   onSaved: (result: AssignmentSaved) => void
 }
 
@@ -93,6 +95,7 @@ export function AssignmentDialog({
   open,
   onOpenChange,
   plans,
+  initialPlanId = null,
   onSaved,
 }: AssignmentDialogProps) {
   const [form, setForm] = React.useState<FormState>(emptyForm)
@@ -105,13 +108,13 @@ export function AssignmentDialog({
 
   React.useEffect(() => {
     if (open) {
-      setForm(emptyForm())
+      setForm({ ...emptyForm(), planId: initialPlanId ?? "" })
       setFranchise(null)
       setOutlets(null)
       setErrors([])
       setGeneralError(null)
     }
-  }, [open])
+  }, [open, initialPlanId])
 
   // Resolve the franchise and load its outlets together, debounced, with the
   // in-flight requests aborted so a fast typist cannot race an older response

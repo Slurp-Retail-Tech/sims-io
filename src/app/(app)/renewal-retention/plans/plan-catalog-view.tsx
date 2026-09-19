@@ -50,6 +50,7 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<Plan | null>(null)
   const [assignOpen, setAssignOpen] = React.useState(false)
+  const [assignPlanId, setAssignPlanId] = React.useState<string | null>(null)
   const [ending, setEnding] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
@@ -358,18 +359,33 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
                         {plan.assignmentCount}
                       </span>
                       {canManage ? (
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="size-7"
-                          aria-label={`Edit ${plan.planName}`}
-                          onClick={() => {
-                            setEditing(plan)
-                            setDialogOpen(true)
-                          }}
-                        >
-                          <Pencil className="size-3.5" />
-                        </Button>
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            disabled={!plan.isActive}
+                            title={plan.isActive ? undefined : "Retired plans cannot be assigned"}
+                            onClick={() => {
+                              setAssignPlanId(plan.id)
+                              setAssignOpen(true)
+                            }}
+                          >
+                            Assign
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="size-7"
+                            aria-label={`Edit ${plan.planName}`}
+                            onClick={() => {
+                              setEditing(plan)
+                              setDialogOpen(true)
+                            }}
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                        </>
                       ) : null}
                     </span>
                   </div>
@@ -396,7 +412,10 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => setAssignOpen(true)}
+                onClick={() => {
+                  setAssignPlanId(null)
+                  setAssignOpen(true)
+                }}
                 disabled={activePlans.length === 0}
                 title={
                   activePlans.length === 0
@@ -439,14 +458,18 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
                     </div>
                     <div className="flex items-center gap-2">
                       {assignment.approvalStatus === "pending" ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
-                          Awaiting approval
+                        <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-800 dark:text-red-200">
+                          Pending approval
                         </span>
                       ) : assignment.approvalStatus === "rejected" ? (
-                        <span className="text-destructive text-xs">
-                          Override rejected
+                        <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-800 dark:text-red-200">
+                          Rejected
                         </span>
-                      ) : null}
+                      ) : (
+                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:text-emerald-200">
+                          {assignment.approvalStatus === "approved" ? "Approved" : "Active"}
+                        </span>
+                      )}
                       {canManage ? (
                         <Button
                           size="sm"
@@ -481,6 +504,7 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
         open={assignOpen}
         onOpenChange={setAssignOpen}
         plans={activePlans}
+        initialPlanId={assignPlanId}
         onSaved={handleAssigned}
       />
     </div>

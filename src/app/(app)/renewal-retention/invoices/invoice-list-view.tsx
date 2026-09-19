@@ -5,13 +5,7 @@ import Link from "next/link"
 import { Receipt } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import {
   Select,
   SelectContent,
@@ -19,16 +13,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 
 import {
-  formatDateOnly,
-  formatMinor,
-  STATUS_CLASSES,
-  STATUS_LABELS,
-  TERM_LABELS,
-} from "./invoice-format"
+  ColumnHeadings,
+  daysUntil,
+  INVOICE_STATUS_LABEL,
+  INVOICE_STATUS_TONE,
+  longDate,
+  money,
+  PageHeader,
+  Pill,
+  plural,
+  TERM_LABEL,
+  TONE_TEXT,
+} from "../ui"
 
 type Invoice = {
   id: string
@@ -37,9 +36,9 @@ type Invoice = {
   franchiseId: string
   companyName: string | null
   isGrouped: boolean
+  itemCount: number
   billingPlanSelected: string | null
-  periodStart: string | null
-  periodEnd: string | null
+  issueDate: string | null
   dueDate: string | null
   currencyCode: string
   totalMinor: number
@@ -47,13 +46,42 @@ type Invoice = {
   firstOpenedAt: string | null
   openCount: number
   paidAt: string | null
+  createdAt: string
 }
 
 const ALL = "__all__"
+const GRID = "grid-cols-[minmax(0,1fr)_7rem_8.5rem]"
+
+/** One line of engagement per invoice, as the design shows under the status. */
+function engagement(invoice: Invoice): { label: string; warn: boolean } {
+  if (invoice.status === "paid") {
+    return { label: `Paid ${longDate(invoice.paidAt)}`, warn: false }
+  }
+  if (invoice.status === "payment_pending") {
+    return { label: `Opened ${invoice.openCount}× · at gateway`, warn: false }
+  }
+  if (invoice.status === "lapsed") {
+    return { label: "Lapsed unpaid", warn: true }
+  }
+  if (invoice.status === "draft") {
+    return { label: "Not yet issued", warn: true }
+  }
+  if (invoice.openCount === 0) {
+    const days = daysUntil(invoice.issueDate)
+    const age = days === null ? "" : ` · ${Math.abs(days)} days`
+    return { label: `Never opened${age}`, warn: true }
+  }
+  return { label: `Opened ${invoice.openCount}×`, warn: false }
+}
 
 export function InvoiceListView() {
   const [invoices, setInvoices] = React.useState<Invoice[]>([])
-  const [status, setStatus] = React.useState<string>(ALL)
+  // `?status=paid` from the overview tiles pre-filters the list.
+  const [status, setStatus] = React.useState<string>(() => {
+    if (typeof window === "undefined") return ALL
+    const wanted = new URLSearchParams(window.location.search).get("status")
+    return wanted && wanted in INVOICE_STATUS_LABEL ? wanted : ALL
+  })
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -62,18 +90,14 @@ export function InvoiceListView() {
     setError(null)
     try {
       const query = status === ALL ? "" : `?status=${encodeURIComponent(status)}`
-      const response = await fetch(`/api/renewals/invoices${query}`, {
-        cache: "no-store",
-      })
+      const response = await fetch(`/api/renewals/invoices${query}`, { cache: "no-store" })
       if (!response.ok) {
         throw new Error("Unable to load invoices.")
       }
       const payload = (await response.json()) as { invoices: Invoice[] }
       setInvoices(payload.invoices ?? [])
     } catch (loadError) {
-      setError(
-        loadError instanceof Error ? loadError.message : "Unable to load invoices."
-      )
+      setError(loadError instanceof Error ? loadError.message : "Unable to load invoices.")
     } finally {
       setLoading(false)
     }
@@ -84,54 +108,34 @@ export function InvoiceListView() {
   }, [load])
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Renewal Invoices
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            Proformas raised by the nightly run, and the tax invoices that settle
-            them.
-          </p>
-        </div>
+    <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-5">
+      <PageHeader
+        title="Invoices"
+        description="Proformas and tax invoices. One proforma per franchise-and-expiry-date group per cycle; the T-5 and T-1 runs reuse it."
+      >
         <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="w-48">
+          <SelectTrigger className="h-9 w-48">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={ALL}>All statuses</SelectItem>
-            {Object.entries(STATUS_LABELS).map(([value, label]) => (
+            {Object.entries(INVOICE_STATUS_LABEL).map(([value, label]) => (
               <SelectItem key={value} value={value}>
                 {label}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </PageHeader>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            {loading ? "Invoices" : `${invoices.length} invoices`}
-          </CardTitle>
-          <CardDescription>
-            Newest first. An invoice is raised once per franchise and expiry
-            date, and reused at each later reminder.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="pt-6">
           {loading ? (
             <p className="text-muted-foreground py-6 text-sm">Loading…</p>
           ) : error ? (
             <div className="py-6">
               <p className="text-destructive text-sm">{error}</p>
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-3"
-                onClick={() => void load()}
-              >
+              <Button size="sm" variant="outline" className="mt-3" onClick={() => void load()}>
                 Try again
               </Button>
             </div>
@@ -141,68 +145,58 @@ export function InvoiceListView() {
               <div>
                 <p className="text-sm font-medium">No invoices yet.</p>
                 <p className="text-muted-foreground text-sm">
-                  The nightly run raises one for each subscription reaching a
-                  reminder point.
+                  The nightly run raises one for each subscription reaching a reminder point.
                 </p>
               </div>
             </div>
           ) : (
-            <div className="flex flex-col">
-              <div className="text-muted-foreground grid grid-cols-[1.3fr_1.6fr_0.9fr_0.8fr_0.9fr_0.9fr] gap-3 px-1 pb-2 text-xs font-medium">
-                <span>Number</span>
-                <span>Merchant</span>
-                <span>Due</span>
-                <span>Term</span>
-                <span className="text-right">Total</span>
-                <span className="text-right">Status</span>
-              </div>
-              <Separator />
-              {invoices.map((invoice) => (
-                <div key={invoice.id}>
+            <>
+              <ColumnHeadings
+                grid={GRID}
+                columns={[{ label: "Document" }, { label: "Total", align: "right" }, { label: "Status" }]}
+              />
+              {invoices.map((invoice) => {
+                const line = engagement(invoice)
+                return (
                   <Link
+                    key={invoice.id}
                     href={`/renewal-retention/invoices/${invoice.id}`}
-                    className="hover:bg-muted/50 grid grid-cols-[1.3fr_1.6fr_0.9fr_0.8fr_0.9fr_0.9fr] items-center gap-3 rounded-sm px-1 py-3 text-sm"
+                    className={cn(
+                      "hover:bg-accent/40 grid w-full items-center gap-3 border-b px-2 py-3 text-left text-sm transition-colors",
+                      GRID
+                    )}
                   >
-                    <span className="font-mono text-xs">
-                      {invoice.invoiceNumber}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate">
-                        {invoice.companyName ?? `Franchise ${invoice.franchiseId}`}
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="font-mono text-[0.8125rem] whitespace-nowrap">{invoice.invoiceNumber}</span>
+                      <span className="text-sm">{invoice.companyName ?? `Franchise ${invoice.franchiseId}`}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {invoice.isGrouped ? `Grouped · ${plural(invoice.itemCount, "outlet")}` : plural(invoice.itemCount, "outlet")} · FID{" "}
+                        {invoice.franchiseId}
                       </span>
-                      {invoice.isGrouped ? (
-                        <span className="text-muted-foreground text-xs">
-                          Grouped invoice
-                        </span>
-                      ) : null}
+                      <span className="text-muted-foreground text-xs">
+                        Issued {longDate(invoice.issueDate)} ·{" "}
+                        {invoice.billingPlanSelected ? `${TERM_LABEL[invoice.billingPlanSelected]} term` : "term not set"}
+                      </span>
                     </span>
-                    <span className="text-muted-foreground text-xs">
-                      {formatDateOnly(invoice.dueDate)}
+                    <span className="text-right font-medium whitespace-nowrap tabular-nums">
+                      {money(invoice.totalMinor, invoice.currencyCode)}
                     </span>
-                    <span className="text-muted-foreground text-xs">
-                      {invoice.billingPlanSelected
-                        ? TERM_LABELS[invoice.billingPlanSelected]
-                        : "—"}
-                    </span>
-                    <span className="text-right tabular-nums">
-                      {formatMinor(invoice.totalMinor, invoice.currencyCode)}
-                    </span>
-                    <span className="text-right">
-                      <span
-                        className={cn(
-                          "rounded-full px-2 py-0.5 text-xs",
-                          STATUS_CLASSES[invoice.status] ??
-                            "bg-muted text-muted-foreground"
-                        )}
-                      >
-                        {STATUS_LABELS[invoice.status] ?? invoice.status}
+                    <span className="flex flex-col items-start gap-1">
+                      <Pill tone={INVOICE_STATUS_TONE[invoice.status] ?? "gray"}>
+                        {INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status}
+                      </Pill>
+                      <span className={cn("text-xs", line.warn ? TONE_TEXT.amber : "text-muted-foreground")}>
+                        {line.label}
                       </span>
                     </span>
                   </Link>
-                  <Separator />
-                </div>
-              ))}
-            </div>
+                )
+              })}
+              <div className="text-muted-foreground flex items-center justify-between pt-3.5 text-xs">
+                <span>{plural(invoices.length, "document")}</span>
+                <span>Voided invoices stay listed; their public links return 404.</span>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

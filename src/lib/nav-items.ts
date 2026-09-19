@@ -9,13 +9,16 @@ import {
   ClipboardCheck,
   ClipboardList,
   ContactRound,
+  Download,
   FolderKanban,
   Handshake,
   LayoutDashboard,
   ListTree,
   MapPinned,
   MessageSquare,
+  MessageSquareText,
   Receipt,
+  Settings2,
   Store,
   Tags,
   Ticket,
@@ -155,7 +158,7 @@ export const renewalRetentionNav: NavItem[] = [
     icon: BarChart3,
   },
   {
-    title: "Renewal Due",
+    title: "Renewal List",
     url: "/renewal-retention/renewal-due",
     icon: CalendarClock,
   },
@@ -173,6 +176,21 @@ export const renewalRetentionNav: NavItem[] = [
     title: "Actions Required",
     url: "/renewal-retention/actions-required",
     icon: AlertTriangle,
+  },
+  {
+    title: "Message Templates",
+    url: "/renewal-retention/templates",
+    icon: MessageSquareText,
+  },
+  {
+    title: "Bukku Export",
+    url: "/renewal-retention/exports",
+    icon: Download,
+  },
+  {
+    title: "Settings",
+    url: "/renewal-retention/settings",
+    icon: Settings2,
   },
 ]
 

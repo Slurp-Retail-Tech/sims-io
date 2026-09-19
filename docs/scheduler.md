@@ -159,6 +159,46 @@ Notes:
 - Nothing is sent to a merchant by this job. Outbound dispatch is behind the
   `dispatch_enabled` setting, which ships off.
 
+## Renewal payment reconcile endpoint
+
+The hourly safety net under the CommercePay callback. Asks the gateway about
+every open payment session older than a few minutes, settles any that paid
+without a callback arriving (recorded as `reconciledBySweep` for the
+analytics), closes attempts that failed or expired, and re-queues any
+post-payment step still outstanding on a paid invoice: licence extension, tax
+invoice, receipt and tax invoice PDFs, the POS `valid_until` push, and the
+payer email.
+
+```
+POST /api/renewals/payments/reconcile
+```
+
+Recommended cron expression (hourly, at :20):
+
+```
+20 * * * *
+```
+
+Command example:
+
+```
+curl -X POST "https://your-app-domain.com/api/renewals/payments/reconcile" -H "x-cron-secret: ${RENEWAL_PAYMENT_RECONCILE_CRON_SECRET}"
+```
+
+Notes:
+- `RENEWAL_PAYMENT_RECONCILE_CRON_SECRET` must match the header value.
+- Safe to run repeatedly. A payment already settled is recognised as a
+  duplicate; the job is keyed so a second call joins the run already in flight.
+- Automatic re-queuing of post-payment steps stops 48 hours after payment.
+  After that the Actions Required entry (`extension_failed`, `pos_push_failed`,
+  `payer_email_failed`) is worked by a person, who uses **Retry post-payment
+  steps** on the invoice once the cause is fixed.
+- The callback itself needs no scheduling: CommercePay posts to
+  `/api/public/commercepay/callback`, which is public, signature-verified and
+  excluded from the auth middleware like every other `/api` route. Its
+  `callbackUrl` is built from `APP_BASE_URL`, so that variable must be the
+  public origin the gateway can reach.
+
 ## Job runner tick (required)
 
 ```

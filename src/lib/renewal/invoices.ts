@@ -55,11 +55,27 @@ export type InvoiceRecord = {
   status: InvoiceStatus
   renewalToken: string | null
   pdfObjectKey: string | null
+  receiptPdfObjectKey: string | null
   firstOpenedAt: string | null
   openCount: number
   paidAt: string | null
+  paidVia: "commercepay" | "manual" | null
+  capTransactionNumber: string | null
+  paidSessionId: string | null
+  paidReference: string | null
+  extensionStatus: ExtensionStatus
+  posPushStatus: PosPushStatus
+  payerEmailStatus: PayerEmailStatus
+  payerEmailSentAt: string | null
+  payerEmailError: string | null
   createdAt: string
+  /** Lines on the invoice; one per outlet. */
+  itemCount: number
 }
+
+export type ExtensionStatus = "not_applicable" | "pending" | "applied" | "failed"
+export type PosPushStatus = "not_applicable" | "pending" | "pushed" | "failed"
+export type PayerEmailStatus = "not_applicable" | "pending" | "sent" | "failed"
 
 type InvoiceRow = RowDataPacket & {
   id: string
@@ -87,20 +103,35 @@ type InvoiceRow = RowDataPacket & {
   status: InvoiceStatus
   renewal_token: string | null
   pdf_object_key: string | null
+  receipt_pdf_object_key: string | null
   first_opened_at: string | null
   open_count: number
   paid_at: string | null
+  paid_via: "commercepay" | "manual" | null
+  cap_transaction_number: string | null
+  paid_session_id: string | null
+  paid_reference: string | null
+  extension_status: ExtensionStatus
+  pos_push_status: PosPushStatus
+  payer_email_status: PayerEmailStatus
+  payer_email_sent_at: string | null
+  payer_email_error: string | null
   created_at: string
+  item_count: number | string
 }
 
 const INVOICE_SELECT = `
-  SELECT id, invoice_number, document_type, parent_invoice_id, franchise_id,
-         company_name, group_key, is_grouped, contact_id, billing_plan_selected,
-         term_months, period_start, period_end, issue_date, due_date,
-         currency_code, subtotal_amount, adjustment_amount, tax_rate, tax_amount,
-         total_amount, payment_email, status, renewal_token, pdf_object_key,
-         first_opened_at, open_count, paid_at, created_at
-    FROM renewal_invoices
+  SELECT i.id, i.invoice_number, i.document_type, i.parent_invoice_id, i.franchise_id,
+         i.company_name, i.group_key, i.is_grouped, i.contact_id, i.billing_plan_selected,
+         i.term_months, i.period_start, i.period_end, i.issue_date, i.due_date,
+         i.currency_code, i.subtotal_amount, i.adjustment_amount, i.tax_rate, i.tax_amount,
+         i.total_amount, i.payment_email, i.status, i.renewal_token, i.pdf_object_key,
+         i.receipt_pdf_object_key, i.first_opened_at, i.open_count, i.paid_at, i.paid_via,
+         i.cap_transaction_number, i.paid_session_id, i.paid_reference, i.extension_status,
+         i.pos_push_status, i.payer_email_status, i.payer_email_sent_at, i.payer_email_error,
+         i.created_at,
+         (SELECT COUNT(*) FROM renewal_invoice_items t WHERE t.invoice_id = i.id) AS item_count
+    FROM renewal_invoices i
 `
 
 export type CreateInvoiceResult = {
@@ -247,8 +278,46 @@ export async function findOpenProforma(
 ): Promise<InvoiceRecord | null> {
   const [rows] = await db.query<InvoiceRow[]>(
     `${INVOICE_SELECT}
-      WHERE group_key = ? AND document_type = 'proforma' AND deleted_at IS NULL`,
+      WHERE i.group_key = ? AND i.document_type = 'proforma' AND i.deleted_at IS NULL`,
     [groupKey]
+  )
+  const row = rows[0]
+  return row ? mapInvoice(row) : null
+}
+
+/**
+ * The open proforma already billing any of these outlets for this expiry.
+ *
+ * A safety net under the group-key match. The key encodes the franchise, the
+ * expiry date and the term, and the term can change between offsets if an
+ * assignment is edited; without this, the T-5 run would mint a second invoice
+ * for outlets the T-15 run already billed. Matching on the outlet and the
+ * expiry it is renewing from is the fact that actually matters.
+ */
+export async function findOpenProformaForOutlets(
+  franchiseId: string,
+  outletIds: readonly string[],
+  validUntilDate: string,
+  db: Queryable = getPool()
+): Promise<InvoiceRecord | null> {
+  if (outletIds.length === 0) {
+    return null
+  }
+  const [rows] = await db.query<InvoiceRow[]>(
+    `${INVOICE_SELECT}
+      WHERE i.document_type = 'proforma'
+        AND i.deleted_at IS NULL
+        AND i.status NOT IN ('cancelled', 'superseded', 'lapsed')
+        AND i.franchise_id = ?
+        AND EXISTS (
+          SELECT 1 FROM renewal_invoice_items t
+           WHERE t.invoice_id = i.id
+             AND t.outlet_id IN (${outletIds.map(() => "?").join(", ")})
+             AND DATE(t.previous_valid_until) = ?
+        )
+      ORDER BY i.id ASC
+      LIMIT 1`,
+    [franchiseId, ...outletIds, validUntilDate]
   )
   const row = rows[0]
   return row ? mapInvoice(row) : null
@@ -259,8 +328,28 @@ export async function getInvoiceById(
   db: Queryable = getPool()
 ): Promise<InvoiceRecord | null> {
   const [rows] = await db.query<InvoiceRow[]>(
-    `${INVOICE_SELECT} WHERE id = ? AND deleted_at IS NULL`,
+    `${INVOICE_SELECT} WHERE i.id = ? AND i.deleted_at IS NULL`,
     [invoiceId]
+  )
+  const row = rows[0]
+  return row ? mapInvoice(row) : null
+}
+
+/**
+ * The tax invoice that settles a proforma, if one has been issued.
+ *
+ * At most one live row: the tax invoice shares the proforma's group key, so
+ * `open_guard` on `(group_key, 'tax_invoice')` refuses a second.
+ */
+export async function findTaxInvoiceForProforma(
+  proformaId: string,
+  db: Queryable = getPool()
+): Promise<InvoiceRecord | null> {
+  const [rows] = await db.query<InvoiceRow[]>(
+    `${INVOICE_SELECT}
+      WHERE i.parent_invoice_id = ? AND i.document_type = 'tax_invoice' AND i.deleted_at IS NULL
+      ORDER BY i.id ASC LIMIT 1`,
+    [proformaId]
   )
   const row = rows[0]
   return row ? mapInvoice(row) : null
@@ -271,7 +360,7 @@ export async function getInvoiceByToken(
   db: Queryable = getPool()
 ): Promise<InvoiceRecord | null> {
   const [rows] = await db.query<InvoiceRow[]>(
-    `${INVOICE_SELECT} WHERE renewal_token = ? AND deleted_at IS NULL`,
+    `${INVOICE_SELECT} WHERE i.renewal_token = ? AND i.deleted_at IS NULL`,
     [renewalToken]
   )
   const row = rows[0]
@@ -282,15 +371,15 @@ export async function listInvoices(
   filters: { status?: InvoiceStatus; franchiseId?: string; limit?: number } = {},
   db: Queryable = getPool()
 ): Promise<InvoiceRecord[]> {
-  const conditions = ["deleted_at IS NULL"]
+  const conditions = ["i.deleted_at IS NULL"]
   const values: unknown[] = []
 
   if (filters.status) {
-    conditions.push("status = ?")
+    conditions.push("i.status = ?")
     values.push(filters.status)
   }
   if (filters.franchiseId) {
-    conditions.push("franchise_id = ?")
+    conditions.push("i.franchise_id = ?")
     values.push(filters.franchiseId)
   }
 
@@ -298,7 +387,7 @@ export async function listInvoices(
 
   const [rows] = await db.query<InvoiceRow[]>(
     `${INVOICE_SELECT} WHERE ${conditions.join(" AND ")}
-      ORDER BY id DESC LIMIT ${limit}`,
+      ORDER BY i.id DESC LIMIT ${limit}`,
     values
   )
   return rows.map(mapInvoice)
@@ -306,16 +395,21 @@ export async function listInvoices(
 
 export type InvoiceItemRecord = {
   id: string
+  outletSubscriptionId: string | null
   outletId: string
   centralId: string | null
   outletName: string | null
+  planId: string | null
+  assignmentId: string | null
   licensePlan: string | null
   billingPlan: BillingTerm
   catalogAmountMinor: number | null
   effectiveAmountMinor: number
   adjustmentAmountMinor: number
   priceSource: string
+  cycleOverrideMinor: number | null
   previousValidUntil: string | null
+  newValidUntil: string | null
 }
 
 export async function loadInvoiceItems(
@@ -323,9 +417,10 @@ export async function loadInvoiceItems(
   db: Queryable = getPool()
 ): Promise<InvoiceItemRecord[]> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id, outlet_id, central_id, outlet_name, license_plan, billing_plan,
+    `SELECT id, outlet_subscription_id, outlet_id, central_id, outlet_name,
+            plan_id, assignment_id, license_plan, billing_plan,
             catalog_amount, effective_amount, adjustment_amount, price_source,
-            previous_valid_until
+            cycle_override_amount, previous_valid_until, new_valid_until
        FROM renewal_invoice_items
       WHERE invoice_id = ? ORDER BY sort_order ASC, id ASC`,
     [invoiceId]
@@ -333,17 +428,29 @@ export async function loadInvoiceItems(
 
   return (rows as Array<Record<string, string | null>>).map((row) => ({
     id: String(row.id),
+    outletSubscriptionId: row.outlet_subscription_id
+      ? String(row.outlet_subscription_id)
+      : null,
     outletId: String(row.outlet_id),
     centralId: row.central_id,
     outletName: row.outlet_name,
+    planId: row.plan_id ? String(row.plan_id) : null,
+    assignmentId: row.assignment_id ? String(row.assignment_id) : null,
     licensePlan: row.license_plan,
     billingPlan: row.billing_plan as BillingTerm,
     catalogAmountMinor: parseAmountToMinor(row.catalog_amount),
     effectiveAmountMinor: parseAmountToMinor(row.effective_amount) ?? 0,
     adjustmentAmountMinor: parseAmountToMinor(row.adjustment_amount) ?? 0,
     priceSource: String(row.price_source),
+    cycleOverrideMinor: parseAmountToMinor(row.cycle_override_amount),
     previousValidUntil: row.previous_valid_until,
+    newValidUntil: row.new_valid_until,
   }))
+}
+
+/** `toDecimal`, for the modules that write amounts alongside this one. */
+export function minorToDecimal(minor: number | null): string | null {
+  return toDecimal(minor)
 }
 
 /**
@@ -437,10 +544,21 @@ function mapInvoice(row: InvoiceRow): InvoiceRecord {
     status: row.status,
     renewalToken: row.renewal_token,
     pdfObjectKey: row.pdf_object_key,
+    receiptPdfObjectKey: row.receipt_pdf_object_key,
     firstOpenedAt: row.first_opened_at,
     openCount: Number(row.open_count),
     paidAt: row.paid_at,
+    paidVia: row.paid_via,
+    capTransactionNumber: row.cap_transaction_number,
+    paidSessionId: row.paid_session_id ? String(row.paid_session_id) : null,
+    paidReference: row.paid_reference,
+    extensionStatus: row.extension_status,
+    posPushStatus: row.pos_push_status,
+    payerEmailStatus: row.payer_email_status,
+    payerEmailSentAt: row.payer_email_sent_at,
+    payerEmailError: row.payer_email_error,
     createdAt: row.created_at,
+    itemCount: Number(row.item_count ?? 0),
   }
 }
 

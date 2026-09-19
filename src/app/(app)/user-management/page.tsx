@@ -76,7 +76,7 @@ const pageAccessGroups: PageAccessGroup[] = [
     label: "Renewal & Retention",
     options: [
       { label: "Overview", value: "/renewal-retention/overview" },
-      { label: "Renewal Due", value: "/renewal-retention/renewal-due" },
+      { label: "Renewal List", value: "/renewal-retention/renewal-due" },
       { label: "Analytics", value: "/renewal-retention/analytics" },
       { label: "Plan Catalog", value: "/renewal-retention/plans" },
       { label: "Plan Catalog — manage", value: "/renewal-retention/plans/manage" },
@@ -95,6 +95,11 @@ const pageAccessGroups: PageAccessGroup[] = [
         label: "Actions Required — dismiss and resolve",
         value: "/renewal-retention/actions-required/manage",
       },
+      { label: "Message Templates", value: "/renewal-retention/templates" },
+      { label: "Bukku Export", value: "/renewal-retention/exports" },
+      { label: "Bukku Export — generate", value: "/renewal-retention/exports/manage" },
+      { label: "Settings", value: "/renewal-retention/settings" },
+      { label: "Settings — change", value: "/renewal-retention/settings/manage" },
     ],
   },
   {

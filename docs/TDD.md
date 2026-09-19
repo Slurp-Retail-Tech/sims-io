@@ -69,7 +69,7 @@ All date fields in the module use the shared `DateTimePicker` (`mode="date"`) ra
 * The app is currently deployed as one web application rather than separate `api/`, `worker/`, and `packages/shared/` services.
 * The schema in `schema.sql` is the current operational schema and should be treated as the source of truth for implemented tables.
 * Redis-, RabbitMQ-, and webhook-driven messaging components in this document are target-state design, not current runtime dependencies (with the exception of Redis, which is now used in production for rate limiting — see Rate Limiting below).
-* Some pages are intentionally UI previews. In particular, the Renewal & Retention overview page currently shows sample KPI cards and placeholder chart panels instead of live reporting.
+* The Renewal & Retention module is live end to end: plan catalog, subscription projection, renewal contacts, nightly detection, proformas with PDFs, the merchant renewal link, CommercePay checkout, the signed callback, licence extension, tax invoices and receipts, POS push-back, analytics and the Bukku export. See "Renewal post-payment pipeline" below.
 
 #### Session / Authentication Architecture
 
@@ -85,9 +85,9 @@ Sessions use **opaque tokens** rather than storing user IDs directly in cookies.
 
 ### Current Gaps to Track
 
-* Renewal analytics are not fully wired to live data.
+* Renewal reminders are generated but not yet dispatched: Respond.io messaging waits on Meta template approval and the `dispatch_enabled` setting.
 * Messaging-provider webhook ingestion is not implemented.
-* Automated renewal messaging and full CSAT flow are not implemented.
+* Automated renewal messaging (outbound) and full CSAT flow are not implemented.
 * Automated test coverage is minimal and currently focused on shared timezone helpers.
 * RabbitMQ is not a current runtime dependency; Redis is required in production for rate limiting (in-memory fallback for local dev).
 
@@ -1493,6 +1493,58 @@ Ticket -> AgentUI : websocket update
 AgentUI -> Merchant : reply via WA (send API)
 @enduml
 ```
+
+## Renewal post-payment pipeline
+
+What happens after a renewal proforma is paid, and where each fact lives.
+
+**Marking paid.** Exactly one function, `confirmPayment` in
+`src/lib/renewal/payment-confirmation.ts`, writes `renewal_invoices.status =
+'paid'`. It is reached from three directions: the signed CommercePay callback
+(`POST /api/public/commercepay/callback`), the hourly Query sweep
+(`renewal-payment-reconcile` job) and a staff member recording an offline
+payment (`mark_paid_offline` action). It locks the invoice, settles the paying
+session, supersedes every other open session, flags the downstream steps
+`pending`, and enqueues the `renewal-post-payment` job. The decision of what a
+gateway notice means (paid, duplicate, overpayment, amount mismatch, closed,
+refunded, ignore) is pure, in `payment-confirmation-rules.ts`, and shared by
+the callback and the sweep.
+
+**Callback verification.** The raw body is persisted to
+`renewal_payment_callbacks` before parsing. `cap-signature` is verified over
+the callback URL the session was opened with (read back from the session's
+stored request) using `verifyCallbackSignature`. A mismatch is 401 and nothing
+downstream runs. The response is 200 as soon as the notice is applied; the
+post-payment job is driven after the response with `after()`.
+
+**Post-payment steps** (`src/lib/renewal/post-payment.ts`), each idempotent
+and recorded on the invoice:
+
+1. *Extension.* One transaction: every line's outlet moves from the
+   subscription's current `valid_until` by the paid term
+   (`planExtensions`/`extendValidUntil` in `extension.ts`, pure). One row per
+   line in `outlet_subscription_extensions`, unique on `invoice_item_id`, so a
+   replay cannot extend twice. All or nothing; a refusal sets
+   `extension_status = 'failed'` and raises `extension_failed`.
+2. *Tax invoice.* A second `renewal_invoices` row, `document_type =
+   'tax_invoice'`, `INV-` numbered from `renewal_invoice_sequences`, linked by
+   `parent_invoice_id`; idempotent through `open_guard` on
+   `(group_key, 'tax_invoice')`. Aggregates (list, overview, analytics, Bukku)
+   filter on `document_type = 'proforma'` so the pair is never double-counted.
+3. *Documents.* Receipt PDF on the proforma (`receipt_pdf_object_key`), tax
+   invoice PDF on its own row. Served through the token-gated public route
+   (`?document=receipt|tax_invoice`) and the staff route; never through the
+   generic upload proxy.
+4. *POS push.* `PATCH /api/outlet-valid-until/{fid}/{oid}` per outlet
+   (`src/lib/pos-valid-until.ts`), body `{"valid_until":
+   "YYYY-MM-DDTHH:mm:ss+0800"}` from `formatPosValidUntil`. Per-outlet state on
+   the extension row; invoice `pos_push_status` is `pushed` only when every row
+   is. Failure raises `pos_push_failed` (informational) and never rolls back.
+5. *Payer email.* Receipt and tax invoice PDFs to `payment_email` over SMTP
+   (`payer_email_status`). Failure raises `payer_email_failed`.
+
+Automatic re-queuing by the reconcile job stops 48 hours after payment; after
+that a person uses **Retry post-payment steps** from the invoice page.
 
 ## Milestones
 

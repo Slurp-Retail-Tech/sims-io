@@ -128,6 +128,7 @@ POS_IMPORT_URL=
 POS_BRANCH_URL=
 POS_MERCHANT_ID_BASE_URL=
 POS_CATEGORY_BUSINESS_BASE_URL=
+POS_OUTLET_VALID_UNTIL_URL=
 MERCHANT_IMPORT_CRON_SECRET=
 
 # ── ClickUp ───────────────────────────────────────────────────────────────────
