@@ -18,7 +18,7 @@ import { createHash } from "node:crypto"
 import { createLogger } from "../logger.ts"
 import { addDays } from "./invoice-build.ts"
 import type { InvoiceTotals } from "./invoice-build.ts"
-import { ensureInvoicePdf } from "./invoice-pdf.ts"
+import { ensureInvoicePdf, sellerBlock } from "./invoice-pdf.ts"
 import {
   findTaxInvoiceForProforma,
   getInvoiceById,
@@ -87,6 +87,8 @@ export type PublicInvoiceView = {
   documents: { proforma: boolean; receipt: boolean; taxInvoice: boolean }
   /** The tax invoice number once issued, for the receipt page. */
   taxInvoiceNumber: string | null
+  /** The letterhead every renewal document prints, so the page and the PDF never disagree. */
+  seller: { name: string; lines: readonly string[] }
   /** Whether the licence dates have moved yet after payment. */
   extension: ExtensionStatus
   paidVia: "commercepay" | "manual" | null
@@ -250,6 +252,7 @@ export function buildPublicView(
       taxInvoice: Boolean(taxInvoice?.pdfObjectKey),
     },
     taxInvoiceNumber: taxInvoice?.invoiceNumber ?? null,
+    seller: sellerBlock(),
     extension: invoice.extensionStatus,
     paidVia: invoice.paidVia,
     companyName: invoice.companyName,

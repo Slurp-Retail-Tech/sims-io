@@ -38,6 +38,8 @@ export type PublicInvoice = {
   termQuotes: TermQuote[]
   documents: { proforma: boolean; receipt: boolean; taxInvoice: boolean }
   taxInvoiceNumber: string | null
+  /** The letterhead every renewal document prints, so the page and the PDF never disagree. */
+  seller: { name: string; lines: readonly string[] }
   extension: "not_applicable" | "pending" | "applied" | "failed"
   paidVia: "commercepay" | "manual" | null
   companyName: string | null

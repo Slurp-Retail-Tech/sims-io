@@ -15,7 +15,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
-import { capitalise, longDate, money, plural, TERM_LABELS } from "./format"
+import { RenewalDocumentCard, RENEWAL_TERMS_LINES } from "./document-card"
+import { buildBillTo, buildDocLines, buildDocTitle, buildProformaDocMeta, buildShipTo } from "./document-data"
+import { longDate, money, plural, TERM_LABELS } from "./format"
 import { InvalidLink, LoadingCard, PublicShell } from "./public-shell"
 import { fetchPublicInvoice } from "./types"
 import type { BillingTerm, PublicInvoice } from "./types"
@@ -186,70 +188,22 @@ export default function RenewalProformaPage() {
         />
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <CardTitle className="text-xl">
-                {view.companyName ?? `Franchise ${view.franchiseId}`}
-              </CardTitle>
-              <CardDescription>
-                {plural(view.outletCount, "outlet")} · FID {view.franchiseId} · licence expires{" "}
-                {longDate(view.periodStart)}
-              </CardDescription>
-            </div>
-            <div className="text-muted-foreground text-right text-[0.8125rem]">
-              <div className="text-foreground font-mono">{view.invoiceNumber}</div>
-              <div className="mt-1">Issued {longDate(view.issueDate)}</div>
-              <div>Payment due {longDate(view.dueDate)}</div>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="text-muted-foreground grid grid-cols-[minmax(0,1fr)_7rem_7rem] gap-3 border-b pb-2.5 text-[11px] tracking-[0.05em] uppercase">
-            <span>Outlet</span>
-            <span className="text-right">New expiry</span>
-            <span className="text-right">Amount</span>
-          </div>
-          {view.lines.map((line) => (
-            <div
-              key={line.outletId}
-              className="grid grid-cols-[minmax(0,1fr)_7rem_7rem] items-center gap-3 border-b py-2.5"
-            >
-              <span className="flex min-w-0 flex-col gap-0.5">
-                <span className="text-sm">{line.outletName ?? `Outlet ${line.outletId}`}</span>
-                <span className="text-muted-foreground text-xs">
-                  {line.licensePlan ? `${capitalise(line.licensePlan)} plan · ` : ""}OID {line.outletId}
-                </span>
-              </span>
-              <span className="text-muted-foreground text-right text-[0.8125rem] whitespace-nowrap">
-                {longDate(line.newValidUntil)}
-              </span>
-              <span className="text-right text-sm whitespace-nowrap tabular-nums">
-                {money(line.amountMinor, view.currencyCode)}
-              </span>
-            </div>
-          ))}
-          <div className="flex flex-col gap-2 pt-3.5 text-sm">
-            <div className="text-muted-foreground flex justify-between">
-              <span>Subtotal</span>
-              <span className="tabular-nums">{money(view.totals.subtotalMinor, view.currencyCode)}</span>
-            </div>
-            {view.taxRatePercent > 0 ? (
-              <div className="text-muted-foreground flex justify-between">
-                <span>SST {view.taxRatePercent}% (exclusive)</span>
-                <span className="tabular-nums">{money(view.totals.taxMinor, view.currencyCode)}</span>
-              </div>
-            ) : null}
-            <div className="flex items-baseline justify-between border-t pt-2.5">
-              <span className="font-medium">Total due</span>
-              <span className="text-2xl font-semibold tracking-[-0.01em] tabular-nums">
-                {money(view.totals.totalMinor, view.currencyCode)}
-              </span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <RenewalDocumentCard
+        seller={view.seller}
+        docTypeTitle="PROFORMA INVOICE"
+        docMeta={buildProformaDocMeta(view)}
+        billTo={buildBillTo(view)}
+        shipTo={buildShipTo(view)}
+        docTitle={buildDocTitle(view)}
+        lines={buildDocLines(view)}
+        subtotal={money(view.totals.subtotalMinor, view.currencyCode)}
+        taxVisible={view.taxRatePercent > 0}
+        taxLabel={`SST ${view.taxRatePercent}% (exclusive)`}
+        tax={money(view.totals.taxMinor, view.currencyCode)}
+        totalLabel="Total due"
+        total={money(view.totals.totalMinor, view.currencyCode)}
+        termsLines={RENEWAL_TERMS_LINES}
+      />
 
       {view.termQuotes.length > 1 || view.termLocked ? (
         <Card>
