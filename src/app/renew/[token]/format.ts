@@ -60,6 +60,17 @@ export const TERM_LABELS: Record<string, string> = {
   bi_annually: "6 months",
 }
 
+/** How the renewal document itself spells the term, matching the PDF. */
+export const TERM_DOC_LABELS: Record<string, string> = {
+  annually: "YEARLY",
+  bi_annually: "BI-ANNUAL",
+}
+
+/** `2026-10-02` → `2 OCT 2026`, for the document's own line items. */
+export function docDate(value: string | null | undefined): string {
+  return longDate(value).toUpperCase()
+}
+
 export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : pluralForm}`
 }

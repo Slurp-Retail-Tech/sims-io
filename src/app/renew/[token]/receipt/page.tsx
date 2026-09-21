@@ -7,7 +7,9 @@ import { Check, Clock, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 
-import { capitalise, longDate, longDateTime, money, plural, TERM_LABELS } from "../format"
+import { RenewalDocumentCard, RENEWAL_TERMS_LINES } from "../document-card"
+import { buildBillTo, buildDocLines, buildDocTitle, buildReceiptDocMeta, buildShipTo } from "../document-data"
+import { money, plural, TERM_LABELS } from "../format"
 import { InvalidLink, LoadingCard, PublicShell } from "../public-shell"
 import { fetchPublicInvoice } from "../types"
 import type { PublicInvoice } from "../types"
@@ -112,93 +114,82 @@ export default function RenewalReceiptPage() {
   return (
     <PublicShell maxWidth="40rem">
       {paid ? (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex flex-col items-center border-b pb-5 text-center">
-              <span className="flex size-10 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-700">
-                <Check className="size-5" />
-              </span>
-              <div className="mt-3 text-xl font-semibold tracking-[-0.01em]">Payment received</div>
-              <p className="text-muted-foreground mx-auto mt-1.5 max-w-[26rem] text-sm text-pretty">
-                {view.outletCount === 1
-                  ? `${view.companyName ?? "Your outlet"} is renewed for ${TERM_LABELS[view.term]}.`
-                  : `All ${plural(view.outletCount, "outlet")} of ${view.companyName ?? `franchise ${view.franchiseId}`} are renewed for ${TERM_LABELS[view.term]}.`}
-                {email
-                  ? view.documents.receipt && view.documents.taxInvoice
-                    ? ` Your receipt and tax invoice have been emailed to ${email}.`
-                    : ` Your receipt and tax invoice will be emailed to ${email} in a moment.`
-                  : ""}
-              </p>
-              <div className="mt-3.5 text-3xl font-semibold tracking-[-0.02em] tabular-nums">
-                {money(view.totals.totalMinor, view.currencyCode)}
-              </div>
-            </div>
-
-            <div className="grid gap-4 border-b py-4.5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))]">
-              <Meta label="Paid on" value={longDateTime(view.payment.paidAt)} />
-              <Meta label="Method" value={view.paidVia === "manual" ? "Bank transfer" : "CommercePay"} />
-              <Meta label="Reference" value={view.taxInvoiceNumber ?? view.invoiceNumber} mono />
-              <Meta label="Term" value={TERM_LABELS[view.term]} />
-            </div>
-
-            <div className="pt-4.5">
-              <div className="text-muted-foreground text-[11px] tracking-[0.05em] uppercase">
-                Outlets renewed
-              </div>
-              {view.lines.map((line) => (
-                <div
-                  key={line.outletId}
-                  className="flex items-center justify-between gap-3 border-b py-2.5"
-                >
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="text-sm">{line.outletName ?? `Outlet ${line.outletId}`}</span>
-                    <span className="text-muted-foreground text-xs">
-                      {line.licensePlan ? `${capitalise(line.licensePlan)} plan · ` : ""}OID {line.outletId}
-                    </span>
-                  </span>
-                  <span className="text-muted-foreground shrink-0 text-right text-[0.8125rem] whitespace-nowrap">
-                    {view.extension === "applied"
-                      ? `Valid until ${longDate(line.newValidUntil)}`
-                      : view.extension === "failed"
-                        ? "Extension being checked"
-                        : `Extending to ${longDate(line.newValidUntil)}`}
-                  </span>
-                </div>
-              ))}
-              <div className="mt-4.5 flex flex-wrap gap-2.5">
-                {view.documents.receipt ? (
-                  <Button variant="outline" className="h-10 flex-1" asChild>
-                    <a href={`${pdfHref}?document=receipt`} target="_blank" rel="noreferrer">
-                      Print receipt
-                    </a>
-                  </Button>
-                ) : null}
-                {view.documents.taxInvoice ? (
-                  <Button variant="outline" className="h-10 flex-1" asChild>
-                    <a href={`${pdfHref}?document=tax_invoice`} target="_blank" rel="noreferrer">
-                      Print tax invoice
-                    </a>
-                  </Button>
-                ) : null}
-                {!view.documents.receipt && !view.documents.taxInvoice ? (
-                  <Button variant="outline" className="h-10 flex-1" disabled>
-                    {settling && waitedMs < POLL_CEILING_MS ? "Preparing your documents…" : "Documents will arrive by email"}
-                  </Button>
-                ) : null}
-              </div>
-              {view.extension === "failed" ? (
-                <p className="text-muted-foreground mt-3.5 text-xs text-pretty">
-                  Your payment is confirmed. We are checking one of the expiry dates by hand and will confirm the new
-                  dates shortly; nothing is needed from you.
+        <>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex flex-col items-center text-center">
+                <span className="flex size-10 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-700">
+                  <Check className="size-5" />
+                </span>
+                <div className="mt-3 text-xl font-semibold tracking-[-0.01em]">Payment received</div>
+                <p className="text-muted-foreground mx-auto mt-1.5 max-w-[26rem] text-sm text-pretty">
+                  {view.outletCount === 1
+                    ? `${view.companyName ?? "Your outlet"} is renewed for ${TERM_LABELS[view.term]}.`
+                    : `All ${plural(view.outletCount, "outlet")} of ${view.companyName ?? `franchise ${view.franchiseId}`} are renewed for ${TERM_LABELS[view.term]}.`}
+                  {email
+                    ? view.documents.receipt && view.documents.taxInvoice
+                      ? ` Your receipt and tax invoice have been emailed to ${email}.`
+                      : ` Your receipt and tax invoice will be emailed to ${email} in a moment.`
+                    : ""}
                 </p>
-              ) : null}
-              <p className="text-muted-foreground mt-3.5 text-xs text-pretty">
-                This link stays available as your permanent record. The renewal covers{" "}
-                {longDate(view.periodStart)} to {longDate(view.periodEnd)}.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+                <div className="mt-3.5 text-3xl font-semibold tracking-[-0.02em] tabular-nums">
+                  {money(view.totals.totalMinor, view.currencyCode)}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <RenewalDocumentCard
+            seller={view.seller}
+            docTypeTitle="OFFICIAL RECEIPT"
+            docMeta={buildReceiptDocMeta(view)}
+            billTo={buildBillTo(view)}
+            shipTo={buildShipTo(view)}
+            docTitle={buildDocTitle(view, "PAID")}
+            lines={buildDocLines(view)}
+            subtotal={money(view.totals.subtotalMinor, view.currencyCode)}
+            taxVisible={view.taxRatePercent > 0}
+            taxLabel={`SST ${view.taxRatePercent}% (exclusive)`}
+            tax={money(view.totals.taxMinor, view.currencyCode)}
+            totalLabel="Total paid"
+            total={money(view.totals.totalMinor, view.currencyCode)}
+            termsLines={RENEWAL_TERMS_LINES}
+            footer={
+              <>
+                <div className="mt-5 flex flex-wrap gap-2.5">
+                  {view.documents.receipt ? (
+                    <Button variant="outline" className="h-10 flex-1" asChild>
+                      <a href={`${pdfHref}?document=receipt`} target="_blank" rel="noreferrer">
+                        Print receipt
+                      </a>
+                    </Button>
+                  ) : null}
+                  {view.documents.taxInvoice ? (
+                    <Button variant="outline" className="h-10 flex-1" asChild>
+                      <a href={`${pdfHref}?document=tax_invoice`} target="_blank" rel="noreferrer">
+                        Print tax invoice
+                      </a>
+                    </Button>
+                  ) : null}
+                  {!view.documents.receipt && !view.documents.taxInvoice ? (
+                    <Button variant="outline" className="h-10 flex-1" disabled>
+                      {settling && waitedMs < POLL_CEILING_MS ? "Preparing your documents…" : "Documents will arrive by email"}
+                    </Button>
+                  ) : null}
+                </div>
+                {view.extension === "failed" ? (
+                  <p className="text-muted-foreground mt-3.5 text-xs text-pretty">
+                    Your payment is confirmed. We are checking one of the expiry dates by hand and will confirm the
+                    new dates shortly; nothing is needed from you.
+                  </p>
+                ) : null}
+                <p className="text-muted-foreground mt-3.5 text-xs text-pretty">
+                  This link stays available as your permanent record.
+                </p>
+              </>
+            }
+          />
+        </>
       ) : null}
 
       {pending ? (
@@ -263,14 +254,5 @@ export default function RenewalReceiptPage() {
         </Card>
       ) : null}
     </PublicShell>
-  )
-}
-
-function Meta({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <div className="text-muted-foreground text-[11px] tracking-[0.05em] uppercase">{label}</div>
-      <div className={mono ? "mt-1 font-mono text-sm" : "mt-1 text-sm"}>{value}</div>
-    </div>
   )
 }

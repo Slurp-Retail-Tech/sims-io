@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { AlertTriangle, Check, Pencil, Plus, Trash2, X } from "lucide-react"
+import { useRouter } from "next/navigation"
+import { AlertTriangle, Check, ChevronRight, Plus, X } from "lucide-react"
 
 import { useToast } from "@/components/toast-provider"
 import { Button } from "@/components/ui/button"
@@ -13,13 +14,10 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 
-import { AssignmentDialog, type AssignmentSaved } from "./assignment-dialog"
 import { formatMinor } from "./format"
 import { PlanDialog } from "./plan-dialog"
-import { LICENSE_PLAN_LABELS, TERM_LABELS } from "./types"
 import type { Assignment, Plan } from "./types"
 
 type PlanCatalogViewProps = {
@@ -30,17 +28,18 @@ type PlanCatalogViewProps = {
 type LoadState = "loading" | "ready" | "error"
 
 /**
- * The plan catalog: the price list, who is on it, and anything waiting on an
- * approval.
+ * The plan catalog: the price list, and which plans are waiting on an
+ * approval. Opening a plan goes to its own page for its assignments — see
+ * `plan-detail-view.tsx`.
  *
  * Capabilities arrive from the server page rather than being inferred here.
  * The buttons a viewer cannot use are not rendered, but the API enforces the
  * same keys regardless — this only decides what is worth showing.
  */
 export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps) {
+  const router = useRouter()
   const { showToast } = useToast()
   const [plans, setPlans] = React.useState<Plan[]>([])
-  const [assignments, setAssignments] = React.useState<Assignment[]>([])
   const [pending, setPending] = React.useState<Assignment[]>([])
   const [state, setState] = React.useState<LoadState>("loading")
   const [error, setError] = React.useState<string | null>(null)
@@ -49,22 +48,15 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<Plan | null>(null)
-  const [assignOpen, setAssignOpen] = React.useState(false)
-  const [assignPlanId, setAssignPlanId] = React.useState<string | null>(null)
-  const [ending, setEnding] = React.useState<string | null>(null)
 
   const load = React.useCallback(async () => {
     setState("loading")
     setError(null)
     try {
-      const [plansResponse, assignmentsResponse, pendingResponse] =
-        await Promise.all([
-          fetch(`/api/renewals/plans?includeInactive=true`, { cache: "no-store" }),
-          fetch(`/api/renewals/plans/assignments`, { cache: "no-store" }),
-          fetch(`/api/renewals/plans/assignments?pending=true`, {
-            cache: "no-store",
-          }),
-        ])
+      const [plansResponse, pendingResponse] = await Promise.all([
+        fetch(`/api/renewals/plans?includeInactive=true`, { cache: "no-store" }),
+        fetch(`/api/renewals/plans/assignments?pending=true`, { cache: "no-store" }),
+      ])
 
       if (!plansResponse.ok) {
         throw new Error("Unable to load the catalog.")
@@ -73,25 +65,15 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
       const plansPayload = (await plansResponse.json()) as { plans: Plan[] }
       setPlans(plansPayload.plans ?? [])
 
-      if (assignmentsResponse.ok) {
-        const payload = (await assignmentsResponse.json()) as {
-          assignments: Assignment[]
-        }
-        setAssignments(payload.assignments ?? [])
-      }
       if (pendingResponse.ok) {
-        const payload = (await pendingResponse.json()) as {
-          assignments: Assignment[]
-        }
+        const payload = (await pendingResponse.json()) as { assignments: Assignment[] }
         setPending(payload.assignments ?? [])
       }
 
       setState("ready")
     } catch (loadError) {
       setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Unable to load the catalog."
+        loadError instanceof Error ? loadError.message : "Unable to load the catalog."
       )
       setState("error")
     }
@@ -134,62 +116,18 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
     }
   }
 
-  function handleAssigned(result: AssignmentSaved) {
-    const replaced = result.supersededAssignmentId
-      ? " It replaces the previous assignment at this scope."
-      : ""
-    if (result.approvalStatus === "pending") {
-      showToast(
-        `Assigned, but the override waits for approval before it prices anything.${replaced}`,
-        "success"
-      )
-    } else {
-      showToast(`Plan assigned.${replaced}`, "success")
-    }
-    void load()
-  }
-
-  /**
-   * End an assignment. The outlets it covered fall back a scope, or into
-   * Actions Required if nothing remains, which is the honest outcome rather
-   * than a silent one.
-   */
-  async function endAssignment(assignment: Assignment) {
-    const label = scopeLabel(assignment)
-    if (!window.confirm(`End the ${assignment.plan?.planName ?? "plan"} assignment for ${label}?`)) {
-      return
-    }
-    setEnding(assignment.id)
-    try {
-      const response = await fetch(
-        `/api/renewals/plans/assignments/${assignment.id}`,
-        { method: "DELETE" }
-      )
-      if (!response.ok) {
-        showToast("Unable to end the assignment.", "error")
-        return
-      }
-      showToast("Assignment ended.", "success")
-      void load()
-    } catch {
-      showToast("Unable to reach the server. Try again.", "error")
-    } finally {
-      setEnding(null)
-    }
-  }
-
-  const activePlans = React.useMemo(
-    () => plans.filter((plan) => plan.isActive),
-    [plans]
-  )
+  const activeCount = plans.filter((plan) => plan.isActive).length
+  const inactiveCount = plans.length - activeCount
+  const assignmentsTotal = plans.reduce((sum, plan) => sum + plan.assignmentCount, 0)
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Plan Catalog</h1>
           <p className="text-muted-foreground text-sm">
-            Subscription prices, and which outlets and franchises are on them.
+            A plan is defined once, carrying both the annual and the bi-annual price. Open a
+            plan to manage its assignments.
           </p>
         </div>
         {canManage ? (
@@ -212,19 +150,18 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
             <CardTitle className="flex items-center gap-2 text-base">
               <AlertTriangle className="size-4 text-amber-600" />
               {pending.length} price{" "}
-              {pending.length === 1 ? "override" : "overrides"} waiting for
-              approval
+              {pending.length === 1 ? "override" : "overrides"} waiting for approval
             </CardTitle>
             <CardDescription>
-              These assignments do not price anything until a decision is
-              recorded. Outlets they cover stay in Actions Required meanwhile.
+              These assignments do not price anything until a decision is recorded. Outlets
+              they cover stay in Actions Required meanwhile.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             {pending.map((assignment) => (
               <div
                 key={assignment.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-background p-3"
+                className="bg-background flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
               >
                 <div className="min-w-0">
                   <div className="text-sm font-medium">
@@ -272,40 +209,31 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
       ) : null}
 
       <Card>
-        <CardHeader className="gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle className="text-base">Plans</CardTitle>
-            <div className="flex items-center gap-3">
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search code or name"
-                className="h-8 w-56"
+        <CardContent className="pt-6">
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search code or name"
+              className="h-8 w-56"
+            />
+            <label className="text-muted-foreground flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                className="size-3.5"
+                checked={showInactive}
+                onChange={(event) => setShowInactive(event.target.checked)}
               />
-              <label className="text-muted-foreground flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  className="size-3.5"
-                  checked={showInactive}
-                  onChange={(event) => setShowInactive(event.target.checked)}
-                />
-                Show retired
-              </label>
-            </div>
+              Show retired
+            </label>
           </div>
-        </CardHeader>
-        <CardContent>
+
           {state === "loading" ? (
             <p className="text-muted-foreground py-6 text-sm">Loading plans…</p>
           ) : state === "error" ? (
             <div className="py-6">
               <p className="text-destructive text-sm">{error}</p>
-              <Button
-                size="sm"
-                variant="outline"
-                className="mt-3"
-                onClick={() => void load()}
-              >
+              <Button size="sm" variant="outline" className="mt-3" onClick={() => void load()}>
                 Try again
               </Button>
             </div>
@@ -317,177 +245,67 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
             </p>
           ) : (
             <div className="flex flex-col">
-              <div className="text-muted-foreground grid grid-cols-[1.2fr_1.6fr_0.8fr_0.8fr_0.8fr_auto] gap-3 px-1 pb-2 text-xs font-medium">
-                <span>Code</span>
-                <span>Name</span>
-                <span>Tier</span>
-                <span className="text-right">1 year</span>
-                <span className="text-right">6 months</span>
-                <span className="text-right">Assigned</span>
+              <div className="text-muted-foreground grid grid-cols-[minmax(9rem,1fr)_6rem_6rem_7.5rem] gap-3 border-b px-1 pb-2.5 text-[11px] tracking-[0.05em] uppercase">
+                <span>Plan</span>
+                <span className="text-right">Annual</span>
+                <span className="text-right">Bi-annual</span>
+                <span className="text-right">Status</span>
               </div>
-              <Separator />
               {visiblePlans.map((plan) => (
-                <div key={plan.id}>
-                  <div
+                <button
+                  key={plan.id}
+                  type="button"
+                  onClick={() => router.push(`/renewal-retention/plans/${plan.id}`)}
+                  className={cn(
+                    "grid w-full grid-cols-[minmax(9rem,1fr)_6rem_6rem_7.5rem] items-center gap-3 border-b px-1 py-3.5 text-left text-sm",
+                    !plan.isActive && "opacity-60"
+                  )}
+                >
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="font-medium">{plan.planName}</span>
+                    <span className="text-muted-foreground text-xs">
+                      <span className="font-mono">{plan.planCode}</span> · {plan.licensePlan}
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      {plan.assignmentCount} {plan.assignmentCount === 1 ? "assignment" : "assignments"}
+                    </span>
+                  </span>
+                  <span className="text-right tabular-nums whitespace-nowrap">
+                    {formatMinor(plan.priceAnnuallyMinor, plan.currencyCode)}
+                  </span>
+                  <span
                     className={cn(
-                      "grid grid-cols-[1.2fr_1.6fr_0.8fr_0.8fr_0.8fr_auto] items-center gap-3 px-1 py-3 text-sm",
-                      !plan.isActive && "opacity-60"
+                      "text-right tabular-nums whitespace-nowrap",
+                      plan.priceBiAnnuallyMinor === null && "text-amber-700 dark:text-amber-400"
                     )}
                   >
-                    <span className="font-mono text-xs">{plan.planCode}</span>
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium">
-                        {plan.planName}
-                      </span>
-                      {!plan.isActive ? (
-                        <span className="text-muted-foreground text-xs">
-                          Retired — cannot be assigned
-                        </span>
-                      ) : null}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {LICENSE_PLAN_LABELS[plan.licensePlan] ?? plan.licensePlan}
-                    </span>
-                    <span className="text-right tabular-nums">
-                      {formatMinor(plan.priceAnnuallyMinor, plan.currencyCode)}
-                    </span>
-                    <span className="text-right tabular-nums">
-                      {formatMinor(plan.priceBiAnnuallyMinor, plan.currencyCode)}
-                    </span>
-                    <span className="flex items-center justify-end gap-2">
-                      <span className="text-muted-foreground text-xs">
-                        {plan.assignmentCount}
-                      </span>
-                      {canManage ? (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-7 px-2 text-xs"
-                            disabled={!plan.isActive}
-                            title={plan.isActive ? undefined : "Retired plans cannot be assigned"}
-                            onClick={() => {
-                              setAssignPlanId(plan.id)
-                              setAssignOpen(true)
-                            }}
-                          >
-                            Assign
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="size-7"
-                            aria-label={`Edit ${plan.planName}`}
-                            onClick={() => {
-                              setEditing(plan)
-                              setDialogOpen(true)
-                            }}
-                          >
-                            <Pencil className="size-3.5" />
-                          </Button>
-                        </>
-                      ) : null}
-                    </span>
-                  </div>
-                  <Separator />
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="gap-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="grid gap-1.5">
-              <CardTitle className="text-base">Assignments</CardTitle>
-              <CardDescription>
-                An outlet-scope assignment overrides the franchise-wide one. An
-                outlet imported later inherits its franchise&rsquo;s plan
-                automatically.
-              </CardDescription>
-            </div>
-            {canManage ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setAssignPlanId(null)
-                  setAssignOpen(true)
-                }}
-                disabled={activePlans.length === 0}
-                title={
-                  activePlans.length === 0
-                    ? "Create an active plan first"
-                    : undefined
-                }
-              >
-                <Plus className="size-4" />
-                Assign plan
-              </Button>
-            ) : null}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {assignments.length === 0 ? (
-            <p className="text-muted-foreground py-4 text-sm">
-              {canManage
-                ? "Nothing assigned yet. Until a franchise or outlet is on a plan, its renewals land in Actions Required instead of being invoiced."
-                : "Nothing assigned yet."}
-            </p>
-          ) : (
-            <div className="flex flex-col">
-              {assignments.map((assignment) => (
-                <div key={assignment.id}>
-                  <div className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
-                    <div className="min-w-0">
-                      <span className="font-medium">
-                        {assignment.plan?.planName ?? "Unknown plan"}
-                      </span>
-                      <span className="text-muted-foreground">
-                        {" "}
-                        · {scopeLabel(assignment)}
-                      </span>
-                      <div className="text-muted-foreground text-xs">
-                        Default term: {TERM_LABELS[assignment.defaultBillingPlan]}
-                        {assignment.overrideReason
-                          ? ` · ${describeOverride(assignment)}`
-                          : ""}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {assignment.approvalStatus === "pending" ? (
-                        <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-800 dark:text-red-200">
-                          Pending approval
-                        </span>
-                      ) : assignment.approvalStatus === "rejected" ? (
-                        <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-[11px] font-medium text-red-800 dark:text-red-200">
-                          Rejected
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:text-emerald-200">
-                          {assignment.approvalStatus === "approved" ? "Approved" : "Active"}
-                        </span>
+                    {plan.priceBiAnnuallyMinor === null
+                      ? "Not priced"
+                      : formatMinor(plan.priceBiAnnuallyMinor, plan.currencyCode)}
+                  </span>
+                  <span className="text-muted-foreground flex items-center justify-end gap-2">
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap",
+                        plan.isActive
+                          ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"
+                          : "bg-muted-foreground/10"
                       )}
-                      {canManage ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-muted-foreground hover:text-destructive"
-                          disabled={ending === assignment.id}
-                          aria-label={`End assignment for ${scopeLabel(assignment)}`}
-                          onClick={() => void endAssignment(assignment)}
-                        >
-                          <Trash2 className="size-3.5" />
-                          {ending === assignment.id ? "Ending…" : "End"}
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                  <Separator />
-                </div>
+                    >
+                      {plan.isActive ? "Active" : "Retired"}
+                    </span>
+                    <ChevronRight className="size-4 shrink-0" />
+                  </span>
+                </button>
               ))}
+              <div className="pt-3.5 text-xs text-muted-foreground">
+                {activeCount} active {activeCount === 1 ? "plan" : "plans"} ·{" "}
+                {assignmentsTotal} {assignmentsTotal === 1 ? "assignment" : "assignments"} in
+                total
+                {inactiveCount > 0
+                  ? ` · ${inactiveCount} ${inactiveCount === 1 ? "plan" : "plans"} closed to new assignments`
+                  : ""}
+              </div>
             </div>
           )}
         </CardContent>
@@ -497,15 +315,10 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         plan={editing}
-        onSaved={() => void load()}
-      />
-
-      <AssignmentDialog
-        open={assignOpen}
-        onOpenChange={setAssignOpen}
-        plans={activePlans}
-        initialPlanId={assignPlanId}
-        onSaved={handleAssigned}
+        onSaved={() => {
+          showToast(editing ? "Plan updated." : "Plan created.", "success")
+          void load()
+        }}
       />
     </div>
   )
@@ -517,7 +330,7 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
  * The id is what the row is keyed on and what an agent types to reproduce it,
  * so it stays visible; the name is what makes the row recognisable at a glance.
  */
-function scopeLabel(assignment: Assignment): string {
+export function scopeLabel(assignment: Assignment): string {
   const franchise = assignment.franchiseName
     ? `${assignment.franchiseName} (${assignment.franchiseId})`
     : `Franchise ${assignment.franchiseId}`
@@ -537,7 +350,7 @@ function scopeLabel(assignment: Assignment): string {
  * catalog price as readily as lower it, and Analytics reports the two
  * separately rather than netting them.
  */
-function describeOverride(assignment: Assignment): string {
+export function describeOverride(assignment: Assignment): string {
   const parts: string[] = []
   if (assignment.overridePriceAnnuallyMinor !== null) {
     parts.push(`1 year ${formatMinor(assignment.overridePriceAnnuallyMinor)}`)
