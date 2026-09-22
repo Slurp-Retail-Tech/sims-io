@@ -3,14 +3,37 @@
  *
  * Two passes share one query:
  *
- *  - **Due.** Expiring on exactly one of the reminder offsets. These get the
+ *  - **Due.** Expiring inside the invoicing window, which runs from the
+ *    furthest reminder offset down to the expiry date itself. These get the
  *    full treatment: eligibility checks, then an invoice or the reason there
  *    is none.
- *  - **Upcoming.** Expiring inside the readiness window but not on an offset.
- *    These get the same eligibility checks and nothing else. No invoice is
- *    raised; the point is that a missing plan or PIC shows up in Actions
- *    Required weeks early, while there is still time to fix it before the
- *    offset that would send the proforma.
+ *  - **Upcoming.** Expiring beyond the invoicing window but inside the
+ *    readiness window. These get the same eligibility checks and nothing
+ *    else. No invoice is raised; the point is that a missing plan or PIC
+ *    shows up in Actions Required weeks early, while there is still time to
+ *    fix it before the offset that would send the proforma.
+ *
+ * *** WHY A WINDOW AND NOT THE OFFSET DATES ***
+ *
+ * The due pass used to match each reminder offset as an exact date, so an
+ * outlet was only ever invoiced on the night it sat exactly 15, 5 or 1 days
+ * out. An expiry date that moved -- the POS sync correcting it, a renewal
+ * done outside SIMS, a hand edit -- could step over all three dates and
+ * never be invoiced at all, and the outlet then lapsed with nothing raised
+ * and nothing in the queue to say why.
+ *
+ * The window closes that hole: any eligible outlet inside it that has no
+ * open proforma gets one, whichever night it is. Raising a second invoice is
+ * not a risk, because generation is idempotent -- `findOpenProformaForOutlets`
+ * and the `open_guard` index both refuse a duplicate -- so a night that finds
+ * an invoice already there reuses it, exactly as the later offsets always did.
+ *
+ * The offsets keep their other job: they are still the reminder cadence, and
+ * only a night that lands on one records the cadence event.
+ *
+ * Already-expired outlets stay out of the due pass. A licence that lapsed
+ * without an invoice is a question for a person, not something to bill for
+ * retroactively on the next run.
  *
  * Pure and runtime-free so the partition can be unit-tested.
  */
@@ -46,14 +69,19 @@ export type CyclePartition = {
 /**
  * Split the loaded subscriptions into the due cohort and the readiness cohort.
  *
- * A subscription on an offset date is due, full stop, even when the window is
- * shorter than the offset. Anything else inside `[today, today + windowDays]`
- * is upcoming. Anything outside both is dropped; it was only loaded because
- * the query's range has to cover the larger of the two horizons.
+ * Due is `[today, today + invoiceWindowDays]`, so it covers every offset and
+ * every day between them. Upcoming is what is left inside
+ * `[today, today + windowDays]`. Anything outside both is dropped; it was
+ * only loaded because the query's range has to cover the larger of the two
+ * horizons.
+ *
+ * A window shorter than the furthest offset does not shrink the due cohort:
+ * the invoicing window governs invoicing, the readiness window only governs
+ * how far ahead the early warning looks.
  */
 export function partitionForCycle(
   subscriptions: readonly DueSubscription[],
-  dueDates: ReadonlySet<string>,
+  invoiceWindowDays: number,
   today: string,
   windowDays: number
 ): CyclePartition {
@@ -61,17 +89,32 @@ export function partitionForCycle(
   const upcoming: DueSubscription[] = []
 
   for (const subscription of subscriptions) {
-    if (dueDates.has(subscription.validUntilDate)) {
+    const days = daysBetween(today, subscription.validUntilDate)
+    if (days < 0) {
+      // Already expired. Never invoiced retroactively; see the header note.
+      continue
+    }
+    if (days <= invoiceWindowDays) {
       due.push(subscription)
       continue
     }
-    const days = daysBetween(today, subscription.validUntilDate)
-    if (days >= 0 && days <= windowDays) {
+    if (days <= windowDays) {
       upcoming.push(subscription)
     }
   }
 
   return { due, upcoming }
+}
+
+/**
+ * How many days ahead of expiry the cycle will raise an invoice.
+ *
+ * The furthest configured reminder offset: the first reminder is the point
+ * at which a merchant is meant to have a document, so it is also the point
+ * from which one may exist.
+ */
+export function invoiceWindowDays(offsets: readonly number[]): number {
+  return offsets.reduce((max, offset) => Math.max(max, offset), 0)
 }
 
 /**

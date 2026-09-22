@@ -2,13 +2,15 @@
  * The nightly renewal cycle: who is due, who can be invoiced, and who cannot.
  *
  * This is where the plan catalog, the contact designations and the
- * subscription projection meet. For each configured reminder offset it finds
- * the subscriptions expiring on exactly that date, checks every eligibility
- * condition, and either raises an invoice or writes the specific reason it
- * could not.
+ * subscription projection meet. It finds every subscription expiring inside
+ * the invoicing window -- from the furthest reminder offset down to the
+ * expiry date itself -- checks every eligibility condition, and either raises
+ * an invoice or writes the specific reason it could not.
  *
- * Matching an exact expiry date per offset, rather than a range, is deliberate:
- * a run skipped for two days must not suddenly invoice three cohorts at once.
+ * A window rather than the three offset dates, because an expiry that moved
+ * could step over all of them and lapse with nothing raised; see the header
+ * of `readiness.ts`. Re-running is safe regardless: generation races a unique
+ * index, so a night that finds an invoice already there reuses it.
  *
  * A second pass, the readiness sweep, runs the same eligibility checks over
  * every subscription expiring inside the readiness window (30 days by
@@ -35,7 +37,6 @@ import type { ActionReason } from "./actions-required.ts"
 import {
   buildInvoiceDraft,
   groupDueSubscriptions,
-  offsetDates,
   splitGroupByTerm,
 } from "./invoice-build.ts"
 import type { DueSubscription, InvoiceGroup, PricedLine } from "./invoice-build.ts"
@@ -56,6 +57,7 @@ import { resolveGroupRenewalPic, resolveRenewalPic } from "./pic-resolution.ts"
 import {
   CYCLE_EVALUATED_REASONS,
   cycleHorizonDays,
+  invoiceWindowDays,
   partitionForCycle,
   scopeKey,
 } from "./readiness.ts"
@@ -101,7 +103,6 @@ export async function runRenewalCycle(
 ): Promise<CycleOutcome> {
   const settings = await loadRenewalSettings(db)
   const offsets = settings.reminderOffsets
-  const targets = offsetDates(today, offsets)
   const windowDays = settings.readinessWindowDays
 
   const outcome: CycleOutcome = {
@@ -123,8 +124,8 @@ export async function runRenewalCycle(
     addDays(today, cycleHorizonDays(offsets, windowDays)),
     db
   )
-  const dueDates = new Set(targets.map((target) => target.date))
-  const { due, upcoming } = partitionForCycle(loaded, dueDates, today, windowDays)
+  const invoiceWindow = invoiceWindowDays(offsets)
+  const { due, upcoming } = partitionForCycle(loaded, invoiceWindow, today, windowDays)
   outcome.subscriptionsDue = due.length
   outcome.subscriptionsUpcoming = upcoming.length
 
@@ -132,9 +133,15 @@ export async function runRenewalCycle(
     return outcome
   }
 
-  const daysToExpiryByDate = new Map(
-    targets.map((target) => [target.date, target.offset])
-  )
+  // Every date in range, not only the offsets: the due pass now runs on any
+  // night inside the window, and an Actions Required entry raised on one of
+  // those nights still has to sort by urgency.
+  const daysToExpiryFor = (validUntilDate: string): number =>
+    daysBetween(today, validUntilDate)
+  // The reminder cadence. Only a night that lands on an offset records the
+  // cadence event, so reusing the invoice on the other fourteen nights does
+  // not fill the timeline with noise.
+  const offsetDays = new Set(offsets)
 
   // Everything still wrong after this run, so anything previously open, within
   // an examined scope, and not re-raised can be resolved.
@@ -185,7 +192,8 @@ export async function runRenewalCycle(
         subscriptions,
         groupingEnabled,
         blockedOutletKeys,
-        daysToExpiryByDate,
+        daysToExpiryFor,
+        offsetDays,
         settings,
         today,
         outcome,
@@ -317,7 +325,9 @@ async function processFranchise(context: {
   subscriptions: DueSubscription[]
   groupingEnabled: Set<string>
   blockedOutletKeys: Set<string>
-  daysToExpiryByDate: Map<string, number>
+  daysToExpiryFor: (validUntilDate: string) => number
+  /** The configured reminder offsets, for deciding if tonight is a cadence night. */
+  offsetDays: Set<number>
   settings: Awaited<ReturnType<typeof loadRenewalSettings>>
   today: string
   outcome: CycleOutcome
@@ -330,7 +340,8 @@ async function processFranchise(context: {
     subscriptions,
     groupingEnabled,
     blockedOutletKeys,
-    daysToExpiryByDate,
+    daysToExpiryFor,
+    offsetDays,
     settings,
     today,
     outcome,
@@ -346,7 +357,7 @@ async function processFranchise(context: {
   const locallyBlocked = new Set(blockedOutletKeys)
 
   for (const subscription of subscriptions) {
-    const daysToExpiry = daysToExpiryByDate.get(subscription.validUntilDate) ?? null
+    const daysToExpiry = daysToExpiryFor(subscription.validUntilDate)
     const block = async (reason: ActionReason, detail: string) => {
       await raise({
         franchiseId,
@@ -431,7 +442,7 @@ async function processFranchise(context: {
   async function invoiceGroup(part: { group: InvoiceGroup; lines: PricedLine[] }) {
     const { group, lines } = part
     const outletIds = lines.map((line) => line.outletId)
-    const daysToExpiry = daysToExpiryByDate.get(group.validUntilDate) ?? null
+    const daysToExpiry = daysToExpiryFor(group.validUntilDate)
 
     // One invoice, one addressee. For a group that means resolving the PIC
     // across every outlet on it, not per outlet.
@@ -528,11 +539,15 @@ async function processFranchise(context: {
       await renderInvoicePdfSafely(result.invoiceId)
     } else {
       outcome.invoicesReused += 1
-      // The later offsets reuse the proforma raised at the first one; the
-      // event is how the timeline shows the reminder cadence advancing.
-      await recordEvent(db, result.invoiceId, "cycle_reused", null, {
-        daysToExpiry,
-      })
+      // The due pass runs every night inside the window, so most reuses are
+      // routine and say nothing worth recording. Only a night that lands on
+      // a reminder offset is the cadence advancing, and only that is written
+      // to the timeline.
+      if (offsetDays.has(daysToExpiry)) {
+        await recordEvent(db, result.invoiceId, "cycle_reused", null, {
+          daysToExpiry,
+        })
+      }
     }
   }
 }

@@ -5,6 +5,7 @@ import type { DueSubscription } from "./invoice-build.ts"
 import {
   CYCLE_EVALUATED_REASONS,
   cycleHorizonDays,
+  invoiceWindowDays,
   partitionForCycle,
   scopeKey,
 } from "./readiness.ts"
@@ -24,56 +25,84 @@ function subscription(outletId: string, validUntilDate: string): DueSubscription
 }
 
 const today = "2026-09-17"
-const dueDates = new Set(["2026-10-02", "2026-09-22", "2026-09-18"])
+/** The furthest of the default offsets [15, 5, 1]. */
+const invoiceWindow = 15
 
-test("an offset date is due, everything else inside the window is upcoming", () => {
+test("everything inside the invoicing window is due; the rest of the readiness window is upcoming", () => {
   const { due, upcoming } = partitionForCycle(
     [
-      subscription("a", "2026-10-02"), // T-15
-      subscription("b", "2026-09-30"), // 13 days out
+      subscription("a", "2026-10-02"), // T-15, the far edge of the window
+      subscription("b", "2026-09-30"), // 13 days out, between two offsets
       subscription("c", "2026-09-18"), // T-1
-      subscription("d", "2026-10-15"), // 28 days out
+      subscription("d", "2026-10-15"), // 28 days out, readiness only
     ],
-    dueDates,
+    invoiceWindow,
     today,
     30
   )
 
-  assert.deepEqual(due.map((entry) => entry.outletId), ["a", "c"])
-  assert.deepEqual(upcoming.map((entry) => entry.outletId), ["b", "d"])
+  assert.deepEqual(due.map((entry) => entry.outletId), ["a", "b", "c"])
+  assert.deepEqual(upcoming.map((entry) => entry.outletId), ["d"])
 })
 
-test("a subscription beyond the window is dropped, not treated as upcoming", () => {
-  const { upcoming } = partitionForCycle(
+test("an expiry that moved past every offset is still due", () => {
+  // The whole point of the window. This outlet sits 13, 8 and 3 days out on
+  // successive nights and never lands on 15, 5 or 1; under exact-date
+  // matching it would lapse without an invoice ever being raised.
+  for (const [date, label] of [
+    ["2026-09-30", "13 days"],
+    ["2026-09-25", "8 days"],
+    ["2026-09-20", "3 days"],
+  ]) {
+    const { due } = partitionForCycle([subscription("moved", date)], invoiceWindow, today, 30)
+    assert.equal(due.length, 1, `expected due at ${label}`)
+  }
+})
+
+test("a subscription beyond the readiness window is dropped entirely", () => {
+  const { due, upcoming } = partitionForCycle(
     [subscription("far", "2026-10-30")], // 43 days out
-    dueDates,
+    invoiceWindow,
     today,
     30
   )
+  assert.deepEqual(due, [])
   assert.deepEqual(upcoming, [])
 })
 
-test("expiring today counts as upcoming; already expired does not", () => {
-  const { upcoming } = partitionForCycle(
+test("expiring today is still due; already expired is dropped from both passes", () => {
+  // An expiry that lapsed without an invoice is a question for a person, not
+  // something to bill for retroactively on the next run.
+  const { due, upcoming } = partitionForCycle(
     [subscription("today", "2026-09-17"), subscription("past", "2026-09-16")],
-    dueDates,
+    invoiceWindow,
     today,
     30
   )
-  assert.deepEqual(upcoming.map((entry) => entry.outletId), ["today"])
+  assert.deepEqual(due.map((entry) => entry.outletId), ["today"])
+  assert.deepEqual(upcoming, [])
 })
 
-test("an offset date stays due even when the window is shorter than the offset", () => {
+test("a readiness window shorter than the offset does not shrink the due cohort", () => {
   // Window 10 days, but T-15 is still a reminder date. The invoice must still
   // be raised; the window only governs the early warning.
   const { due, upcoming } = partitionForCycle(
     [subscription("a", "2026-10-02")],
-    dueDates,
+    invoiceWindow,
     today,
     10
   )
   assert.equal(due.length, 1)
   assert.equal(upcoming.length, 0)
+})
+
+test("the invoicing window is the furthest configured offset", () => {
+  assert.equal(invoiceWindowDays([15, 5, 1]), 15)
+  assert.equal(invoiceWindowDays([30, 7]), 30)
+  // No offsets, or only nonsensical ones, collapses to the expiry date itself
+  // rather than inverting the window.
+  assert.equal(invoiceWindowDays([]), 0)
+  assert.equal(invoiceWindowDays([-5]), 0)
 })
 
 test("the read horizon is the larger of the window and the furthest offset", () => {
