@@ -2,13 +2,15 @@
  * The nightly renewal cycle: who is due, who can be invoiced, and who cannot.
  *
  * This is where the plan catalog, the contact designations and the
- * subscription projection meet. For each configured reminder offset it finds
- * the subscriptions expiring on exactly that date, checks every eligibility
- * condition, and either raises an invoice or writes the specific reason it
- * could not.
+ * subscription projection meet. It finds every subscription expiring inside
+ * the invoicing window -- from the furthest reminder offset down to the
+ * expiry date itself -- checks every eligibility condition, and either raises
+ * an invoice or writes the specific reason it could not.
  *
- * Matching an exact expiry date per offset, rather than a range, is deliberate:
- * a run skipped for two days must not suddenly invoice three cohorts at once.
+ * A window rather than the three offset dates, because an expiry that moved
+ * could step over all of them and lapse with nothing raised; see the header
+ * of `readiness.ts`. Re-running is safe regardless: generation races a unique
+ * index, so a night that finds an invoice already there reuses it.
  *
  * A second pass, the readiness sweep, runs the same eligibility checks over
  * every subscription expiring inside the readiness window (30 days by
@@ -29,13 +31,13 @@ import {
   isBlocking,
   loadBlockedOutletKeys,
   raiseAction,
+  resolveActionsNotNaming,
   resolveUnseenActions,
 } from "./actions-required.ts"
 import type { ActionReason } from "./actions-required.ts"
 import {
   buildInvoiceDraft,
   groupDueSubscriptions,
-  offsetDates,
   splitGroupByTerm,
 } from "./invoice-build.ts"
 import type { DueSubscription, InvoiceGroup, PricedLine } from "./invoice-build.ts"
@@ -44,6 +46,7 @@ import { renderInvoicePdfSafely } from "./invoice-pdf.ts"
 import {
   createProformaForGroup,
   findOpenProformaForOutlets,
+  findStaleOpenProformas,
   recordEvent,
 } from "./invoices.ts"
 import { loadAssignmentsForFranchise } from "./plans.ts"
@@ -56,11 +59,13 @@ import { resolveGroupRenewalPic, resolveRenewalPic } from "./pic-resolution.ts"
 import {
   CYCLE_EVALUATED_REASONS,
   cycleHorizonDays,
+  invoiceWindowDays,
   partitionForCycle,
   scopeKey,
 } from "./readiness.ts"
 import { loadRenewalDirectory } from "./renewal-contacts.ts"
 import { loadRenewalSettings } from "./settings.ts"
+import { buildStaleProformaActions } from "./stale-proforma.ts"
 
 const log = createLogger("renewal:cycle")
 
@@ -75,6 +80,8 @@ export type CycleOutcome = {
   actionsRaised: number
   actionsResolved: number
   franchisesExamined: number
+  /** Open proformas billing an expiry their outlet has since moved off. */
+  staleProformas: number
 }
 
 type DueRow = RowDataPacket & {
@@ -101,7 +108,6 @@ export async function runRenewalCycle(
 ): Promise<CycleOutcome> {
   const settings = await loadRenewalSettings(db)
   const offsets = settings.reminderOffsets
-  const targets = offsetDates(today, offsets)
   const windowDays = settings.readinessWindowDays
 
   const outcome: CycleOutcome = {
@@ -114,6 +120,7 @@ export async function runRenewalCycle(
     actionsRaised: 0,
     actionsResolved: 0,
     franchisesExamined: 0,
+    staleProformas: 0,
   }
 
   // One read covers both passes: everything from today out to the further of
@@ -123,18 +130,30 @@ export async function runRenewalCycle(
     addDays(today, cycleHorizonDays(offsets, windowDays)),
     db
   )
-  const dueDates = new Set(targets.map((target) => target.date))
-  const { due, upcoming } = partitionForCycle(loaded, dueDates, today, windowDays)
+  const invoiceWindow = invoiceWindowDays(offsets)
+  const { due, upcoming } = partitionForCycle(loaded, invoiceWindow, today, windowDays)
   outcome.subscriptionsDue = due.length
   outcome.subscriptionsUpcoming = upcoming.length
+
+  // Swept across every open proforma, not just tonight's cohort: an expiry
+  // can move to a date outside both windows, and the stale document it leaves
+  // behind would then never be looked at again. Runs before the early return
+  // so a quiet night still clears or reports it.
+  outcome.staleProformas = await sweepStaleProformas(outcome, db)
 
   if (due.length === 0 && upcoming.length === 0) {
     return outcome
   }
 
-  const daysToExpiryByDate = new Map(
-    targets.map((target) => [target.date, target.offset])
-  )
+  // Every date in range, not only the offsets: the due pass now runs on any
+  // night inside the window, and an Actions Required entry raised on one of
+  // those nights still has to sort by urgency.
+  const daysToExpiryFor = (validUntilDate: string): number =>
+    daysBetween(today, validUntilDate)
+  // The reminder cadence. Only a night that lands on an offset records the
+  // cadence event, so reusing the invoice on the other fourteen nights does
+  // not fill the timeline with noise.
+  const offsetDays = new Set(offsets)
 
   // Everything still wrong after this run, so anything previously open, within
   // an examined scope, and not re-raised can be resolved.
@@ -185,7 +204,8 @@ export async function runRenewalCycle(
         subscriptions,
         groupingEnabled,
         blockedOutletKeys,
-        daysToExpiryByDate,
+        daysToExpiryFor,
+        offsetDays,
         settings,
         today,
         outcome,
@@ -218,7 +238,9 @@ export async function runRenewalCycle(
     }
   }
 
-  outcome.actionsResolved = await resolveUnseenActions(
+  // Added to, not assigned: the stale-proforma sweep has already resolved
+  // what it settled, and this pass is the second contributor to the count.
+  outcome.actionsResolved += await resolveUnseenActions(
     examinedScopes,
     seenActions,
     CYCLE_EVALUATED_REASONS,
@@ -317,7 +339,9 @@ async function processFranchise(context: {
   subscriptions: DueSubscription[]
   groupingEnabled: Set<string>
   blockedOutletKeys: Set<string>
-  daysToExpiryByDate: Map<string, number>
+  daysToExpiryFor: (validUntilDate: string) => number
+  /** The configured reminder offsets, for deciding if tonight is a cadence night. */
+  offsetDays: Set<number>
   settings: Awaited<ReturnType<typeof loadRenewalSettings>>
   today: string
   outcome: CycleOutcome
@@ -330,7 +354,8 @@ async function processFranchise(context: {
     subscriptions,
     groupingEnabled,
     blockedOutletKeys,
-    daysToExpiryByDate,
+    daysToExpiryFor,
+    offsetDays,
     settings,
     today,
     outcome,
@@ -346,7 +371,7 @@ async function processFranchise(context: {
   const locallyBlocked = new Set(blockedOutletKeys)
 
   for (const subscription of subscriptions) {
-    const daysToExpiry = daysToExpiryByDate.get(subscription.validUntilDate) ?? null
+    const daysToExpiry = daysToExpiryFor(subscription.validUntilDate)
     const block = async (reason: ActionReason, detail: string) => {
       await raise({
         franchiseId,
@@ -431,7 +456,7 @@ async function processFranchise(context: {
   async function invoiceGroup(part: { group: InvoiceGroup; lines: PricedLine[] }) {
     const { group, lines } = part
     const outletIds = lines.map((line) => line.outletId)
-    const daysToExpiry = daysToExpiryByDate.get(group.validUntilDate) ?? null
+    const daysToExpiry = daysToExpiryFor(group.validUntilDate)
 
     // One invoice, one addressee. For a group that means resolving the PIC
     // across every outlet on it, not per outlet.
@@ -528,11 +553,15 @@ async function processFranchise(context: {
       await renderInvoicePdfSafely(result.invoiceId)
     } else {
       outcome.invoicesReused += 1
-      // The later offsets reuse the proforma raised at the first one; the
-      // event is how the timeline shows the reminder cadence advancing.
-      await recordEvent(db, result.invoiceId, "cycle_reused", null, {
-        daysToExpiry,
-      })
+      // The due pass runs every night inside the window, so most reuses are
+      // routine and say nothing worth recording. Only a night that lands on
+      // a reminder offset is the cadence advancing, and only that is written
+      // to the timeline.
+      if (offsetDays.has(daysToExpiry)) {
+        await recordEvent(db, result.invoiceId, "cycle_reused", null, {
+          daysToExpiry,
+        })
+      }
     }
   }
 }
@@ -636,6 +665,47 @@ type PricedOutlet = {
   effectiveMinor: number
   adjustmentMinor: number
   source: "catalog" | "assignment_override" | "cycle_override"
+}
+
+/**
+ * Report open proformas that no longer bill the expiry their outlets renew
+ * from, and clear the reports for those that no longer do.
+ *
+ * Informational only, and deliberately not self-healing. The stale document
+ * may have been sent, opened, or have a live payment session against it, so
+ * voiding it automatically could stop a merchant mid-payment. The fresh
+ * proforma for the new date is raised by the due pass regardless, so nobody
+ * is left without a correct invoice while this waits for a person.
+ */
+async function sweepStaleProformas(
+  outcome: CycleOutcome,
+  db: Queryable
+): Promise<number> {
+  const actions = buildStaleProformaActions(await findStaleOpenProformas(db))
+
+  for (const action of actions) {
+    await raiseAction(
+      {
+        franchiseId: action.franchiseId,
+        outletId: action.outletId,
+        invoiceId: action.invoiceId,
+        reason: "stale_proforma",
+        detail: action.detail,
+      },
+      db
+    )
+    outcome.actionsRaised += 1
+  }
+
+  // Anything previously reported and not in this sweep is settled: the
+  // invoice was voided, the dates came back into line, or it was paid.
+  outcome.actionsResolved += await resolveActionsNotNaming(
+    "stale_proforma",
+    actions.map((action) => action.invoiceId),
+    db
+  )
+
+  return actions.length
 }
 
 /**

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import { Lock } from "lucide-react"
 
 /**
@@ -21,11 +22,21 @@ export function PublicShell({
     <div className="bg-background text-foreground min-h-svh px-5 pt-10 pb-24">
       <div className="mx-auto flex flex-col gap-5" style={{ maxWidth }}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="flex items-center gap-2.5">
-            <span className="bg-primary text-primary-foreground flex size-7 items-center justify-center rounded-[var(--radius)] text-[11px] font-semibold">
-              S
-            </span>
-            <span className="text-[0.9375rem] font-semibold">Slurp</span>
+          {/* The real mark, not a stand-in: this is the first thing a
+              merchant sees on a link that asks them to pay.
+
+              The wordmark is fixed black, so in dark mode it sits on a light
+              chip rather than vanishing into the background. Inverting it
+              instead would turn the red storefront cyan. */}
+          <span className="dark:bg-white inline-flex rounded-[calc(var(--radius)-2px)] dark:px-2 dark:py-1.5">
+            <Image
+              src="/slurp-logo-basic-03.png"
+              alt="Slurp!"
+              width={3576}
+              height={1024}
+              className="h-7 w-auto"
+              priority
+            />
           </span>
           <span className="text-muted-foreground inline-flex items-center gap-1.5 text-[0.8125rem]">
             <Lock className="size-3.5" />

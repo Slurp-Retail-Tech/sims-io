@@ -22,6 +22,7 @@ export const REASON_LABELS: Record<string, string> = {
   payer_email_failed: "Documents could not be emailed",
   overpayment: "Paid more than once",
   payment_refunded: "Payment was refunded",
+  stale_proforma: "Invoice bills an expiry date that moved",
 }
 
 export const REASON_FIXES: Record<string, string> = {
@@ -52,4 +53,6 @@ export const REASON_FIXES: Record<string, string> = {
   overpayment: "Review both payments before refunding either.",
   payment_refunded:
     "The gateway reports money going back. Check the licence dates against what was actually paid.",
+  stale_proforma:
+    "The outlet's expiry date changed after this proforma was raised, so it quotes a period that no longer applies. A proforma for the new date is raised separately. Void this one unless the merchant is paying it.",
 }

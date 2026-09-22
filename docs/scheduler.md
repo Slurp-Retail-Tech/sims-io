@@ -113,10 +113,10 @@ Notes:
 
 ## Renewal cycle endpoint
 
-Nightly renewal detection: finds subscriptions expiring on exactly each
-configured reminder offset (15, 5 and 1 days by default), raises or reuses
-their proforma, and records the specific reason for every one it could not
-invoice.
+Nightly renewal detection: finds subscriptions expiring inside the invoicing
+window — from the furthest configured reminder offset (15 days by default)
+down to the expiry date itself — raises or reuses their proforma, and records
+the specific reason for every one it could not invoice.
 
 The same run also performs a readiness sweep over every subscription
 expiring inside `renewal_settings.readiness_window_days` (30 by default).
@@ -148,9 +148,28 @@ Notes:
   rather than checking first, so a second run reuses what the first created
   and the T-5 and T-1 runs reuse the proforma raised at T-15. Actions Required
   entries are upserted, not duplicated.
-- Each offset matches an **exact** expiry date, not a range. A run skipped for
-  two days does not suddenly invoice three cohorts at once; it picks up only
-  the cohort due on the offsets it runs for.
+- Invoicing is driven by a **window**, not by the three offset dates. Any
+  eligible outlet from 15 days out down to its expiry day gets a proforma on
+  the first night it qualifies, and every night after that reuses it. An
+  expiry date that moves — the POS sync correcting it, a renewal done outside
+  SIMS, a hand edit — can therefore no longer step over all three offsets and
+  lapse with nothing raised.
+- A run skipped for several days does not double-invoice when it comes back:
+  generation races a unique index and `findOpenProformaForOutlets` matches on
+  the outlet and the expiry it renews from, so the catch-up night reuses what
+  already exists.
+- The offsets remain the **reminder cadence**. Only a night that lands on one
+  records the cadence event on the invoice timeline, so the fourteen routine
+  reuses in between leave no trace.
+- Outlets already past expiry are never invoiced retroactively. A licence that
+  lapsed without an invoice is a question for a person.
+- The same run sweeps **every** open proforma, not just tonight's cohort, for
+  documents billing an expiry their outlet has since moved off. Those are
+  reported to Actions Required as `stale_proforma` and never voided
+  automatically: the document may have been sent, opened, or have a live
+  payment session against it. The entry clears on its own once the invoice is
+  voided, paid, or the dates come back into line. The correct proforma for the
+  new date is raised by the due pass regardless, so nobody waits on this.
 - Outlets that cannot be invoiced are written to Actions Required with the
   reason, and re-evaluated every night, so closing the underlying gap re-enters
   them automatically and resolves the entry.

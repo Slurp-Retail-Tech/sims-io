@@ -15,7 +15,8 @@ export const runtime = "nodejs"
 /**
  * POST /api/renewals/cycle — the nightly renewal detection run.
  *
- * Finds subscriptions expiring on exactly each configured reminder offset,
+ * Finds subscriptions expiring inside the invoicing window, which runs from
+ * the furthest configured reminder offset down to the expiry date itself,
  * raises or reuses their proforma, and writes the specific reason for every
  * one it could not invoice.
  *

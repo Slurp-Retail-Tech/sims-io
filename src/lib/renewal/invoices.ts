@@ -18,6 +18,7 @@ import { parseAmountToMinor } from "./money.ts"
 import { allocateInvoiceNumber, mintRenewalToken } from "./numbering.ts"
 import type { InvoiceDraft } from "./invoice-build.ts"
 import type { BillingTerm } from "./plan-resolution.ts"
+import type { StaleProformaRow } from "./stale-proforma.ts"
 
 export type InvoiceStatus =
   | "draft"
@@ -321,6 +322,48 @@ export async function findOpenProformaForOutlets(
   )
   const row = rows[0]
   return row ? mapInvoice(row) : null
+}
+
+/**
+ * Open proformas whose lines no longer bill the expiry their outlet renews
+ * from, one row per drifted line.
+ *
+ * Only open documents: a paid, cancelled or superseded proforma is history
+ * and its dates are meant to be historical. `lapsed` is left out for the same
+ * reason -- there is nothing to void.
+ */
+export async function findStaleOpenProformas(
+  db: Queryable = getPool()
+): Promise<StaleProformaRow[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT i.id AS invoice_id, i.invoice_number, i.franchise_id,
+            t.outlet_id, t.outlet_name,
+            DATE(t.previous_valid_until) AS invoiced_from,
+            s.valid_until_date AS current_expiry
+       FROM renewal_invoices i
+       INNER JOIN renewal_invoice_items t ON t.invoice_id = i.id
+       INNER JOIN outlet_subscriptions s
+               ON s.franchise_id = t.franchise_id AND s.outlet_id = t.outlet_id
+      WHERE i.deleted_at IS NULL
+        AND i.document_type = 'proforma'
+        AND i.status IN ('draft', 'issued', 'sent', 'payment_pending')
+        AND s.deleted_at IS NULL
+        AND s.is_active = 1
+        AND t.previous_valid_until IS NOT NULL
+        AND s.valid_until_date IS NOT NULL
+        AND DATE(t.previous_valid_until) <> s.valid_until_date
+      ORDER BY i.id ASC, t.sort_order ASC`
+  )
+
+  return (rows as Array<Record<string, string | null>>).map((row) => ({
+    invoiceId: String(row.invoice_id),
+    invoiceNumber: String(row.invoice_number),
+    franchiseId: String(row.franchise_id),
+    outletId: String(row.outlet_id),
+    outletName: row.outlet_name,
+    invoicedFrom: String(row.invoiced_from),
+    currentExpiry: String(row.current_expiry),
+  }))
 }
 
 export async function getInvoiceById(
