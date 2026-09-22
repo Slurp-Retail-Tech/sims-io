@@ -31,6 +31,7 @@ import {
   isBlocking,
   loadBlockedOutletKeys,
   raiseAction,
+  resolveActionsNotNaming,
   resolveUnseenActions,
 } from "./actions-required.ts"
 import type { ActionReason } from "./actions-required.ts"
@@ -45,6 +46,7 @@ import { renderInvoicePdfSafely } from "./invoice-pdf.ts"
 import {
   createProformaForGroup,
   findOpenProformaForOutlets,
+  findStaleOpenProformas,
   recordEvent,
 } from "./invoices.ts"
 import { loadAssignmentsForFranchise } from "./plans.ts"
@@ -63,6 +65,7 @@ import {
 } from "./readiness.ts"
 import { loadRenewalDirectory } from "./renewal-contacts.ts"
 import { loadRenewalSettings } from "./settings.ts"
+import { buildStaleProformaActions } from "./stale-proforma.ts"
 
 const log = createLogger("renewal:cycle")
 
@@ -77,6 +80,8 @@ export type CycleOutcome = {
   actionsRaised: number
   actionsResolved: number
   franchisesExamined: number
+  /** Open proformas billing an expiry their outlet has since moved off. */
+  staleProformas: number
 }
 
 type DueRow = RowDataPacket & {
@@ -115,6 +120,7 @@ export async function runRenewalCycle(
     actionsRaised: 0,
     actionsResolved: 0,
     franchisesExamined: 0,
+    staleProformas: 0,
   }
 
   // One read covers both passes: everything from today out to the further of
@@ -128,6 +134,12 @@ export async function runRenewalCycle(
   const { due, upcoming } = partitionForCycle(loaded, invoiceWindow, today, windowDays)
   outcome.subscriptionsDue = due.length
   outcome.subscriptionsUpcoming = upcoming.length
+
+  // Swept across every open proforma, not just tonight's cohort: an expiry
+  // can move to a date outside both windows, and the stale document it leaves
+  // behind would then never be looked at again. Runs before the early return
+  // so a quiet night still clears or reports it.
+  outcome.staleProformas = await sweepStaleProformas(outcome, db)
 
   if (due.length === 0 && upcoming.length === 0) {
     return outcome
@@ -226,7 +238,9 @@ export async function runRenewalCycle(
     }
   }
 
-  outcome.actionsResolved = await resolveUnseenActions(
+  // Added to, not assigned: the stale-proforma sweep has already resolved
+  // what it settled, and this pass is the second contributor to the count.
+  outcome.actionsResolved += await resolveUnseenActions(
     examinedScopes,
     seenActions,
     CYCLE_EVALUATED_REASONS,
@@ -651,6 +665,47 @@ type PricedOutlet = {
   effectiveMinor: number
   adjustmentMinor: number
   source: "catalog" | "assignment_override" | "cycle_override"
+}
+
+/**
+ * Report open proformas that no longer bill the expiry their outlets renew
+ * from, and clear the reports for those that no longer do.
+ *
+ * Informational only, and deliberately not self-healing. The stale document
+ * may have been sent, opened, or have a live payment session against it, so
+ * voiding it automatically could stop a merchant mid-payment. The fresh
+ * proforma for the new date is raised by the due pass regardless, so nobody
+ * is left without a correct invoice while this waits for a person.
+ */
+async function sweepStaleProformas(
+  outcome: CycleOutcome,
+  db: Queryable
+): Promise<number> {
+  const actions = buildStaleProformaActions(await findStaleOpenProformas(db))
+
+  for (const action of actions) {
+    await raiseAction(
+      {
+        franchiseId: action.franchiseId,
+        outletId: action.outletId,
+        invoiceId: action.invoiceId,
+        reason: "stale_proforma",
+        detail: action.detail,
+      },
+      db
+    )
+    outcome.actionsRaised += 1
+  }
+
+  // Anything previously reported and not in this sweep is settled: the
+  // invoice was voided, the dates came back into line, or it was paid.
+  outcome.actionsResolved += await resolveActionsNotNaming(
+    "stale_proforma",
+    actions.map((action) => action.invoiceId),
+    db
+  )
+
+  return actions.length
 }
 
 /**

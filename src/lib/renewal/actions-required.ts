@@ -41,6 +41,10 @@ export const ACTION_REASONS = {
   payer_email_failed: "blocking",
   overpayment: "blocking",
   payment_refunded: "blocking",
+  // Informational on purpose. A stale proforma must never block the fresh one
+  // that covers the outlet's new expiry date -- blocking would leave the
+  // outlet with no correct invoice at all, which is the opposite of the fix.
+  stale_proforma: "informational",
 } as const
 
 export type ActionReason = keyof typeof ACTION_REASONS
@@ -288,6 +292,39 @@ export async function resolveActionsForInvoice(
       WHERE invoice_id = ? AND status = 'open'
         AND reason IN (${reasons.map(() => "?").join(", ")})`,
     [invoiceId, ...reasons]
+  )
+  return result.affectedRows
+}
+
+/**
+ * Close the entries for a reason whose invoices are no longer in the wrong.
+ *
+ * The inverse of `resolveActionsForInvoice`: a sweep reports every invoice
+ * still affected, and everything previously open for that reason and not in
+ * the report is resolved. That covers the invoice being voided, the dates
+ * coming back into line, and the invoice being paid, without the sweep having
+ * to know which of those happened.
+ */
+export async function resolveActionsNotNaming(
+  reason: ActionReason,
+  stillAffectedInvoiceIds: readonly string[],
+  db: Queryable = getPool()
+): Promise<number> {
+  const conditions = ["status = 'open'", "reason = ?"]
+  const values: unknown[] = [reason]
+
+  if (stillAffectedInvoiceIds.length > 0) {
+    conditions.push(
+      `(invoice_id IS NULL OR invoice_id NOT IN (${stillAffectedInvoiceIds.map(() => "?").join(", ")}))`
+    )
+    values.push(...stillAffectedInvoiceIds)
+  }
+
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE renewal_actions_required
+        SET status = 'resolved', resolved_at = NOW(3)
+      WHERE ${conditions.join(" AND ")}`,
+    values
   )
   return result.affectedRows
 }

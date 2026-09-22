@@ -163,6 +163,13 @@ Notes:
   reuses in between leave no trace.
 - Outlets already past expiry are never invoiced retroactively. A licence that
   lapsed without an invoice is a question for a person.
+- The same run sweeps **every** open proforma, not just tonight's cohort, for
+  documents billing an expiry their outlet has since moved off. Those are
+  reported to Actions Required as `stale_proforma` and never voided
+  automatically: the document may have been sent, opened, or have a live
+  payment session against it. The entry clears on its own once the invoice is
+  voided, paid, or the dates come back into line. The correct proforma for the
+  new date is raised by the due pass regardless, so nobody waits on this.
 - Outlets that cannot be invoiced are written to Actions Required with the
   reason, and re-evaluated every night, so closing the underlying gap re-enters
   them automatically and resolves the entry.
