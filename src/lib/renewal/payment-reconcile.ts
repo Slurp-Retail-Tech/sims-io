@@ -77,48 +77,15 @@ export async function reconcilePayments(
 
     for (const row of rows) {
       report.sessionsQueried += 1
-      const query = await client.queryPayment({ sessionNumber: row.cap_session_number })
-
-      if (!query.ok) {
-        if (isTransactionNotFound(query) && Number(row.expired) === 1) {
-          // Nobody ever paid on it and it can no longer be paid. Close it.
-          await expireSession(db, String(row.id), String(row.invoice_id))
-          report.expired += 1
-        } else {
-          report.queryFailures += 1
-          await db.query<ResultSetHeader>(
-            `UPDATE renewal_payment_sessions SET last_queried_at = NOW(3) WHERE id = ?`,
-            [row.id]
-          )
-        }
-        continue
-      }
-
-      const result = query.result
-      const outcome = await processGatewayNotice(
-        {
-          // Our reference, not the gateway's echo: the session row is the
-          // authority on which attempt this is.
-          referenceCode: row.reference_code,
-          status: result.status,
-          amount: Number.isInteger(result.amount) ? result.amount : null,
-          currencyCode: result.currencyCode ?? null,
-          transactionNumber: result.transactionNumber ?? null,
-          paymentSessionNumber: result.paymentSessionNumber ?? row.cap_session_number,
-          providerTransactionNumber: result.providerTransactionNumber ?? null,
-        },
-        "sweep"
-      )
-
-      if (outcome.outcome === "accepted" && outcome.note === null) {
+      const result = await querySessionOnce(client, row, db)
+      if (result === "paid") {
         report.paidFound += 1
-        log.info("Payment found by sweep", { invoiceId: row.invoice_id, referenceCode: row.reference_code })
-      } else if (outcome.outcome === "accepted") {
+      } else if (result === "closed") {
         report.closed += 1
-      } else if (outcome.outcome === "ignored_status" && Number(row.expired) === 1) {
-        // Still "pending" at the gateway but past the expiry SIMS asked for.
-        await expireSession(db, String(row.id), String(row.invoice_id))
+      } else if (result === "expired") {
         report.expired += 1
+      } else if (result === "query_failed") {
+        report.queryFailures += 1
       }
     }
   }
@@ -131,6 +98,92 @@ export async function reconcilePayments(
   }
 
   return report
+}
+
+export type SessionQueryResult = "paid" | "closed" | "expired" | "query_failed" | "still_pending"
+
+/**
+ * Ask the gateway about one session and settle whatever it says, exactly as
+ * a callback would. Shared by the hourly sweep and the receipt page's
+ * on-demand check, so the two can never settle a payment differently.
+ */
+async function querySessionOnce(
+  client: CommercePayClient,
+  row: Pick<OpenSessionRow, "id" | "invoice_id" | "reference_code" | "cap_session_number" | "expired">,
+  db: Queryable
+): Promise<SessionQueryResult> {
+  const query = await client.queryPayment({ sessionNumber: row.cap_session_number })
+
+  if (!query.ok) {
+    if (isTransactionNotFound(query) && Number(row.expired) === 1) {
+      // Nobody ever paid on it and it can no longer be paid. Close it.
+      await expireSession(db, String(row.id), String(row.invoice_id))
+      return "expired"
+    }
+    await db.query<ResultSetHeader>(
+      `UPDATE renewal_payment_sessions SET last_queried_at = NOW(3) WHERE id = ?`,
+      [row.id]
+    )
+    return "query_failed"
+  }
+
+  const result = query.result
+  const outcome = await processGatewayNotice(
+    {
+      // Our reference, not the gateway's echo: the session row is the
+      // authority on which attempt this is.
+      referenceCode: row.reference_code,
+      status: result.status,
+      amount: Number.isInteger(result.amount) ? result.amount : null,
+      currencyCode: result.currencyCode ?? null,
+      transactionNumber: result.transactionNumber ?? null,
+      paymentSessionNumber: result.paymentSessionNumber ?? row.cap_session_number,
+      providerTransactionNumber: result.providerTransactionNumber ?? null,
+    },
+    "sweep"
+  )
+
+  if (outcome.outcome === "accepted" && outcome.note === null) {
+    log.info("Payment found by query", { invoiceId: row.invoice_id, referenceCode: row.reference_code })
+    return "paid"
+  }
+  if (outcome.outcome === "accepted") {
+    return "closed"
+  }
+  if (outcome.outcome === "ignored_status" && Number(row.expired) === 1) {
+    // Still "pending" at the gateway but past the expiry SIMS asked for.
+    await expireSession(db, String(row.id), String(row.invoice_id))
+    return "expired"
+  }
+  return "still_pending"
+}
+
+/**
+ * One gateway query for an invoice's open session, on demand.
+ *
+ * The receipt page calls this while it waits, so a lost callback costs the
+ * merchant a minute rather than up to an hour until the sweep. The caller
+ * throttles it. Returns null when there is no session that reached the
+ * gateway to ask about.
+ */
+export async function checkInvoicePaymentNow(
+  invoiceId: string,
+  client: CommercePayClient,
+  db: Queryable = getPool()
+): Promise<SessionQueryResult | null> {
+  const [rows] = await db.query<OpenSessionRow[]>(
+    `SELECT id, invoice_id, reference_code, cap_session_number, expires_at,
+            (expires_at IS NOT NULL AND expires_at < NOW(3)) AS expired
+       FROM renewal_payment_sessions
+      WHERE invoice_id = ?
+        AND status IN ('created', 'payment_pending')
+        AND cap_session_number IS NOT NULL
+      ORDER BY id DESC
+      LIMIT 1`,
+    [invoiceId]
+  )
+  const row = rows[0]
+  return row ? querySessionOnce(client, row, db) : null
 }
 
 async function expireSession(db: Queryable, sessionId: string, invoiceId: string): Promise<void> {

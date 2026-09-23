@@ -1546,6 +1546,15 @@ and recorded on the invoice:
 Automatic re-queuing by the reconcile job stops 48 hours after payment; after
 that a person uses **Retry post-payment steps** from the invoice page.
 
+**Receipt page.** While a payment is unconfirmed the receipt page re-reads
+the view with `?poll=1` (its own rate-limit bucket, never counted as an open)
+up to `receipt_poll_ceiling_seconds`, and asks
+`POST /api/public/renewal/{token}/check-payment` shortly after arriving and
+then every minute. That runs one CommercePay query for the link's open
+session through the same `querySessionOnce` the hourly sweep uses, throttled
+to one query per link per minute with `cacheAcquire`, and drives the
+post-payment job after the response when it finds a payment.
+
 **Letterhead.** Company details live in `renewal_settings` (`seller_name`,
 `seller_registration_no`, `seller_address`, `seller_contact`; migration 037)
 and are edited on Renewal Settings. `buildSellerBlock` in `seller.ts` is the

@@ -92,6 +92,10 @@ export type PublicInvoiceView = {
   /** Whether the licence dates have moved yet after payment. */
   extension: ExtensionStatus
   paidVia: "commercepay" | "manual" | null
+  /** The gateway transaction number, or the bank reference for an offline payment. */
+  paymentReference: string | null
+  /** How long the receipt page waits on a confirmation, from Renewal Settings. */
+  receiptPollCeilingSeconds: number
   companyName: string | null
   franchiseId: string
   issueDate: string | null
@@ -255,6 +259,8 @@ export function buildPublicView(
     seller: sellerBlockFor(settings),
     extension: invoice.extensionStatus,
     paidVia: invoice.paidVia,
+    paymentReference: invoice.status === "paid" ? invoice.capTransactionNumber ?? invoice.paidReference : null,
+    receiptPollCeilingSeconds: settings.receiptPollCeilingSeconds,
     companyName: invoice.companyName,
     franchiseId: invoice.franchiseId,
     issueDate: invoice.issueDate,

@@ -16,8 +16,16 @@ import type { PublicInvoice } from "../types"
 
 /** How often to ask again while the gateway's confirmation is in flight. */
 const POLL_INTERVAL_MS = 4_000
-/** Give up polling after this long and tell the merchant the documents will follow. */
-const POLL_CEILING_MS = 90_000
+/** Used until the view arrives; after that Renewal Settings decides. */
+const DEFAULT_POLL_CEILING_SECONDS = 90
+/**
+ * When to ask the gateway directly rather than only re-reading SIMS: once
+ * shortly after arriving, then every minute. The server throttles it to once
+ * per link per minute regardless; this just avoids asking in vain.
+ */
+function shouldQueryGateway(waitedMs: number): boolean {
+  return waitedMs === 8_000 || (waitedMs > 8_000 && (waitedMs - 8_000) % 60_000 === 0)
+}
 
 /**
  * Where CommercePay sends the merchant back to.
@@ -39,12 +47,12 @@ export default function RenewalReceiptPage() {
   )
   const [waitedMs, setWaitedMs] = React.useState(0)
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (options?: { poll?: boolean }) => {
     if (!token) {
       setLoadState("invalid")
       return
     }
-    const result = await fetchPublicInvoice(token)
+    const result = await fetchPublicInvoice(token, options)
     if (!result.ok) {
       setLoadState(result.status === 404 ? "invalid" : "error")
       return
@@ -64,17 +72,28 @@ export default function RenewalReceiptPage() {
     view?.payability === "paid" &&
     (view.extension === "pending" || !view.documents.receipt || !view.documents.taxInvoice)
 
+  const pollCeilingMs = (view?.receiptPollCeilingSeconds ?? DEFAULT_POLL_CEILING_SECONDS) * 1000
+
   // Bounded polling while the confirmation, or its paperwork, is in flight.
+  // While the payment itself is unconfirmed, the gateway is also asked
+  // directly now and then, so a lost callback does not leave the merchant
+  // waiting for the hourly sweep.
   React.useEffect(() => {
-    if ((!pending && !settling) || waitedMs >= POLL_CEILING_MS) {
+    if ((!pending && !settling) || waitedMs >= pollCeilingMs) {
       return
     }
     const handle = window.setTimeout(async () => {
-      await load()
-      setWaitedMs((current) => current + POLL_INTERVAL_MS)
+      const next = waitedMs + POLL_INTERVAL_MS
+      if (pending && shouldQueryGateway(next)) {
+        await fetch(`/api/public/renewal/${encodeURIComponent(token)}/check-payment`, { method: "POST" }).catch(
+          () => null
+        )
+      }
+      await load({ poll: true })
+      setWaitedMs(next)
     }, POLL_INTERVAL_MS)
     return () => window.clearTimeout(handle)
-  }, [pending, settling, waitedMs, load])
+  }, [pending, settling, waitedMs, pollCeilingMs, load, token])
 
   if (loadState === "loading") {
     return (
@@ -107,7 +126,7 @@ export default function RenewalReceiptPage() {
   }
 
   const paid = view.payability === "paid"
-  const timedOut = pending && waitedMs >= POLL_CEILING_MS
+  const timedOut = pending && waitedMs >= pollCeilingMs
   const email = view.paymentEmail
   const pdfHref = `/api/public/renewal/${encodeURIComponent(token)}/pdf`
 
@@ -173,7 +192,7 @@ export default function RenewalReceiptPage() {
                   ) : null}
                   {!view.documents.receipt && !view.documents.taxInvoice ? (
                     <Button variant="outline" className="h-10 flex-1" disabled>
-                      {settling && waitedMs < POLL_CEILING_MS ? "Preparing your documents…" : "Documents will arrive by email"}
+                      {settling && waitedMs < pollCeilingMs ? "Preparing your documents…" : "Documents will arrive by email"}
                     </Button>
                   ) : null}
                 </div>

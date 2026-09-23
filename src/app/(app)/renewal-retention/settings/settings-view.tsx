@@ -51,6 +51,7 @@ type Draft = {
   sendWindowStart: string
   sendWindowEnd: string
   sessionExpiryMinutes: string
+  receiptPollCeilingSeconds: string
   maxSessionRetries: string
   respondioWhatsappChannelId: string
   bukkuDescriptionFormat: string
@@ -70,6 +71,7 @@ function toDraft(settings: Settings): Draft {
     sendWindowStart: settings.sendWindowStart.slice(0, 5),
     sendWindowEnd: settings.sendWindowEnd.slice(0, 5),
     sessionExpiryMinutes: String(settings.sessionExpiryMinutes),
+    receiptPollCeilingSeconds: String(settings.receiptPollCeilingSeconds),
     maxSessionRetries: String(settings.maxSessionRetries),
     respondioWhatsappChannelId: settings.respondioWhatsappChannelId ?? "",
     bukkuDescriptionFormat: settings.bukkuDescriptionFormat ?? "",
@@ -180,6 +182,7 @@ export function SettingsView({ canManage }: { canManage: boolean }) {
         sendWindowStart: draft.sendWindowStart,
         sendWindowEnd: draft.sendWindowEnd,
         sessionExpiryMinutes: draft.sessionExpiryMinutes,
+        receiptPollCeilingSeconds: draft.receiptPollCeilingSeconds,
         maxSessionRetries: draft.maxSessionRetries,
         respondioWhatsappChannelId: draft.respondioWhatsappChannelId,
         bukkuDescriptionFormat: draft.bukkuDescriptionFormat,
@@ -382,6 +385,7 @@ export function SettingsView({ canManage }: { canManage: boolean }) {
                 </div>
               </div>
               {field("sessionExpiryMinutes", "Payment session expiry (minutes)", "CommercePay expiredInMinutes. 1440 is a day", { inputMode: "numeric" })}
+              {field("receiptPollCeilingSeconds", "Receipt page wait (seconds)", "How long the page waits for the payment to confirm before promising the documents by email. 10 to 600", { inputMode: "numeric" })}
               {field("bukkuDescriptionFormat", "Bukku line description", "Composed from {plan}, {outlet} and {period}", { className: "h-8 w-44 shrink-0" })}
               {canManage ? (
                 <Button size="sm" className="self-start" disabled={saving} onClick={() => void save()}>
