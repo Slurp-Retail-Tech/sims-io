@@ -22,6 +22,8 @@ export type ExportPreview = {
   totalMinor: number
   alreadyExported: number
   totalPaidInPeriod: number
+  /** Paid, but the tax invoice is not issued yet; they join a later export. */
+  awaitingTaxInvoice: number
 }
 
 export type ExportBatch = {
@@ -42,6 +44,9 @@ export type ExportBatch = {
 type LineRow = RowDataPacket & {
   invoice_id: string
   invoice_number: string
+  /** The INV- tax invoice, or null while post-payment has not issued it. */
+  tax_invoice_number: string | null
+  central_id: string | null
   paid_at: string | null
   company_name: string | null
   franchise_id: string
@@ -54,6 +59,7 @@ type LineRow = RowDataPacket & {
   tax_rate: string
   paid_via: string | null
   cap_transaction_number: string | null
+  paid_reference: string | null
   bukku_export_id: string | null
 }
 
@@ -64,12 +70,15 @@ async function loadLines(
   db: Queryable
 ): Promise<LineRow[]> {
   const [rows] = await db.query<LineRow[]>(
-    `SELECT i.id AS invoice_id, i.invoice_number, i.paid_at, i.company_name, i.franchise_id,
-            t.outlet_name, t.outlet_id, p.plan_name, t.billing_plan, t.previous_valid_until,
-            t.effective_amount, i.tax_rate, i.paid_via, i.cap_transaction_number, i.bukku_export_id
+    `SELECT i.id AS invoice_id, i.invoice_number, ti.invoice_number AS tax_invoice_number,
+            i.paid_at, i.company_name, i.franchise_id,
+            t.outlet_name, t.outlet_id, t.central_id, p.plan_name, t.billing_plan, t.previous_valid_until,
+            t.effective_amount, i.tax_rate, i.paid_via, i.cap_transaction_number, i.paid_reference, i.bukku_export_id
        FROM renewal_invoices i
        INNER JOIN renewal_invoice_items t ON t.invoice_id = i.id
        LEFT JOIN subscription_plans p ON p.id = t.plan_id
+       LEFT JOIN renewal_invoices ti
+              ON ti.parent_invoice_id = i.id AND ti.document_type = 'tax_invoice' AND ti.deleted_at IS NULL
       WHERE i.deleted_at IS NULL
         AND i.document_type = 'proforma'
         AND i.status = 'paid'
@@ -81,9 +90,20 @@ async function loadLines(
   return rows
 }
 
+/**
+ * Only lines whose tax invoice exists can go to Bukku: the sales invoice
+ * finance books is the INV- document, never the PI- proforma. A paid invoice
+ * still waiting on post-payment is left unexported and joins the next batch.
+ */
+function exportable(rows: readonly LineRow[]): LineRow[] {
+  return rows.filter((row) => row.tax_invoice_number !== null)
+}
+
 function toExportable(row: LineRow): ExportableLine {
   return {
-    invoiceNumber: row.invoice_number,
+    invoiceNumber: row.tax_invoice_number ?? row.invoice_number,
+    proformaNumber: row.invoice_number,
+    centralId: row.central_id,
     paidAt: row.paid_at,
     companyName: row.company_name,
     franchiseId: row.franchise_id,
@@ -96,6 +116,7 @@ function toExportable(row: LineRow): ExportableLine {
     taxRatePercent: Number(row.tax_rate),
     paidVia: row.paid_via,
     capTransactionNumber: row.cap_transaction_number,
+    paidReference: row.paid_reference,
   }
 }
 
@@ -105,10 +126,12 @@ export async function previewExport(
   includeExported: boolean,
   db: Queryable = getPool()
 ): Promise<ExportPreview> {
-  const [all, selected] = await Promise.all([
+  const [all, loaded] = await Promise.all([
     loadLines(paidFrom, paidTo, true, db),
     loadLines(paidFrom, paidTo, includeExported, db),
   ])
+  const selected = exportable(loaded)
+  const awaiting = new Set(loaded.filter((row) => row.tax_invoice_number === null).map((row) => row.invoice_id))
   const invoiceIds = new Set(selected.map((row) => row.invoice_id))
   const allInvoiceIds = new Set(all.map((row) => row.invoice_id))
   const exportedIds = new Set(all.filter((row) => row.bukku_export_id).map((row) => row.invoice_id))
@@ -118,6 +141,7 @@ export async function previewExport(
     totalMinor: selected.reduce((sum, row) => sum + Math.round(Number(row.effective_amount) * 100), 0),
     alreadyExported: exportedIds.size,
     totalPaidInPeriod: allInvoiceIds.size,
+    awaitingTaxInvoice: awaiting.size,
   }
 }
 
@@ -140,9 +164,12 @@ export async function generateExport(
   input: { paidFrom: string; paidTo: string; includeExported: boolean; userId: string },
   db: Queryable = getPool()
 ): Promise<{ ok: true; batch: ExportBatch } | { ok: false; message: string }> {
-  const lines = await loadLines(input.paidFrom, input.paidTo, input.includeExported, db)
+  const lines = exportable(await loadLines(input.paidFrom, input.paidTo, input.includeExported, db))
   if (lines.length === 0) {
-    return { ok: false, message: "No paid invoices in that period are left to export." }
+    return {
+      ok: false,
+      message: "No paid invoices in that period are left to export, or their tax invoices are not issued yet.",
+    }
   }
 
   const settings = await loadRenewalSettings(db)

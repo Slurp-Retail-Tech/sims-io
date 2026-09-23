@@ -63,7 +63,10 @@ export function parseAmountToMinor(
   const minor =
     Number(whole) * MINOR_UNITS_PER_MAJOR + Number(fraction.padEnd(2, "0"))
 
-  if (!Number.isSafeInteger(minor)) {
+  // Past what DECIMAL(12,2) can hold is not an amount SIMS can store, so it
+  // is refused here, where staff input is parsed, rather than failing as a
+  // database error on write.
+  if (!Number.isSafeInteger(minor) || minor > MAX_STORABLE_MINOR) {
     return null
   }
 
@@ -79,6 +82,11 @@ export function parseAmountToMinor(
 export function formatMinorAsDecimalString(minor: number): string {
   if (!Number.isSafeInteger(minor)) {
     throw new RangeError(`Amount is not a safe integer: ${minor}`)
+  }
+  // A computed total (a sum of lines, tax on top) can outgrow the column even
+  // when every input fitted. Refuse it before MySQL truncates or rejects it.
+  if (Math.abs(minor) > MAX_STORABLE_MINOR) {
+    throw new RangeError(`Amount exceeds DECIMAL(12,2): ${minor}`)
   }
 
   const negative = minor < 0

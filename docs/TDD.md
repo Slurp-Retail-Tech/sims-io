@@ -1541,7 +1541,18 @@ and recorded on the invoice:
    the extension row; invoice `pos_push_status` is `pushed` only when every row
    is. Failure raises `pos_push_failed` (informational) and never rolls back.
 5. *Payer email.* Receipt and tax invoice PDFs to `payment_email` over SMTP
-   (`payer_email_status`). Failure raises `payer_email_failed`.
+   (`payer_email_status`). Failure raises `payer_email_failed`. Held as
+   `pending` while `dispatch_enabled` is off (PRD 4.9, AC36); resuming
+   dispatch enqueues post-payment for every invoice still pending.
+
+The receipt PDF is re-rendered only on the run that issues the tax invoice
+(it prints the INV- number); later reruns leave the stored receipt alone.
+
+**Bukku export.** One row per paid line, `Invoice No` from the linked INV-
+tax invoice (`parent_invoice_id`), with `Proforma No`, `Central ID`, and
+`Payment Ref` from the gateway transaction or the offline bank reference.
+Paid invoices whose tax invoice is not issued yet are left out and join a
+later batch.
 
 Automatic re-queuing by the reconcile job stops 48 hours after payment; after
 that a person uses **Retry post-payment steps** from the invoice page.

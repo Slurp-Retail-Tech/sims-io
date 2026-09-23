@@ -260,12 +260,15 @@ export function InvoiceDetailView({
   canManage,
   canApprove,
   varianceThresholdPct,
+  dispatchEnabled,
 }: {
   invoiceId: string
   canManage: boolean
   canApprove: boolean
   /** From Renewal Settings; the server enforces the same value. */
   varianceThresholdPct: number
+  /** The kill switch; a pending payer email is held while it is off. */
+  dispatchEnabled: boolean
 }) {
   const { showToast } = useToast()
   const [invoice, setInvoice] = React.useState<Invoice | null>(null)
@@ -616,7 +619,9 @@ export function InvoiceDetailView({
                         ? `${invoice.paymentEmail ?? ""} · ${shortDateTime(invoice.payerEmailSentAt)}`
                         : invoice.payerEmailStatus === "failed"
                           ? `${invoice.paymentEmail ?? ""} · ${invoice.payerEmailError ?? ""}`
-                          : invoice.paymentEmail ?? "No payer email was entered at payment."
+                          : invoice.payerEmailStatus === "pending" && !dispatchEnabled
+                            ? `${invoice.paymentEmail ?? ""} · held while outbound dispatch is paused; sends when it resumes`
+                            : invoice.paymentEmail ?? "No payer email was entered at payment."
                     }
                   />
                   {callbacks.length > 0 ? (

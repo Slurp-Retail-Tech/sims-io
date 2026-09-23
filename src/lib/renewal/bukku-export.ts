@@ -16,7 +16,11 @@ import { addMonths } from "./invoice-build.ts"
 import { formatMinorAsDecimalString } from "./money.ts"
 
 export type ExportableLine = {
+  /** The INV- tax invoice number: the document finance books in Bukku. */
   invoiceNumber: string
+  /** The PI- proforma it settles, for tracing back to SIMS. */
+  proformaNumber: string
+  centralId: string | null
   paidAt: string | null
   companyName: string | null
   franchiseId: string
@@ -29,6 +33,8 @@ export type ExportableLine = {
   taxRatePercent: number
   paidVia: string | null
   capTransactionNumber: string | null
+  /** The bank reference staff recorded for an offline payment. */
+  paidReference: string | null
 }
 
 export type BukkuRow = Record<string, string>
@@ -65,6 +71,7 @@ export function buildBukkuRows(
       "Invoice No": line.invoiceNumber,
       Customer: line.companyName ?? `Franchise ${line.franchiseId}`,
       "Customer Ref": line.franchiseId,
+      "Central ID": line.centralId ?? "",
       Description: describeLine(descriptionFormat, line),
       Quantity: "1",
       "Unit Price": formatMinorAsDecimalString(line.effectiveMinor),
@@ -73,7 +80,8 @@ export function buildBukkuRows(
       Total: formatMinorAsDecimalString(line.effectiveMinor + taxMinor),
       Currency: "MYR",
       "Payment Method": line.paidVia === "manual" ? "Bank transfer" : "CommercePay",
-      "Payment Ref": line.capTransactionNumber ?? "",
+      "Payment Ref": line.capTransactionNumber ?? line.paidReference ?? "",
+      "Proforma No": line.proformaNumber,
     }
   })
 }

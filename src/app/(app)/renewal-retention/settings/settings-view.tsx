@@ -262,8 +262,8 @@ export function SettingsView({ canManage }: { canManage: boolean }) {
             {settings.dispatchEnabled ? "Outbound dispatch is on" : "Outbound dispatch is paused"}
           </span>
           <span className="text-muted-foreground text-[0.8125rem] text-pretty">
-            Invoices, PDFs and renewal links are generated either way. The switch only suspends outbound WhatsApp
-            and email dispatch.
+            Invoices, PDFs and renewal links are generated either way. The switch suspends every outbound WhatsApp
+            and email, the payer&apos;s receipt email included. Anything held back goes out when dispatch resumes.
           </span>
         </div>
         {canManage ? (

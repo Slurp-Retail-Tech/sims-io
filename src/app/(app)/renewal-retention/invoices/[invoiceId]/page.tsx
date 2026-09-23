@@ -34,6 +34,7 @@ export default async function InvoiceDetailPage({
       canManage={canAccessPath(user.role, user.pageAccess, "/renewal-retention/invoices/manage")}
       canApprove={canAccessPath(user.role, user.pageAccess, "/renewal-retention/plans/approve-override")}
       varianceThresholdPct={settings.overrideVarianceThresholdPct}
+      dispatchEnabled={settings.dispatchEnabled}
     />
   )
 }

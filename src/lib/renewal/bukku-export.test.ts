@@ -11,6 +11,8 @@ import type { ExportableLine } from "./bukku-export.ts"
 
 const line: ExportableLine = {
   invoiceNumber: "INV-2026/09-008",
+  proformaNumber: "PI-2026/09-031",
+  centralId: "C-10442-01",
   paidAt: "2026-09-12 04:10:00.000",
   companyName: "Kopitiam Sentral Sdn Bhd",
   franchiseId: "10442",
@@ -23,6 +25,7 @@ const line: ExportableLine = {
   taxRatePercent: 0,
   paidVia: "commercepay",
   capTransactionNumber: "2005671137F81FD81D89D8",
+  paidReference: null,
 }
 
 test("one row per line, amounts as decimals, date from paid_at", () => {
@@ -35,6 +38,9 @@ test("one row per line, amounts as decimals, date from paid_at", () => {
   assert.equal(row.Total, "2400.00")
   assert.equal(row["Payment Method"], "CommercePay")
   assert.equal(row["Payment Ref"], "2005671137F81FD81D89D8")
+  // Finance books the tax invoice; the proforma rides along for tracing.
+  assert.equal(row["Proforma No"], "PI-2026/09-031")
+  assert.equal(row["Central ID"], "C-10442-01")
 })
 
 test("tax is exclusive and added on top when the rate is non-zero", () => {
@@ -57,10 +63,13 @@ test("a six-month line spans six months from the previous expiry", () => {
   assert.match(describeLine(null, { ...line, billingPlan: "bi_annually" }), /2026-09-28 to 2027-03-28$/)
 })
 
-test("an offline payment is labelled as a bank transfer", () => {
-  const [row] = buildBukkuRows([{ ...line, paidVia: "manual", capTransactionNumber: null }], null)
+test("an offline payment is labelled as a bank transfer, with its bank reference", () => {
+  const [row] = buildBukkuRows(
+    [{ ...line, paidVia: "manual", capTransactionNumber: null, paidReference: "MBB-7781203" }],
+    null
+  )
   assert.equal(row["Payment Method"], "Bank transfer")
-  assert.equal(row["Payment Ref"], "")
+  assert.equal(row["Payment Ref"], "MBB-7781203")
 })
 
 test("batch references carry the month and a running number", () => {

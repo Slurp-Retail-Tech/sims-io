@@ -127,6 +127,19 @@ export function normalizePosValidUntil(value: unknown): string | null {
  * renewal actually happened. A row whose source was hand-corrected to `manual`
  * without an extension is still POS-tracked until the first renewal lands.
  */
+/**
+ * Whether a POS identifier can enter the renewal module safely.
+ *
+ * Scope keys, group keys and Actions Required guards all join identifiers
+ * with `|`, so an id containing one would collide with a different
+ * franchise-outlet pair. POS ids are numeric in practice; anything else,
+ * blank included, is left out of the projection and logged rather than
+ * escaped, because nothing downstream expects it.
+ */
+export function isSafeRenewalIdentifier(value: string | null | undefined): value is string {
+  return typeof value === "string" && value.trim() !== "" && !value.includes("|")
+}
+
 export function simsOwnsValidUntil(existing: ExistingSubscription): boolean {
   return (
     existing.lastExtendedAt !== null ||
