@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 
 import { cn } from "@/lib/utils"
 
@@ -225,12 +226,15 @@ export function KpiTile({
   meta,
   metaTone = "gray",
   onClick,
+  href,
 }: {
   label: string
   value: string
   meta?: string
   metaTone?: Tone
   onClick?: () => void
+  /** Drill through to the rows behind the figure. */
+  href?: string
 }) {
   const body = (
     <>
@@ -240,6 +244,13 @@ export function KpiTile({
     </>
   )
   const className = "bg-card rounded-[calc(var(--radius)+2px)] border px-4.5 py-4 text-left"
+  if (href) {
+    return (
+      <Link href={href} className={cn(className, "hover:bg-accent/40 transition-colors")}>
+        {body}
+      </Link>
+    )
+  }
   return onClick ? (
     <button type="button" onClick={onClick} className={cn(className, "hover:bg-accent/40 cursor-pointer transition-colors")}>
       {body}

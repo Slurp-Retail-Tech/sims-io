@@ -1597,6 +1597,14 @@ same batch that no longer drift (`pos-drift.ts`, `pos-drift-store.ts`).
 SIMS date, marked `manual`, forward only; the next cycle then reports the
 open proforma for the old date as `stale_proforma`.
 
+**Analytics.** Periods (`analytics-periods.ts`, pure) run from three months
+ahead to eleven back, plus the current and previous full years; the loader
+reads the selected period's year. Figures link to the Renewal List for the
+same window through `?month=` (`YYYY-MM` or `YYYY`, which replaces the
+90-day window with that expiry range), `?state=` and `?opened=`. PIC
+directories for the list are loaded in three queries for every franchise
+(`loadRenewalDirectories`) instead of three per franchise.
+
 ## Milestones
 
 **M0 – Project Setup (1 week)**
