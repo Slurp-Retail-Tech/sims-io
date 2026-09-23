@@ -149,6 +149,7 @@ Use cookies for UI filter and selector state that should survive page refreshes:
 - Set `Max-Age` appropriate to the context: 12 hours for volatile filters, 30 days for UI preferences.
 - Always set `Path=/` so the cookie is available across all routes.
 - Read cookies client-side via `document.cookie` in a lazy `useState` initialiser (not `useEffect`) so the value is available on first render without a flash.
+- Exception: client components are still server-rendered, and the server can't see `document.cookie` (or `localStorage`), so if the value changes the first render's markup, hydration fails. Read the cookie on the server with `cookies()` and pass it in as the initial value instead (see `sidebar_workspace` in `src/app/(app)/layout.tsx`, `tickets_date_filter` in `merchant-success/tickets/page.tsx`).
 - Do not use `localStorage` for UI state — reserve it for the session user cache (`sims-session`) only.
 
 ### Security Audit Reports

@@ -7,7 +7,7 @@ import Image from "next/image"
 
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
-import { getSessionUser } from "@/lib/session"
+import { getSessionUser, type SessionUser } from "@/lib/session"
 import { canAccessPath } from "@/lib/page-access"
 import { navData, type NavItem } from "@/lib/nav-items"
 import {
@@ -62,15 +62,28 @@ const getFirstAllowedUrl = (items: NavItem[]) => {
   return null
 }
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
+  initialUser: SessionUser
+  initialWorkspace: string
+}
+
+export function AppSidebar({
+  initialUser,
+  initialWorkspace,
+  ...props
+}: AppSidebarProps) {
   const pathname = usePathname()
-  const [sessionUser, setSessionUserState] = React.useState(() => getSessionUser())
+  // Seed from the server-verified user, not the localStorage cache: the server
+  // render can't see localStorage, so the nav would differ and fail hydration.
+  // The cache still feeds later updates (e.g. profile edits) via the events.
+  const [sessionUser, setSessionUserState] = React.useState<SessionUser | null>(
+    initialUser
+  )
 
   React.useEffect(() => {
     const handleSessionUpdate = () => {
       setSessionUserState(getSessionUser())
     }
-    handleSessionUpdate()
     window.addEventListener("storage", handleSessionUpdate)
     window.addEventListener("sims-session-update", handleSessionUpdate)
     return () => {
@@ -169,13 +182,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     ? allDepartmentGroups
     : allDepartmentGroups
 
-  const [selectedWorkspace, setSelectedWorkspace] = React.useState(() => {
-    if (typeof document === "undefined") return "All"
-    const match = document.cookie
-      .split("; ")
-      .find((c) => c.startsWith("sidebar_workspace="))
-    return match ? decodeURIComponent(match.slice("sidebar_workspace=".length)) : "All"
-  })
+  // Read from the cookie on the server (see the (app) layout) rather than
+  // document.cookie, which the server render cannot see.
+  const [selectedWorkspace, setSelectedWorkspace] = React.useState(initialWorkspace)
 
   const selectWorkspace = React.useCallback((label: string) => {
     setSelectedWorkspace(label)

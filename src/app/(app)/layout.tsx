@@ -12,6 +12,7 @@ import { requireServerSession } from "@/lib/auth-server"
 import { cookies } from "next/headers"
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
+const SIDEBAR_WORKSPACE_COOKIE_NAME = "sidebar_workspace"
 
 export default async function AppLayout({
   children,
@@ -26,12 +27,14 @@ export default async function AppLayout({
   const cookieStore = await cookies()
   const sidebarState = cookieStore.get(SIDEBAR_COOKIE_NAME)?.value
   const defaultOpen = sidebarState !== "false"
+  const sidebarWorkspace =
+    cookieStore.get(SIDEBAR_WORKSPACE_COOKIE_NAME)?.value || "All"
 
   return (
     <AppAuthGate initialUser={user}>
       <ToastProvider>
         <SidebarProvider defaultOpen={defaultOpen}>
-          <AppSidebar />
+          <AppSidebar initialUser={user} initialWorkspace={sidebarWorkspace} />
           <SidebarRail />
           <SidebarInset className="bg-background/85 backdrop-blur">
             <BreadcrumbLabelProvider>
