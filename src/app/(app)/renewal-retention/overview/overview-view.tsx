@@ -3,6 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { CheckCircle2, Circle, Clock } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -31,7 +32,19 @@ type Franchise = {
   outlets: Array<{ outletId: string }>
 }
 
+type SetupStep = {
+  key: string
+  title: string
+  state: "done" | "todo" | "not_checked"
+  detail: string
+  href: string
+  cta: string
+}
+
+type Setup = { steps: SetupStep[]; doneCount: number; complete: boolean }
+
 type Overview = {
+  setup?: Setup
   today: string
   lastRun: { finishedAt: string | null; status: string | null } | null
   kpis: {
@@ -132,6 +145,8 @@ export function OverviewView() {
             : "The nightly run has not happened yet"}
         </span>
       </PageHeader>
+
+      {data.setup && !data.setup.complete ? <SetupChecklistCard setup={data.setup} /> : null}
 
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))]">
         <KpiTile
@@ -296,5 +311,56 @@ export function OverviewView() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+/**
+ * The steps between an empty module and a first invoice, each ticked off
+ * from real data and linked to the screen that completes it. Disappears once
+ * everything is done. Queue-based steps read "not checked yet" until the
+ * nightly check has run, never "done".
+ */
+function SetupChecklistCard({ setup }: { setup: Setup }) {
+  const firstTodo = setup.steps.find((step) => step.state === "todo")?.key
+  return (
+    <Card className="border-primary/30">
+      <CardHeader>
+        <CardTitle className="text-base">Get renewals running</CardTitle>
+        <CardDescription>
+          {setup.doneCount} of {setup.steps.length} done. Each step links to where it is done, and ticks itself
+          off once it is.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ol className="flex flex-col">
+          {setup.steps.map((step, index) => (
+            <li key={step.key} className="flex items-start gap-3 border-b py-3 last:border-b-0">
+              <span className="mt-0.5 shrink-0" aria-hidden>
+                {step.state === "done" ? (
+                  <CheckCircle2 className="size-5 text-emerald-600" />
+                ) : step.state === "not_checked" ? (
+                  <Clock className="text-muted-foreground size-5" />
+                ) : (
+                  <Circle className={cn("size-5", step.key === firstTodo ? "text-primary" : "text-muted-foreground")} />
+                )}
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className={cn("text-sm font-medium", step.state === "done" && "text-muted-foreground line-through decoration-1")}>
+                  {index + 1}. {step.title}
+                </span>
+                <span className="text-muted-foreground text-xs text-pretty">
+                  {step.detail}
+                </span>
+              </span>
+              {step.state === "todo" ? (
+                <Button size="sm" variant={step.key === firstTodo ? "default" : "outline"} className="shrink-0" asChild>
+                  <Link href={step.href}>{step.cta}</Link>
+                </Button>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      </CardContent>
+    </Card>
   )
 }

@@ -173,7 +173,12 @@ function describeEvent(event: Event, invoice: Invoice): TimelineEntry {
     case "invoice_created":
       return { ...base, title: "Invoice created", tone: "blue", detail: `Proforma ${invoice.invoiceNumber} · ${plural(Number(payload.outlets ?? invoice.itemCount), "outlet")} · group ${String(payload.groupKey ?? invoice.groupKey)}` }
     case "pdf_rendered":
-      return { ...base, title: "PDF rendered", tone: "gray", detail: String(payload.objectKey ?? "") }
+      return {
+        ...base,
+        title: payload.forced && event.actorUserId ? "Proforma re-printed" : "PDF rendered",
+        tone: "gray",
+        detail: String(payload.objectKey ?? ""),
+      }
     case "cycle_reused":
       return { ...base, title: "Reminder run reused this invoice", tone: "blue", detail: payload.daysToExpiry !== undefined && payload.daysToExpiry !== null ? `T-${String(payload.daysToExpiry)} run` : "" }
     case "term_changed":
@@ -660,6 +665,17 @@ export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoic
                       onClick={() => void runAction({ action: "retry_post_payment" }, "Post-payment steps queued and run.")}
                     >
                       Retry post-payment steps
+                    </Button>
+                  ) : null}
+                  {invoice.documentType === "proforma" && isOpen ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy}
+                      title="Re-print with the current company details. Issued tax invoices and receipts keep theirs."
+                      onClick={() => void runAction({ action: "reprint_proforma" }, "Proforma re-printed with the current details.")}
+                    >
+                      Re-print proforma
                     </Button>
                   ) : null}
                   <Button variant="outline" size="sm" className="text-destructive" disabled={!isOpen || busy} onClick={() => setDialog("void")}>

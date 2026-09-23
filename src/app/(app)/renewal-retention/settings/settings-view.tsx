@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/toast-provider"
 import { cn } from "@/lib/utils"
 
@@ -32,6 +33,10 @@ type Settings = {
   receiptPollCeilingSeconds: number
   respondioWhatsappChannelId: string | null
   bukkuDescriptionFormat: string | null
+  sellerName: string | null
+  sellerRegistrationNo: string | null
+  sellerAddress: string | null
+  sellerContact: string | null
   updatedAt: string | null
 }
 
@@ -47,6 +52,10 @@ type Draft = {
   maxSessionRetries: string
   respondioWhatsappChannelId: string
   bukkuDescriptionFormat: string
+  sellerName: string
+  sellerRegistrationNo: string
+  sellerAddress: string
+  sellerContact: string
 }
 
 function toDraft(settings: Settings): Draft {
@@ -62,6 +71,10 @@ function toDraft(settings: Settings): Draft {
     maxSessionRetries: String(settings.maxSessionRetries),
     respondioWhatsappChannelId: settings.respondioWhatsappChannelId ?? "",
     bukkuDescriptionFormat: settings.bukkuDescriptionFormat ?? "",
+    sellerName: settings.sellerName ?? "",
+    sellerRegistrationNo: settings.sellerRegistrationNo ?? "",
+    sellerAddress: settings.sellerAddress ?? "",
+    sellerContact: settings.sellerContact ?? "",
   }
 }
 
@@ -168,6 +181,10 @@ export function SettingsView({ canManage }: { canManage: boolean }) {
         maxSessionRetries: draft.maxSessionRetries,
         respondioWhatsappChannelId: draft.respondioWhatsappChannelId,
         bukkuDescriptionFormat: draft.bukkuDescriptionFormat,
+        sellerName: draft.sellerName,
+        sellerRegistrationNo: draft.sellerRegistrationNo,
+        sellerAddress: draft.sellerAddress,
+        sellerContact: draft.sellerContact,
       })
       if (ok) {
         showToast("Settings saved.", "success")
@@ -368,6 +385,103 @@ export function SettingsView({ canManage }: { canManage: boolean }) {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Company details on documents</CardTitle>
+          <CardDescription className="text-pretty">
+            Printed at the top of every proforma, tax invoice and receipt, and on the merchant&rsquo;s renewal page.
+            Documents already issued keep the details they were printed with; an open proforma can be re-printed
+            from its invoice page.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-5 [grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))]">
+            <div className="flex flex-col gap-3.5">
+              <SellerField
+                label="Company name"
+                hint="The legal entity, as it should appear on a tax invoice"
+                error={fieldErrors.sellerName}
+              >
+                <Input
+                  value={draft.sellerName}
+                  onChange={(event) => setDraft({ ...draft, sellerName: event.target.value })}
+                  placeholder="Slurp Retail Tech Sdn Bhd"
+                  disabled={!canManage}
+                  maxLength={255}
+                />
+              </SellerField>
+              <SellerField
+                label="Registration number"
+                hint="Printed as “Reg No:” beneath the name"
+                error={fieldErrors.sellerRegistrationNo}
+              >
+                <Input
+                  value={draft.sellerRegistrationNo}
+                  onChange={(event) => setDraft({ ...draft, sellerRegistrationNo: event.target.value })}
+                  placeholder="202101045205 / 1445505-V"
+                  disabled={!canManage}
+                  maxLength={120}
+                />
+              </SellerField>
+            </div>
+            <div className="flex flex-col gap-3.5">
+              <SellerField
+                label="Address"
+                hint="One line per printed line, up to 6. Long lines wrap on the document."
+                error={fieldErrors.sellerAddress}
+              >
+                <Textarea
+                  rows={4}
+                  value={draft.sellerAddress}
+                  onChange={(event) => setDraft({ ...draft, sellerAddress: event.target.value })}
+                  placeholder={"Unit 807A, Kompleks Diamond, Bangi Business Park\nJalan Medan Bangi, Off Persiaran Bandar\n43650 Bandar Baru Bangi, Selangor, Malaysia"}
+                  disabled={!canManage}
+                />
+              </SellerField>
+              <SellerField
+                label="Contact"
+                hint="Phone, email, website. One per line, up to 4."
+                error={fieldErrors.sellerContact}
+              >
+                <Textarea
+                  rows={3}
+                  value={draft.sellerContact}
+                  onChange={(event) => setDraft({ ...draft, sellerContact: event.target.value })}
+                  placeholder={"60387442331\nhello@getslurp.com\ngetslurp.com"}
+                  disabled={!canManage}
+                />
+              </SellerField>
+            </div>
+          </div>
+          {canManage ? (
+            <Button size="sm" className="mt-4" disabled={saving} onClick={() => void save()}>
+              {saving ? "Saving…" : "Save settings"}
+            </Button>
+          ) : null}
+        </CardContent>
+      </Card>
     </div>
+  )
+}
+
+function SellerField({
+  label,
+  hint,
+  error,
+  children,
+}: {
+  label: string
+  hint: string
+  error?: string
+  children: React.ReactNode
+}) {
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-sm">{label}</span>
+      {children}
+      <span className="text-muted-foreground text-xs text-pretty">{hint}</span>
+      {error ? <span className="text-destructive text-xs">{error}</span> : null}
+    </label>
   )
 }

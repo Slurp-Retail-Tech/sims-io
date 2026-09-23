@@ -1546,6 +1546,22 @@ and recorded on the invoice:
 Automatic re-queuing by the reconcile job stops 48 hours after payment; after
 that a person uses **Retry post-payment steps** from the invoice page.
 
+**Letterhead.** Company details live in `renewal_settings` (`seller_name`,
+`seller_registration_no`, `seller_address`, `seller_contact`; migration 037)
+and are edited on Renewal Settings. `buildSellerBlock` in `seller.ts` is the
+one builder for the PDF and the public page: Settings win; the deprecated
+`RENEWAL_SELLER_*` variables are read only while no Settings line is filled
+in, and never mixed with Settings lines. Stored PDFs keep the letterhead they
+were rendered with. An open proforma can be re-rendered with **Re-print
+proforma** (`reprint_proforma` action, recorded in the timeline); issued tax
+invoices and receipts are never re-rendered.
+
+**Setup checklist.** The Overview opens with the steps to a first invoice
+(`setup-checklist.ts`, pure): company details, an active plan, outlets on a
+plan, a renewal PIC, a reachable PIC, and a succeeded nightly check. The three
+queue-based steps read "not checked yet" until the nightly check has
+succeeded once. The card disappears when every step is done.
+
 ## Milestones
 
 **M0 – Project Setup (1 week)**

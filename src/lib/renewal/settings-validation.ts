@@ -25,6 +25,10 @@ export type SettingsPatchInput = {
   receiptPollCeilingSeconds?: unknown
   respondioWhatsappChannelId?: unknown
   bukkuDescriptionFormat?: unknown
+  sellerName?: unknown
+  sellerRegistrationNo?: unknown
+  sellerAddress?: unknown
+  sellerContact?: unknown
 }
 
 export type SettingsPatch = {
@@ -42,6 +46,12 @@ export type SettingsPatch = {
   receiptPollCeilingSeconds?: number
   respondioWhatsappChannelId?: string | null
   bukkuDescriptionFormat?: string | null
+  sellerName?: string | null
+  sellerRegistrationNo?: string | null
+  /** Newline-separated; one printed line per line. */
+  sellerAddress?: string | null
+  /** Newline-separated; phone, email, website, one per line. */
+  sellerContact?: string | null
 }
 
 export type FieldError = { field: string; message: string }
@@ -119,6 +129,34 @@ function optionalText(
     return undefined
   }
   return trimmed || null
+}
+
+/**
+ * Multi-line text: CRLF normalised, each line trimmed, blank lines dropped,
+ * and capped both in total length and in line count, since every line is a
+ * printed line on the document letterhead.
+ */
+function optionalLines(
+  value: unknown,
+  field: string,
+  maxLength: number,
+  maxLines: number,
+  errors: FieldError[]
+): string | null | undefined {
+  const text = optionalText(value, field, maxLength, errors)
+  if (text === undefined || text === null) {
+    return text
+  }
+  const lines = text
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length > maxLines) {
+    errors.push({ field, message: `Keep it to ${maxLines} lines or fewer.` })
+    return undefined
+  }
+  return lines.length ? lines.join("\n") : null
 }
 
 export function validateSettingsPatch(input: SettingsPatchInput): SettingsValidation {
@@ -217,6 +255,25 @@ export function validateSettingsPatch(input: SettingsPatchInput): SettingsValida
   if (input.bukkuDescriptionFormat !== undefined) {
     const value = optionalText(input.bukkuDescriptionFormat, "bukkuDescriptionFormat", 255, errors)
     if (value !== undefined) patch.bukkuDescriptionFormat = value
+  }
+
+  // The letterhead. Single-line fields are capped by column width; the
+  // multi-line ones by how much fits beside the document title.
+  if (input.sellerName !== undefined) {
+    const value = optionalText(input.sellerName, "sellerName", 255, errors)
+    if (value !== undefined) patch.sellerName = value
+  }
+  if (input.sellerRegistrationNo !== undefined) {
+    const value = optionalText(input.sellerRegistrationNo, "sellerRegistrationNo", 120, errors)
+    if (value !== undefined) patch.sellerRegistrationNo = value
+  }
+  if (input.sellerAddress !== undefined) {
+    const value = optionalLines(input.sellerAddress, "sellerAddress", 1000, 6, errors)
+    if (value !== undefined) patch.sellerAddress = value
+  }
+  if (input.sellerContact !== undefined) {
+    const value = optionalLines(input.sellerContact, "sellerContact", 500, 4, errors)
+    if (value !== undefined) patch.sellerContact = value
   }
 
   if (errors.length > 0) {

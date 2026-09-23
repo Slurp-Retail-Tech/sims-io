@@ -11,6 +11,10 @@ import type { RowDataPacket } from "mysql2/promise"
 
 import { listOpenActions } from "./actions-required.ts"
 import { loadRunStatus } from "./run-status.ts"
+import { isSellerConfigured } from "./seller.ts"
+import { loadRenewalSettings } from "./settings.ts"
+import { buildSetupChecklist } from "./setup-checklist.ts"
+import type { SetupChecklist } from "./setup-checklist.ts"
 import { addDays } from "./invoice-build.ts"
 import { loadRenewalList } from "./renewal-list-data.ts"
 import type { ListFranchise } from "./renewal-list-data.ts"
@@ -18,6 +22,8 @@ import { todayInAppZone } from "./app-date.ts"
 
 export type OverviewData = {
   today: string
+  /** The steps to a first invoice, ticked off from real data. */
+  setup: SetupChecklist
   lastRun: { finishedAt: string | null; status: string | null } | null
   kpis: {
     expiringIn30: { count: number; potentialMinor: number }
@@ -50,7 +56,7 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
   const monthStart = `${today.slice(0, 7)}-01`
   const monthEnd = addDays(`${today.slice(0, 7)}-01`, 31).slice(0, 7) + "-01"
 
-  const [{ franchises }, actions, runStatus, paidRows, funnelRows] = await Promise.all([
+  const [{ franchises }, actions, runStatus, paidRows, funnelRows, settings, planRows] = await Promise.all([
     loadRenewalList({ horizonDays: 30, lookbackDays: 0 }, db),
     listOpenActions({}, db),
     loadRunStatus(db),
@@ -75,9 +81,28 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
       WHERE i.deleted_at IS NULL AND i.document_type = 'proforma'`,
       [monthStart, monthEnd, monthStart, monthEnd]
     ),
+    loadRenewalSettings(db),
+    db.query<RowDataPacket[]>(
+      `SELECT COUNT(*) AS n FROM subscription_plans WHERE is_active = 1 AND deleted_at IS NULL`
+    ),
   ])
 
   const funnel = (funnelRows[0] as Array<Record<string, string | number | null>>)[0] ?? {}
+
+  // Blocking entries by reason, for the checklist's queue-based steps.
+  const openByReason = (reason: string) =>
+    actions.filter((action) => action.reason === reason && action.severity === "blocking").length
+  const setup = buildSetupChecklist({
+    sellerConfigured: isSellerConfigured(settings, process.env),
+    activePlanCount: Number((planRows[0] as Array<{ n: number | string }>)[0]?.n ?? 0),
+    checkHasSucceeded: runStatus.lastSucceededAt !== null,
+    open: {
+      noPlan: openByReason("no_plan_assigned"),
+      noPic: openByReason("no_renewal_pic"),
+      ambiguousPic: openByReason("ambiguous_renewal_pic"),
+      unreachablePic: openByReason("unreachable_renewal_pic"),
+    },
+  })
   const toMinor = (value: string | number | null | undefined) =>
     value === null || value === undefined ? 0 : Math.round(Number(value) * 100)
 
@@ -99,6 +124,7 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
 
   return {
     today,
+    setup,
     lastRun: runStatus.lastStatus
       ? { finishedAt: runStatus.lastFinishedAt, status: runStatus.lastStatus }
       : null,

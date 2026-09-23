@@ -18,7 +18,7 @@ import { createHash } from "node:crypto"
 import { createLogger } from "../logger.ts"
 import { addDays } from "./invoice-build.ts"
 import type { InvoiceTotals } from "./invoice-build.ts"
-import { ensureInvoicePdf, sellerBlock } from "./invoice-pdf.ts"
+import { ensureInvoicePdf, sellerBlockFor } from "./invoice-pdf.ts"
 import {
   findTaxInvoiceForProforma,
   getInvoiceById,
@@ -252,7 +252,7 @@ export function buildPublicView(
       taxInvoice: Boolean(taxInvoice?.pdfObjectKey),
     },
     taxInvoiceNumber: taxInvoice?.invoiceNumber ?? null,
-    seller: sellerBlock(),
+    seller: sellerBlockFor(settings),
     extension: invoice.extensionStatus,
     paidVia: invoice.paidVia,
     companyName: invoice.companyName,
