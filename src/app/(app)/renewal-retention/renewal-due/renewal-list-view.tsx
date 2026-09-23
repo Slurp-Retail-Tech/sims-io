@@ -105,26 +105,44 @@ export function RenewalListView({ actionCount }: { actionCount: number }) {
   const [months, setMonths] = React.useState<string[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [search, setSearch] = React.useState(() => {
-    if (typeof window === "undefined") return ""
-    return new URLSearchParams(window.location.search).get("fid")?.trim() ?? ""
+  // Filters can arrive in the URL: `?fid=` from a Fix link, `?month=`,
+  // `?state=` and `?opened=` from an Analytics figure.
+  const [initial] = React.useState(() => {
+    const params = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search)
+    const periodKey = params.get("month")?.trim() ?? ""
+    const stateParam = params.get("state") ?? ""
+    const openedParam = params.get("opened") ?? ""
+    return {
+      fid: params.get("fid")?.trim() ?? "",
+      periodKey: /^\d{4}(-\d{2})?$/.test(periodKey) ? periodKey : "",
+      state: STATE_OPTIONS.some((option) => option.value === stateParam) ? stateParam : "all",
+      opened: ["opened", "never"].includes(openedParam) ? openedParam : "all",
+    }
   })
-  const [state, setState] = React.useState("all")
+  const [search, setSearch] = React.useState(initial.fid)
+  const [state, setState] = React.useState(initial.state)
   const [month, setMonth] = React.useState("all")
-  const [opened, setOpened] = React.useState("all")
+  const [opened, setOpened] = React.useState(initial.opened)
+  const [period, setPeriod] = React.useState<{ key: string; label: string } | null>(null)
+  const listQuery = initial.periodKey ? `month=${encodeURIComponent(initial.periodKey)}` : "horizon=90"
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>({})
 
   const load = React.useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch("/api/renewals/list?horizon=90", { cache: "no-store" })
+      const response = await fetch(`/api/renewals/list?${listQuery}`, { cache: "no-store" })
       if (!response.ok) {
         throw new Error("Unable to load the renewal list.")
       }
-      const payload = (await response.json()) as { franchises: ListFranchise[]; months: string[] }
+      const payload = (await response.json()) as {
+        franchises: ListFranchise[]
+        months: string[]
+        period: { key: string; label: string } | null
+      }
       setFranchises(payload.franchises ?? [])
       setMonths(payload.months ?? [])
+      setPeriod(payload.period ?? null)
       // Open the most urgent card by default, as the design does.
       const first = payload.franchises?.[0]
       if (first) {
@@ -135,7 +153,7 @@ export function RenewalListView({ actionCount }: { actionCount: number }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [listQuery])
 
   React.useEffect(() => {
     void load()
@@ -150,7 +168,10 @@ export function RenewalListView({ actionCount }: { actionCount: number }) {
           .toLowerCase()
         if (!haystack.includes(query)) return false
       }
-      if (state !== "all" && franchise.state !== state) return false
+      // A franchise carries its most urgent outlet's state, so a drill-through
+      // to "Renewed" must also find the franchise with one renewed outlet
+      // beside one that is still open.
+      if (state !== "all" && franchise.state !== state && !franchise.outlets.some((outlet) => outlet.state === state)) return false
       if (month !== "all" && !(franchise.validUntilDate ?? "").startsWith(month)) return false
       if (opened === "opened" && !franchise.outlets.some((outlet) => (outlet.invoice?.openCount ?? 0) > 0)) return false
       if (opened === "never" && !franchise.outlets.some((outlet) => outlet.invoice && outlet.invoice.openCount === 0)) return false
@@ -164,10 +185,21 @@ export function RenewalListView({ actionCount }: { actionCount: number }) {
     <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-5">
       <PageHeader
         title="Renewal List"
-        description="Every subscription due in the next 90 days, grouped by franchise. State, resolved plan and price, renewal PIC, invoice, and engagement."
+        description={
+          period
+            ? `Every subscription expiring in ${period.label}, grouped by franchise. State, resolved plan and price, renewal PIC, invoice, and engagement.`
+            : "Every subscription due in the next 90 days, grouped by franchise. State, resolved plan and price, renewal PIC, invoice, and engagement."
+        }
+        meta={
+          period ? (
+            <Link href="/renewal-retention/renewal-due" className="underline underline-offset-2">
+              Back to the next 90 days
+            </Link>
+          ) : undefined
+        }
       >
         <Button variant="outline" size="sm" asChild>
-          <a href="/api/renewals/list?horizon=90&format=csv">
+          <a href={`/api/renewals/list?${listQuery}&format=csv`}>
             <Download className="size-4" />
             Export CSV
           </a>
@@ -241,7 +273,9 @@ export function RenewalListView({ actionCount }: { actionCount: number }) {
         <Card>
           <CardContent className="text-muted-foreground py-10 text-sm">
             {franchises.length === 0
-              ? "No subscriptions expire in the next 90 days."
+              ? period
+                ? `No subscriptions expire in ${period.label}.`
+                : "No subscriptions expire in the next 90 days."
               : "Nothing matches these filters."}
           </CardContent>
         </Card>

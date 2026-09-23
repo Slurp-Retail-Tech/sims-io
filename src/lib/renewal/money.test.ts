@@ -6,6 +6,7 @@ import {
   applyTaxExclusive,
   formatMinorAsDecimalString,
   formatMinorForDisplay,
+  MAX_STORABLE_MINOR,
   parseAmountToMinor,
   sumMinor,
   toGatewayMinorUnits,
@@ -154,4 +155,12 @@ test("passes minor units through to the gateway unchanged", () => {
 test("refuses to charge a non-positive amount", () => {
   assert.throws(() => toGatewayMinorUnits(0), RangeError)
   assert.throws(() => toGatewayMinorUnits(-100), RangeError)
+})
+
+test("amounts past DECIMAL(12,2) are refused on input and on write", () => {
+  assert.equal(parseAmountToMinor("9999999999.99"), MAX_STORABLE_MINOR)
+  assert.equal(parseAmountToMinor("10000000000.00"), null)
+  assert.equal(formatMinorAsDecimalString(MAX_STORABLE_MINOR), "9999999999.99")
+  assert.throws(() => formatMinorAsDecimalString(MAX_STORABLE_MINOR + 1), RangeError)
+  assert.throws(() => formatMinorAsDecimalString(-(MAX_STORABLE_MINOR + 1)), RangeError)
 })

@@ -6,6 +6,7 @@ import { createLogger } from "../logger.ts"
 import { RENEWAL_SUBSCRIPTION_SYNC_JOB_TYPE } from "../job-types.ts"
 import { decideSubscriptionSync } from "../renewal/subscription-sync.ts"
 import type { ValidUntilDrift } from "../renewal/subscription-sync.ts"
+import { reconcileDriftForBatch } from "../renewal/pos-drift-store.ts"
 import {
   applySubscriptionChanges,
   insertSubscription,
@@ -62,18 +63,17 @@ export const renewalSubscriptionSyncJobHandler: JobHandler = {
   async handle(context, _params, cursorValue): Promise<JobSliceOutcome> {
     let cursor = parseCursor(cursorValue)
     let progress: JobProgress = { ...EMPTY_PROGRESS }
-    const drifts: ValidUntilDrift[] = []
 
     while (hasBudget(context.deadlineAt, Date.now())) {
       const batch = await readPosOutletBatch(cursor.afterRowId)
 
       if (batch.snapshots.length === 0 && !batch.hasMore) {
-        await reportDrift(drifts)
         return { done: true, status: "succeeded", progress }
       }
 
       const existing = await loadExistingSubscriptions(batch.snapshots)
       const untouched: string[] = []
+      const drifts: ValidUntilDrift[] = []
 
       for (const snapshot of batch.snapshots) {
         const key = subscriptionKey(snapshot.franchiseId, snapshot.outletId)
@@ -118,6 +118,7 @@ export const renewalSubscriptionSyncJobHandler: JobHandler = {
       }
 
       await touchSyncedAt(untouched)
+      await reportDrift(batch.snapshots, drifts)
 
       cursor = { afterRowId: batch.lastRowId ?? cursor.afterRowId }
 
@@ -130,12 +131,10 @@ export const renewalSubscriptionSyncJobHandler: JobHandler = {
       }
 
       if (!batch.hasMore) {
-        await reportDrift(drifts)
         return { done: true, status: "succeeded", progress }
       }
     }
 
-    await reportDrift(drifts)
     return { done: false, progress }
   },
 }
@@ -144,12 +143,19 @@ export const renewalSubscriptionSyncJobHandler: JobHandler = {
  * Surface outlets where POS runs ahead of the date SIMS extended to.
  *
  * That means somebody renewed outside SIMS. Neither value is safely
- * discardable, so this logs rather than resolves; Phase 3 routes the same
- * finding into the Actions Required queue, where a person decides.
+ * discardable, so each becomes an informational Actions Required entry where
+ * a person decides, and entries for outlets in this batch that no longer
+ * drift are cleared. A queue failure is logged and never fails the sync: the
+ * projection is what the renewal cycle depends on.
  */
-async function reportDrift(drifts: readonly ValidUntilDrift[]): Promise<void> {
-  if (drifts.length === 0) {
-    return
+async function reportDrift(
+  examined: ReadonlyArray<{ franchiseId: string; outletId: string }>,
+  drifts: readonly ValidUntilDrift[]
+): Promise<void> {
+  try {
+    await reconcileDriftForBatch(examined, drifts)
+  } catch (error) {
+    log.error("Could not record POS drift in Actions Required", error, { drifts: drifts.length })
   }
   for (const drift of drifts) {
     log.warn("POS valid_until is ahead of the SIMS-extended date", {

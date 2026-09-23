@@ -28,6 +28,9 @@ import {
 import type { InvoiceItemRecord, InvoiceRecord } from "./invoices.ts"
 import { toObjectKeySafeNumber } from "./numbering.ts"
 import { TERM_MONTHS } from "./plan-resolution.ts"
+import { buildSellerBlock } from "./seller.ts"
+import type { SellerSettings } from "./seller.ts"
+import { loadRenewalSettings } from "./settings.ts"
 
 const log = createLogger("renewal:invoice-pdf")
 
@@ -53,17 +56,12 @@ export function buildRenewalLink(renewalToken: string): string {
   return `${base}/renew/${renewalToken}`
 }
 
-/** The "from" block on every document. */
-export function sellerBlock(): RenewalDocument["seller"] {
-  const lines = [
-    process.env.RENEWAL_SELLER_LINE_1,
-    process.env.RENEWAL_SELLER_LINE_2,
-    process.env.RENEWAL_SELLER_LINE_3,
-  ].filter((line): line is string => Boolean(line && line.trim()))
-  return {
-    name: process.env.RENEWAL_SELLER_NAME?.trim() || "Slurp",
-    lines,
-  }
+/**
+ * The "from" block on every document, from Renewal Settings with the
+ * `RENEWAL_SELLER_*` environment variables as a fallback. See `seller.ts`.
+ */
+export function sellerBlockFor(settings: SellerSettings): RenewalDocument["seller"] {
+  return buildSellerBlock(settings, process.env)
 }
 
 const TERM_LABELS: Record<string, string> = {
@@ -73,6 +71,8 @@ const TERM_LABELS: Record<string, string> = {
 
 export type DocumentOptions = {
   payLink: string | null
+  /** The letterhead; see `sellerBlockFor`. */
+  seller: RenewalDocument["seller"]
   /** Force the document kind; defaults to the invoice's own type. */
   kind?: RenewalDocument["kind"]
   /** The proforma a tax invoice or receipt settles, or the tax invoice a receipt cites. */
@@ -139,7 +139,7 @@ export function buildProformaDocument(
       franchiseId: invoice.franchiseId,
       email: invoice.paymentEmail,
     },
-    seller: sellerBlock(),
+    seller: options.seller,
     lines,
     totals: {
       subtotalMinor: invoice.subtotalMinor,
@@ -192,7 +192,7 @@ export async function ensureInvoicePdf(
     return { objectKey: invoice.pdfObjectKey, rendered: false }
   }
 
-  const items = await loadInvoiceItems(invoiceId, db)
+  const [items, settings] = await Promise.all([loadInvoiceItems(invoiceId, db), loadRenewalSettings(db)])
   // A tax invoice cites the proforma it settles and the payment that settled it.
   const parent =
     invoice.documentType === "tax_invoice" && invoice.parentInvoiceId
@@ -200,6 +200,7 @@ export async function ensureInvoicePdf(
       : null
   const document = buildProformaDocument(invoice, items, {
     payLink: invoice.renewalToken ? buildRenewalLink(invoice.renewalToken) : null,
+    seller: sellerBlockFor(settings),
     referenceNumber: parent?.invoiceNumber ?? null,
     paymentReference: invoice.documentType === "tax_invoice" ? paymentReferenceOf(invoice) : null,
   })
@@ -254,12 +255,14 @@ export async function ensureReceiptPdf(
     return { objectKey: invoice.receiptPdfObjectKey, rendered: false }
   }
 
-  const [items, taxInvoice] = await Promise.all([
+  const [items, taxInvoice, settings] = await Promise.all([
     loadInvoiceItems(invoiceId, db),
     findTaxInvoiceForProforma(invoiceId, db),
+    loadRenewalSettings(db),
   ])
   const document = buildProformaDocument(invoice, items, {
     payLink: null,
+    seller: sellerBlockFor(settings),
     kind: "receipt",
     referenceNumber: taxInvoice ? `Tax invoice ${taxInvoice.invoiceNumber}` : null,
     paymentReference: paymentReferenceOf(invoice),

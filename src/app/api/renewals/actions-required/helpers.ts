@@ -9,3 +9,5 @@
 export const ACTIONS_VIEW_PATH = "/renewal-retention/actions-required"
 /** Dismissing an entry. */
 export const ACTIONS_MANAGE_PATH = "/renewal-retention/actions-required/manage"
+/** Accepting the POS expiry changes the subscription, so it needs that key. */
+export const SUBSCRIPTIONS_MANAGE_PATH = "/renewal-retention/subscriptions/manage"

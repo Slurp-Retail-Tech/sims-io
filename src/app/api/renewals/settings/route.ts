@@ -1,8 +1,12 @@
-import { NextRequest, NextResponse } from "next/server"
+import { after, NextRequest, NextResponse } from "next/server"
 
 import { resolveApiUser } from "@/lib/api-auth"
 import { errorResponse, serverError } from "@/lib/api-errors"
 import { withRequestContext } from "@/lib/api-request-context"
+import { RENEWAL_POST_PAYMENT_JOB_TYPE } from "@/lib/job-types"
+import { driveJobType } from "@/lib/job-tick"
+import { enqueuePostPayment } from "@/lib/renewal/payment-confirmation"
+import { listInvoicesWithPendingPayerEmail } from "@/lib/renewal/post-payment"
 import { loadRenewalSettings, saveRenewalSettings } from "@/lib/renewal/settings"
 import { validateSettingsPatch } from "@/lib/renewal/settings-validation"
 import type { SettingsPatchInput } from "@/lib/renewal/settings-validation"
@@ -62,8 +66,25 @@ async function handlePatch(request: NextRequest): Promise<Response> {
   }
 
   try {
+    const before = await loadRenewalSettings()
     await saveRenewalSettings(validation.patch, auth.user.id)
-    return NextResponse.json({ settings: await loadRenewalSettings() })
+    const settings = await loadRenewalSettings()
+
+    // Resuming dispatch releases what the pause held back: payer documents
+    // emails left pending while it was off. Driven after the response.
+    if (!before.dispatchEnabled && settings.dispatchEnabled) {
+      const held = await listInvoicesWithPendingPayerEmail()
+      for (const invoiceId of held) {
+        await enqueuePostPayment(invoiceId, auth.user.id)
+      }
+      if (held.length > 0) {
+        after(async () => {
+          await driveJobType(RENEWAL_POST_PAYMENT_JOB_TYPE)
+        })
+      }
+    }
+
+    return NextResponse.json({ settings })
   } catch (error) {
     return serverError("renewals/settings", error, "Unable to save the settings.")
   }

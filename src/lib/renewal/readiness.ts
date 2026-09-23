@@ -135,3 +135,32 @@ export function cycleHorizonDays(
 export function scopeKey(franchiseId: string, outletId: string | null): string {
   return `${franchiseId}|${outletId ?? "*"}`
 }
+
+/**
+ * Which cohort each pass gets, by mode.
+ *
+ * A full run invoices the due cohort and readiness-checks the rest. A check
+ * ("Check now") never invoices, so the due cohort joins the readiness sweep:
+ * the same plan, price and PIC checks, with no invoice at the end.
+ */
+export function cohortsForMode<T>(
+  mode: "full" | "check",
+  partition: { due: readonly T[]; upcoming: readonly T[] }
+): { invoice: T[]; checkOnly: T[] } {
+  return mode === "full"
+    ? { invoice: [...partition.due], checkOnly: [...partition.upcoming] }
+    : { invoice: [], checkOnly: [...partition.due, ...partition.upcoming] }
+}
+
+/**
+ * The reasons a pass may auto-resolve, by mode.
+ *
+ * `channel_unreachable` is only raised while an invoice is being addressed,
+ * so a check, which addresses none, has no opinion on it and must not close
+ * it merely for not having re-raised it.
+ */
+export function reasonsEvaluatedFor(mode: "full" | "check"): readonly ActionReason[] {
+  return mode === "full"
+    ? CYCLE_EVALUATED_REASONS
+    : CYCLE_EVALUATED_REASONS.filter((reason) => reason !== "channel_unreachable")
+}

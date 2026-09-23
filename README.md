@@ -31,7 +31,7 @@ The long-term product vision in `docs/PRD.md` and `docs/TDD.md` is broader than 
 - Merchant Success — tickets, ticket history, SLA breaches, CSAT insights, audit trail, ticket categories, ClickUp task sync, onboarding appointments and schedule (Google Calendar sync, Google Maps locations), analytics
 - Merchant directory, POS import, and PLUS merchant workflows
 - Sales — leads (assignment, deals, activity logging), appointments with Google Calendar sync, invites, and Google Meet links, overview, and analytics. Lead Meeting activities can create linked sales appointments that stay in sync on edit, cancel, and delete
-- Renewal & Retention — renewal due tracking and analytics overview
+- Renewal & Retention — plan catalog, renewal invoices and payments, Actions Required, analytics
 - User management, activation, reset-password, and Google Workspace SSO
 - Public support and demo forms
 - Merchant map and knowledge base
@@ -40,9 +40,9 @@ The long-term product vision in `docs/PRD.md` and `docs/TDD.md` is broader than 
 ## Current Known Gaps
 
 - Some dashboards are still UI previews or placeholder analytics.
-- Renewal & Retention overview currently shows sample data only and is not live reporting.
+- Renewal & Retention reminders are generated but not yet sent: Respond.io dispatch waits on Meta template approval and ships switched off.
 - External messaging-channel integration from the PRD/TDD is not implemented in this app.
-- Automated test coverage is focused on shared library helpers (`npm test` runs an explicit allowlist in `package.json`, not auto-discovery); route handlers and UI are largely untested.
+- Automated test coverage is focused on shared library helpers (`npm test` auto-discovers colocated `*.test.ts` files); route handlers and UI are largely untested.
 
 ## Getting Started
 
@@ -204,6 +204,30 @@ RESPONDIO_WEBHOOK_SECRET=
 # n8n webhook that sends the CSAT survey link to the merchant. Unset = feature off.
 RESPONDIO_CSAT_WEBHOOK_URL=
 RESPONDIO_CSAT_WEBHOOK_SECRET=
+
+# ── Renewal & Retention ──────────────────────────────────────────────────────
+# Cron secrets for the nightly subscription sync, the nightly renewal check and
+# the hourly payment sweep. See docs/scheduler.md for order and schedule.
+RENEWAL_SUBSCRIPTION_SYNC_CRON_SECRET=
+RENEWAL_CYCLE_CRON_SECRET=
+RENEWAL_PAYMENT_RECONCILE_CRON_SECRET=
+# DEPRECATED fallback for the document letterhead. Set company details in
+# Renewal Settings instead; these are read only while Settings has none.
+RENEWAL_SELLER_NAME=
+RENEWAL_SELLER_LINE_1=
+RENEWAL_SELLER_LINE_2=
+RENEWAL_SELLER_LINE_3=
+# CommercePay payment gateway. Setting the tenant id switches the gateway on.
+COMMERCEPAY_BASE_URL=https://staging-payments.commerce.asia
+COMMERCEPAY_TENANT_ID=
+COMMERCEPAY_USERNAME=
+COMMERCEPAY_PASSWORD=
+COMMERCEPAY_SECRET_KEY=
+# Respond.io Developer API for renewal reminders (dispatch ships switched off).
+RESPONDIO_API_BASE_URL=https://api.respond.io/v2
+RESPONDIO_API_TOKEN=
+RESPONDIO_EMAIL_CHANNEL_ID=
+RESPONDIO_WHATSAPP_CHANNEL_ID=
 ```
 
 Notes:
@@ -321,7 +345,7 @@ This project relies on `schema.sql` for database updates. If you already have da
 
 ## Renewal Overview Status
 
-The Renewal & Retention overview page is currently a preview-only UI surface. It intentionally shows sample KPI cards and placeholder chart content until a live renewal analytics data source is connected.
+The Renewal & Retention overview and analytics are computed from live rows (`src/lib/renewal/metrics.ts`, `overview-data.ts`). Until setup is complete, the overview opens with a checklist of the steps to a first invoice. Company details printed on proformas, tax invoices and receipts are set in **Renewal & Retention → Settings**; the `RENEWAL_SELLER_*` variables remain only as a fallback.
 
 ## Deployment (Coolify)
 

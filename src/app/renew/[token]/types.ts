@@ -42,6 +42,8 @@ export type PublicInvoice = {
   seller: { name: string; lines: readonly string[] }
   extension: "not_applicable" | "pending" | "applied" | "failed"
   paidVia: "commercepay" | "manual" | null
+  paymentReference: string | null
+  receiptPollCeilingSeconds: number
   companyName: string | null
   franchiseId: string
   issueDate: string | null
@@ -68,9 +70,11 @@ export type PublicInvoice = {
 }
 
 export async function fetchPublicInvoice(
-  token: string
+  token: string,
+  /** A re-read while waiting on a payment; not counted as a merchant open. */
+  options?: { poll?: boolean }
 ): Promise<{ ok: true; view: PublicInvoice } | { ok: false; status: number }> {
-  const response = await fetch(`/api/public/renewal/${encodeURIComponent(token)}`, {
+  const response = await fetch(`/api/public/renewal/${encodeURIComponent(token)}${options?.poll ? "?poll=1" : ""}`, {
     cache: "no-store",
   })
   if (!response.ok) {

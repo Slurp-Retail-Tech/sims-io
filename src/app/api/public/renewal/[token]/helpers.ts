@@ -27,10 +27,14 @@ import type { PaymentSessionRecord } from "@/lib/renewal/payment-sessions"
  * link cannot be hammered and an attacker-controlled value never becomes an
  * unbounded Redis key.
  */
-export type PublicAction = "read" | "mutate" | "pay"
+export type PublicAction = "read" | "poll" | "mutate" | "pay"
 
 const LIMITS: Record<PublicAction, { ip: number; token: number }> = {
   read: { ip: 90, token: 40 },
+  // The receipt page re-reads every 4 seconds while a payment settles, up to
+  // the configured ceiling (default 90 seconds, at most a few minutes). Its
+  // own bucket, so waiting on a payment can never lock out opening the link.
+  poll: { ip: 180, token: 90 },
   mutate: { ip: 30, token: 15 },
   pay: { ip: 15, token: 6 },
 }
@@ -40,6 +44,8 @@ export const INVALID_LINK = "This renewal link is not valid."
 
 export type PublicRequestContext = {
   loaded: LoadedPublicInvoice
+  /** Truncated token hash: a bounded key for per-link throttles. */
+  tokenBucket: string
   ip: string
   userAgent: string | null
   isStaff: boolean
@@ -77,6 +83,7 @@ export async function guardPublicRequest(
     ok: true,
     context: {
       loaded,
+      tokenBucket,
       ip,
       userAgent: request.headers.get("user-agent"),
       isStaff,

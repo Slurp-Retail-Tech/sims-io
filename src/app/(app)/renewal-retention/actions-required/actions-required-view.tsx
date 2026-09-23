@@ -2,15 +2,15 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { CheckCircle2 } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Clock, Inbox, RefreshCw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { useToast } from "@/components/toast-provider"
 import { cn } from "@/lib/utils"
 
-import { daysLabel, PageHeader, Pill, PillTabs, TONE_TEXT } from "../ui"
-import type { Tone } from "../ui"
+import { daysLabel, PageHeader, Pill, PillTabs, RunStatusLine, TONE_TEXT } from "../ui"
+import type { RunStatus, Tone } from "../ui"
 import { REASON_FIXES, REASON_LABELS } from "./reasons"
 
 type ActionRow = {
@@ -32,6 +32,47 @@ type ActionRow = {
 
 type Tab = "all" | "blocking" | "informational"
 
+type QueueState = "never_checked" | "last_run_failed" | "nothing_in_window" | "clear" | "has_entries"
+
+/**
+ * What an empty queue says, by what it actually knows. Decided server-side in
+ * `src/lib/renewal/queue-state.ts`; an empty queue only claims "clear" once a
+ * check has succeeded and had something to examine.
+ */
+function emptyQueueCopy(state: QueueState, status: RunStatus | null): {
+  icon: React.ReactNode
+  title: string
+  body: string
+} {
+  const days = status?.readinessWindowDays ?? 30
+  switch (state) {
+    case "never_checked":
+      return {
+        icon: <Clock className="text-muted-foreground size-5" />,
+        title: "Nothing has been checked yet.",
+        body: `The nightly check examines every subscription expiring in the next ${days} days for a plan, a price and a reachable renewal PIC. Anything missing appears here after it first runs.`,
+      }
+    case "last_run_failed":
+      return {
+        icon: <AlertTriangle className="size-5 text-amber-600" />,
+        title: "The last check did not complete.",
+        body: "An empty queue says nothing about today until the next check succeeds.",
+      }
+    case "nothing_in_window":
+      return {
+        icon: <Inbox className="text-muted-foreground size-5" />,
+        title: `No subscriptions expire in the next ${days} days.`,
+        body: "There is nothing for the check to examine yet.",
+      }
+    default:
+      return {
+        icon: <CheckCircle2 className="size-5 text-emerald-600" />,
+        title: "Nothing is blocked.",
+        body: `Every subscription expiring in the next ${days} days has a plan, a price and someone accountable for it.`,
+      }
+  }
+}
+
 /** Where the fix lives, per reason. The button takes the person there. */
 function fixLink(action: ActionRow): { label: string; href: string } | null {
   const contactsHref = `/contacts?fid=${encodeURIComponent(action.franchiseId)}`
@@ -40,7 +81,7 @@ function fixLink(action: ActionRow): { label: string; href: string } | null {
     case "plan_missing_term_price":
       return { label: "Assign a plan", href: "/renewal-retention/plans" }
     case "override_pending_approval":
-      return { label: "Review override", href: "/renewal-retention/plans" }
+      return { label: "Review agreed price", href: "/renewal-retention/plans" }
     case "override_rejected":
       return { label: "Reassign plan", href: "/renewal-retention/plans" }
     case "no_renewal_pic":
@@ -69,13 +110,26 @@ function fixLink(action: ActionRow): { label: string; href: string } | null {
  * Entries resolve themselves once the gap is closed. Dismissal is for an entry
  * that is genuinely not a problem, and it asks why.
  */
-export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
+export function ActionsRequiredView({
+  canManage,
+  canCheckNow,
+  canAcceptPosDate,
+}: {
+  canManage: boolean
+  /** Subscriptions manage key: may take the POS expiry for a drift entry. */
+  canAcceptPosDate: boolean
+  /** Admins with the invoices key may run the eligibility checks on demand. */
+  canCheckNow: boolean
+}) {
   const { showToast } = useToast()
   const [actions, setActions] = React.useState<ActionRow[]>([])
+  const [runStatus, setRunStatus] = React.useState<RunStatus | null>(null)
+  const [queueState, setQueueState] = React.useState<QueueState>("has_entries")
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [dismissing, setDismissing] = React.useState<string | null>(null)
   const [tab, setTab] = React.useState<Tab>("all")
+  const [checking, setChecking] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -85,8 +139,14 @@ export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
       if (!response.ok) {
         throw new Error("Unable to load the queue.")
       }
-      const payload = (await response.json()) as { actions: ActionRow[] }
+      const payload = (await response.json()) as {
+        actions: ActionRow[]
+        runStatus?: RunStatus
+        queueState?: QueueState
+      }
       setActions(payload.actions ?? [])
+      setRunStatus(payload.runStatus ?? null)
+      setQueueState(payload.queueState ?? "has_entries")
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load the queue.")
     } finally {
@@ -97,6 +157,56 @@ export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
   React.useEffect(() => {
     void load()
   }, [load])
+
+  // Runs the nightly check's eligibility pass now. It never raises an invoice,
+  // so a person can confirm a fix without billing anyone early.
+  async function checkNow() {
+    setChecking(true)
+    try {
+      const response = await fetch("/api/renewals/cycle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "check" }),
+      })
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string }
+        showToast(payload.error ?? "The check could not run.", "error")
+        return
+      }
+      showToast("Checked. The queue below is current. No invoices were raised.", "success")
+      await load()
+    } catch {
+      showToast("Unable to reach the server. Try again.", "error")
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  // Takes the POS expiry as the SIMS expiry. Forward only; the server
+  // refuses if the POS is no longer ahead.
+  async function acceptPosDate(action: ActionRow) {
+    const confirmed = window.confirm(
+      `Take the POS expiry date as the SIMS date for ${scopeLabel(action)}?\n\nDo this only if the outlet really was renewed outside SIMS. Any open proforma for the old date will then be reported as stale.`
+    )
+    if (!confirmed) {
+      return
+    }
+    setDismissing(action.id)
+    try {
+      const response = await fetch(`/api/renewals/actions-required/${action.id}/accept-pos-date`, { method: "POST" })
+      const payload = (await response.json().catch(() => ({}))) as { error?: string; validUntil?: string }
+      if (!response.ok) {
+        showToast(payload.error ?? "Unable to accept the POS date.", "error")
+        return
+      }
+      showToast(`Expiry set to ${payload.validUntil?.slice(0, 10) ?? "the POS date"}.`, "success")
+      void load()
+    } catch {
+      showToast("Unable to reach the server. Try again.", "error")
+    } finally {
+      setDismissing(null)
+    }
+  }
 
   async function dismiss(action: ActionRow) {
     const reason = window.prompt(
@@ -135,7 +245,20 @@ export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
       <PageHeader
         title="Actions Required"
         description="Outlets and franchises that cannot be carried through the renewal flow, with the reason. Entries auto-resolve on the next nightly run once the gap is closed."
+        meta={<RunStatusLine status={runStatus} />}
       >
+        {canCheckNow ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={checking}
+            onClick={() => void checkNow()}
+            title="Re-runs the plan, price and PIC checks now. Never raises an invoice."
+          >
+            <RefreshCw className={cn("size-3.5", checking && "animate-spin")} />
+            {checking ? "Checking…" : "Check now"}
+          </Button>
+        ) : null}
         <PillTabs
           size="sm"
           value={tab}
@@ -160,17 +283,28 @@ export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
       ) : visible.length === 0 ? (
         <Card>
           <CardContent className="flex items-center gap-3 py-10">
-            <CheckCircle2 className="size-5 text-emerald-600" />
-            <div>
-              <p className="text-sm font-medium">
-                {actions.length === 0 ? "Nothing is blocked." : "Nothing in this tab."}
-              </p>
-              <p className="text-muted-foreground text-sm">
-                {actions.length === 0
-                  ? "Every subscription inside the readiness window has a plan, a price and someone accountable for it."
-                  : "Switch tabs to see the rest of the queue."}
-              </p>
-            </div>
+            {actions.length === 0 ? (
+              (() => {
+                const copy = emptyQueueCopy(queueState, runStatus)
+                return (
+                  <>
+                    {copy.icon}
+                    <div>
+                      <p className="text-sm font-medium">{copy.title}</p>
+                      <p className="text-muted-foreground text-sm text-pretty">{copy.body}</p>
+                    </div>
+                  </>
+                )
+              })()
+            ) : (
+              <>
+                <CheckCircle2 className="size-5 text-emerald-600" />
+                <div>
+                  <p className="text-sm font-medium">Nothing in this tab.</p>
+                  <p className="text-muted-foreground text-sm">Switch tabs to see the rest of the queue.</p>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -190,8 +324,8 @@ export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
               >
                 <div className="flex min-w-0 flex-1 basis-[22rem] flex-col gap-1.5">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={cn("font-mono text-xs font-semibold", TONE_TEXT[accent])}>
-                      {action.reason}
+                    <span className={cn("text-sm font-semibold", TONE_TEXT[accent])} title={action.reason}>
+                      {REASON_LABELS[action.reason] ?? action.reason}
                     </span>
                     <Pill tone={isBlocking ? "red" : "gray"} className="font-medium">
                       {isBlocking ? "Blocks invoicing" : "Informational"}
@@ -214,6 +348,16 @@ export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
                   {fix ? (
                     <Button variant="outline" size="sm" asChild>
                       <Link href={fix.href}>{fix.label}</Link>
+                    </Button>
+                  ) : null}
+                  {canAcceptPosDate && action.reason === "pos_valid_until_drift" && action.outletId ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={dismissing === action.id}
+                      onClick={() => void acceptPosDate(action)}
+                    >
+                      Accept POS date
                     </Button>
                   ) : null}
                   {canManage ? (

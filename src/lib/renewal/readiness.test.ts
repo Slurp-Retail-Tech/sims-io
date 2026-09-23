@@ -4,9 +4,11 @@ import test from "node:test"
 import type { DueSubscription } from "./invoice-build.ts"
 import {
   CYCLE_EVALUATED_REASONS,
+  cohortsForMode,
   cycleHorizonDays,
   invoiceWindowDays,
   partitionForCycle,
+  reasonsEvaluatedFor,
   scopeKey,
 } from "./readiness.ts"
 
@@ -125,4 +127,17 @@ test("the cycle only auto-resolves the reasons it evaluates", () => {
   assert.ok(CYCLE_EVALUATED_REASONS.includes("no_renewal_pic"))
   assert.ok(!(CYCLE_EVALUATED_REASONS as readonly string[]).includes("dispatch_failed"))
   assert.ok(!(CYCLE_EVALUATED_REASONS as readonly string[]).includes("pos_push_failed"))
+})
+
+test("a check never invoices: the due cohort joins the readiness sweep", () => {
+  const partition = { due: ["a", "b"], upcoming: ["c"] }
+  assert.deepEqual(cohortsForMode("full", partition), { invoice: ["a", "b"], checkOnly: ["c"] })
+  assert.deepEqual(cohortsForMode("check", partition), { invoice: [], checkOnly: ["a", "b", "c"] })
+})
+
+test("a check does not resolve what only invoicing raises", () => {
+  assert.ok((reasonsEvaluatedFor("full") as readonly string[]).includes("channel_unreachable"))
+  assert.ok(!(reasonsEvaluatedFor("check") as readonly string[]).includes("channel_unreachable"))
+  // Everything else a check evaluates the same way a full run does.
+  assert.equal(reasonsEvaluatedFor("check").length, CYCLE_EVALUATED_REASONS.length - 1)
 })

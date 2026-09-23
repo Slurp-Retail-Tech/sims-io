@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import {
+  isSafeRenewalIdentifier,
   decideSubscriptionSync,
   normalizePosValidUntil,
   simsOwnsValidUntil,
@@ -260,4 +261,11 @@ test("a central id from POS fills a gap", () => {
     decision.action === "update" ? decision.changes.centralId : null,
     "C-0042"
   )
+})
+
+test("identifiers that would break a scope key are refused", () => {
+  assert.equal(isSafeRenewalIdentifier("10442"), true)
+  assert.equal(isSafeRenewalIdentifier("104|42"), false)
+  assert.equal(isSafeRenewalIdentifier(" "), false)
+  assert.equal(isSafeRenewalIdentifier(null), false)
 })

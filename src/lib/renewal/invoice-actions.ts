@@ -173,7 +173,7 @@ export async function applyCycleOverride(
     return {
       ok: false,
       status: 403,
-      message: `That is more than ${loaded.settings.overrideVarianceThresholdPct}% from the agreed price and needs someone with override approval.`,
+      message: `That is more than ${loaded.settings.overrideVarianceThresholdPct}% from the catalog price and needs someone with price-approval access.`,
     }
   }
 
@@ -416,6 +416,34 @@ export async function retryPostPayment(
   }
   await recordEvent(db, invoiceId, "post_payment_retry_requested", actorUserId, null)
   await enqueuePostPayment(invoiceId, actorUserId, db)
+  return { ok: true }
+}
+
+/**
+ * Re-print an open proforma, so it picks up changed company details or a
+ * corrected template.
+ *
+ * Open proformas only. A tax invoice or receipt is an issued record and keeps
+ * the letterhead it was printed with; silently changing a document the
+ * merchant already holds is exactly what an audit trail exists to prevent.
+ * Recorded in the timeline as a forced render with the acting user.
+ */
+export async function reprintProforma(
+  invoiceId: string,
+  actorUserId: string,
+  db: Queryable = getPool()
+): Promise<ActionOutcome> {
+  const loaded = await loadInvoiceContextById(invoiceId, db)
+  if (!loaded) {
+    return { ok: false, status: 404, message: "Invoice not found." }
+  }
+  if (loaded.invoice.documentType !== "proforma") {
+    return { ok: false, status: 409, message: "Only a proforma can be re-printed. Issued documents keep their letterhead." }
+  }
+  if (!isOpen(loaded.invoice)) {
+    return { ok: false, status: 409, message: "Only an open proforma can be re-printed." }
+  }
+  await ensureInvoicePdf(invoiceId, { force: true, actorUserId }, db)
   return { ok: true }
 }
 

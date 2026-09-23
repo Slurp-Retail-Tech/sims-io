@@ -49,6 +49,7 @@ import {
   findStaleOpenProformas,
   recordEvent,
 } from "./invoices.ts"
+import { sweepLapsedProformas } from "./lapse.ts"
 import { loadAssignmentsForFranchise } from "./plans.ts"
 import {
   resolvePlanForOutlet,
@@ -57,10 +58,11 @@ import {
 import type { AssignmentRecord, PlanRecord } from "./plan-resolution.ts"
 import { resolveGroupRenewalPic, resolveRenewalPic } from "./pic-resolution.ts"
 import {
-  CYCLE_EVALUATED_REASONS,
+  cohortsForMode,
   cycleHorizonDays,
   invoiceWindowDays,
   partitionForCycle,
+  reasonsEvaluatedFor,
   scopeKey,
 } from "./readiness.ts"
 import { loadRenewalDirectory } from "./renewal-contacts.ts"
@@ -82,7 +84,19 @@ export type CycleOutcome = {
   franchisesExamined: number
   /** Open proformas billing an expiry their outlet has since moved off. */
   staleProformas: number
+  /** Open proformas closed as lapsed: unpaid past due date plus grace. */
+  invoicesLapsed: number
+  mode: CycleMode
 }
+
+/**
+ * `full` is the nightly run. `check` is "Check now": every eligibility check
+ * and the stale-proforma sweep, but no invoice, no document and no cadence
+ * event. The due cohort goes through the readiness checks instead of the
+ * invoicing pass, so a person can confirm a fix without raising invoices
+ * early, and, once dispatch is on, without sending a reminder early.
+ */
+export type CycleMode = "full" | "check"
 
 type DueRow = RowDataPacket & {
   id: string
@@ -104,7 +118,8 @@ type DueRow = RowDataPacket & {
  */
 export async function runRenewalCycle(
   today: string,
-  db: Queryable = getPool()
+  db: Queryable = getPool(),
+  mode: CycleMode = "full"
 ): Promise<CycleOutcome> {
   const settings = await loadRenewalSettings(db)
   const offsets = settings.reminderOffsets
@@ -121,6 +136,8 @@ export async function runRenewalCycle(
     actionsResolved: 0,
     franchisesExamined: 0,
     staleProformas: 0,
+    invoicesLapsed: 0,
+    mode,
   }
 
   // One read covers both passes: everything from today out to the further of
@@ -139,6 +156,11 @@ export async function runRenewalCycle(
   // can move to a date outside both windows, and the stale document it leaves
   // behind would then never be looked at again. Runs before the early return
   // so a quiet night still clears or reports it.
+  // First, so an invoice closed tonight is not also reported stale tonight.
+  // Closing an unpaid invoice changes it, so a check leaves it for the night.
+  if (mode === "full") {
+    outcome.invoicesLapsed = await sweepLapsedProformas(today, settings.graceWindowDays, db)
+  }
   outcome.staleProformas = await sweepStaleProformas(outcome, db)
 
   if (due.length === 0 && upcoming.length === 0) {
@@ -167,8 +189,12 @@ export async function runRenewalCycle(
     outcome.actionsRaised += 1
   }
 
-  const dueByFranchise = groupByFranchise(due)
-  const upcomingByFranchise = groupByFranchise(upcoming)
+  // A check never invoices, so the due cohort joins the readiness sweep. Its
+  // franchise-level scopes are then not examined, and the grouped-invoice
+  // entries the due pass owns are left exactly as the last full run left them.
+  const cohorts = cohortsForMode(mode, { due, upcoming })
+  const dueByFranchise = groupByFranchise(cohorts.invoice)
+  const upcomingByFranchise = groupByFranchise(cohorts.checkOnly)
   const franchiseIds = new Set([
     ...dueByFranchise.keys(),
     ...upcomingByFranchise.keys(),
@@ -243,7 +269,7 @@ export async function runRenewalCycle(
   outcome.actionsResolved += await resolveUnseenActions(
     examinedScopes,
     seenActions,
-    CYCLE_EVALUATED_REASONS,
+    reasonsEvaluatedFor(mode),
     db
   )
 

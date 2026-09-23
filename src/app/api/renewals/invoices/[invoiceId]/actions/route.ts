@@ -7,6 +7,7 @@ import { withRequestContext } from "@/lib/api-request-context"
 import {
   issueInvoice,
   markPaidOffline,
+  reprintProforma,
   resendPayerEmail,
   resetPaymentSession,
   retryPostPayment,
@@ -39,6 +40,7 @@ const bodySchema = z.discriminatedUnion("action", [
     payerEmail: z.string().trim().toLowerCase().email().max(255).optional(),
   }),
   z.object({ action: z.literal("retry_post_payment") }),
+  z.object({ action: z.literal("reprint_proforma") }),
 ])
 
 /**
@@ -96,6 +98,8 @@ async function handlePost(request: NextRequest, context: RouteContext): Promise<
           return resendPayerEmail(invoiceId, body.payerEmail ?? null, auth.user.id)
         case "retry_post_payment":
           return retryPostPayment(invoiceId, auth.user.id)
+        case "reprint_proforma":
+          return reprintProforma(invoiceId, auth.user.id)
       }
     })()
 

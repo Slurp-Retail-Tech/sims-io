@@ -22,6 +22,7 @@ type Preview = {
   totalMinor: number
   alreadyExported: number
   totalPaidInPeriod: number
+  awaitingTaxInvoice: number
 }
 
 type Batch = {
@@ -154,6 +155,14 @@ export function ExportsView({ canManage }: { canManage: boolean }) {
                 <Stat label="Line items" value={preview ? String(preview.lineCount) : "—"} />
                 <Stat label="Total" value={preview ? money(preview.totalMinor) : "—"} />
               </div>
+              {preview && preview.awaitingTaxInvoice > 0 ? (
+                <p className="text-xs text-amber-800 dark:text-amber-200">
+                  {plural(preview.awaitingTaxInvoice, "paid invoice")} in this period{" "}
+                  {preview.awaitingTaxInvoice === 1 ? "is" : "are"} left out until the tax invoice is issued. Bukku
+                  books the tax invoice number, so {preview.awaitingTaxInvoice === 1 ? "it joins" : "they join"} a later
+                  export.
+                </p>
+              ) : null}
               {error ? <p className="text-destructive text-sm">{error}</p> : null}
               {canManage ? (
                 <Button size="sm" className="self-start" disabled={generating || loading || !preview || preview.lineCount === 0} onClick={() => void generate()}>

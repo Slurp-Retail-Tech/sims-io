@@ -47,6 +47,7 @@ import { getTemplate, renderTemplate } from "./message-templates.ts"
 import { formatMinorForDisplay } from "./money.ts"
 import { allocateInvoiceNumber } from "./numbering.ts"
 import { TERM_MONTHS } from "./plan-resolution.ts"
+import { loadRenewalSettings } from "./settings.ts"
 
 const log = createLogger("renewal:post-payment")
 
@@ -170,10 +171,14 @@ export async function runPostPayment(
 
   // 3. Documents
   try {
+    // A tax invoice with no PDF yet was issued on this run (or its render
+    // failed last time). The receipt prints its number, so only then does a
+    // stored receipt need re-rendering; every other rerun leaves it alone.
+    const taxInvoiceIsNew = taxInvoice !== null && !taxInvoice.pdfObjectKey
     if (taxInvoice) {
-      await ensureInvoicePdf(taxInvoice.id, { force: !taxInvoice.pdfObjectKey })
+      await ensureInvoicePdf(taxInvoice.id, { force: taxInvoiceIsNew })
     }
-    const receipt = await ensureReceiptPdf(invoice.id, { force: true })
+    const receipt = await ensureReceiptPdf(invoice.id, { force: taxInvoiceIsNew })
     steps.push({ step: "documents", outcome: "done", note: receipt.objectKey })
   } catch (error) {
     log.error("Post-payment documents could not be rendered", error, { invoiceId })
@@ -200,6 +205,11 @@ export async function runPostPayment(
     steps.push({ step: "payer_email", outcome: "skipped", note: "Already sent" })
   } else if (current.payerEmailStatus === "failed" && !options.forcePayerEmail) {
     steps.push({ step: "payer_email", outcome: "skipped", note: "Failed earlier; waiting for a person" })
+  } else if (!(await loadRenewalSettings()).dispatchEnabled) {
+    // The kill switch suspends every outbound message, the payer's documents
+    // included (PRD 4.9, 4.15, AC36). The email stays pending, not failed:
+    // nothing went wrong, and it goes out once dispatch is resumed.
+    steps.push({ step: "payer_email", outcome: "skipped", note: "Outbound dispatch is paused" })
   } else {
     steps.push(await sendPayerDocuments(current, taxInvoice ?? (await findTaxInvoiceForProforma(invoiceId))))
   }
@@ -679,6 +689,22 @@ export async function sendPayerDocuments(
     )
     return { step: "payer_email", outcome: "failed", note: message }
   }
+}
+
+/**
+ * Paid invoices whose payer email is still waiting, however long ago they
+ * were paid. Resuming dispatch sends these: an email held back by the kill
+ * switch is not something anyone should have to remember to resend.
+ */
+export async function listInvoicesWithPendingPayerEmail(db: Queryable = getPool()): Promise<string[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT id FROM renewal_invoices
+      WHERE deleted_at IS NULL AND document_type = 'proforma' AND status = 'paid'
+        AND payer_email_status = 'pending'
+      ORDER BY paid_at ASC
+      LIMIT 500`
+  )
+  return (rows as Array<{ id: string }>).map((row) => String(row.id))
 }
 
 /** Paid invoices with a step still outstanding inside the retry window. */

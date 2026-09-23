@@ -111,7 +111,7 @@ export function PlanDetailView({ planId, canManage }: PlanDetailViewProps) {
       : ""
     if (result.approvalStatus === "pending") {
       showToast(
-        `Assigned, but the override waits for approval before it prices anything.${replaced}`,
+        `Assigned, but the agreed price waits for approval before it prices anything.${replaced}`,
         "success"
       )
     } else {
@@ -218,7 +218,7 @@ export function PlanDetailView({ planId, canManage }: PlanDetailViewProps) {
           label="Pending approval"
           value={pendingCount === 0 ? "None" : String(pendingCount)}
           valueTone={pendingCount > 0 ? "red" : undefined}
-          note="Overrides past the variance threshold."
+          note="Agreed prices past the variance threshold."
         />
       </div>
 
@@ -226,7 +226,7 @@ export function PlanDetailView({ planId, canManage }: PlanDetailViewProps) {
         <div className="flex items-start gap-2.5 rounded-[var(--radius)] border border-red-800/30 bg-red-800/[0.06] px-3.5 py-3">
           <AlertTriangle className="text-destructive mt-0.5 size-4 shrink-0" />
           <span className="text-destructive text-[0.8125rem]">
-            {pendingCount} {pendingCount === 1 ? "override on this plan is" : "overrides on this plan are"} past
+            {pendingCount} {pendingCount === 1 ? "agreed price on this plan is" : "agreed prices on this plan are"} past
             the threshold and blocking invoicing until approved.
           </span>
         </div>
