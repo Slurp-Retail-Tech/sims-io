@@ -198,10 +198,13 @@ export function plural(count: number, singular: string, pluralForm = `${singular
 export function PageHeader({
   title,
   description,
+  meta,
   children,
 }: {
   title: string
   description: string
+  /** A quiet line under the description, e.g. when the nightly check last ran. */
+  meta?: React.ReactNode
   children?: React.ReactNode
 }) {
   return (
@@ -209,6 +212,7 @@ export function PageHeader({
       <div>
         <h1 className="text-2xl font-semibold tracking-[-0.01em]">{title}</h1>
         <p className="text-muted-foreground mt-1 text-sm text-pretty">{description}</p>
+        {meta ? <div className="text-muted-foreground mt-1.5 text-xs">{meta}</div> : null}
       </div>
       {children ? <div className="flex flex-wrap items-center gap-2">{children}</div> : null}
     </div>
@@ -293,4 +297,48 @@ export function ColumnHeadings({ columns, grid }: { columns: Array<{ label: stri
       ))}
     </div>
   )
+}
+
+/**
+ * The nightly renewal check's status, as the list APIs return it.
+ * Re-declared for the client bundle; mirrors `RunStatus` in
+ * `src/lib/renewal/run-status.ts`.
+ */
+export type RunStatus = {
+  lastStatus: "succeeded" | "failed" | null
+  lastFinishedAt: string | null
+  lastSucceededAt: string | null
+  subscriptionsInWindow: number
+  readinessWindowDays: number
+  invoiceWindowDays: number
+}
+
+/**
+ * "Last checked 22 Sep · 01:15", or why it cannot say.
+ *
+ * Says "the next nightly check" rather than a clock time on purpose: the
+ * schedule lives in the platform scheduler, not in SIMS, so a hardcoded time
+ * would drift from the truth the day someone moves the cron.
+ */
+export function RunStatusLine({ status }: { status: RunStatus | null }) {
+  if (!status) {
+    return null
+  }
+  if (status.lastSucceededAt === null) {
+    return (
+      <span>
+        {status.lastStatus === "failed"
+          ? `The nightly check has never completed. It last failed ${shortDateTime(status.lastFinishedAt)}.`
+          : "Not checked yet. The first nightly check fills this in."}
+      </span>
+    )
+  }
+  if (status.lastStatus === "failed") {
+    return (
+      <span className="text-amber-700 dark:text-amber-400">
+        The last check failed {shortDateTime(status.lastFinishedAt)}. Last good check {shortDateTime(status.lastSucceededAt)}.
+      </span>
+    )
+  }
+  return <span>Last checked {shortDateTime(status.lastSucceededAt)}. Checked again at the next nightly run.</span>
 }

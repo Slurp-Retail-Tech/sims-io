@@ -10,6 +10,7 @@ import getPool, { type Queryable } from "../db.ts"
 import type { RowDataPacket } from "mysql2/promise"
 
 import { listOpenActions } from "./actions-required.ts"
+import { loadRunStatus } from "./run-status.ts"
 import { addDays } from "./invoice-build.ts"
 import { loadRenewalList } from "./renewal-list-data.ts"
 import type { ListFranchise } from "./renewal-list-data.ts"
@@ -49,14 +50,10 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
   const monthStart = `${today.slice(0, 7)}-01`
   const monthEnd = addDays(`${today.slice(0, 7)}-01`, 31).slice(0, 7) + "-01"
 
-  const [{ franchises }, actions, lastRunRows, paidRows, funnelRows] = await Promise.all([
+  const [{ franchises }, actions, runStatus, paidRows, funnelRows] = await Promise.all([
     loadRenewalList({ horizonDays: 30, lookbackDays: 0 }, db),
     listOpenActions({}, db),
-    db.query<RowDataPacket[]>(
-      `SELECT status, finished_at FROM job_runs
-        WHERE job_type = 'renewal-cycle' AND status IN ('succeeded', 'failed')
-        ORDER BY id DESC LIMIT 1`
-    ),
+    loadRunStatus(db),
     db.query<RowDataPacket[]>(
       `SELECT i.id, i.invoice_number, i.company_name, i.paid_at, i.total_amount,
               i.extension_status,
@@ -80,7 +77,6 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
     ),
   ])
 
-  const lastRun = (lastRunRows[0] as Array<{ status: string; finished_at: string | null }>)[0] ?? null
   const funnel = (funnelRows[0] as Array<Record<string, string | number | null>>)[0] ?? {}
   const toMinor = (value: string | number | null | undefined) =>
     value === null || value === undefined ? 0 : Math.round(Number(value) * 100)
@@ -103,7 +99,9 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
 
   return {
     today,
-    lastRun: lastRun ? { finishedAt: lastRun.finished_at, status: lastRun.status } : null,
+    lastRun: runStatus.lastStatus
+      ? { finishedAt: runStatus.lastFinishedAt, status: runStatus.lastStatus }
+      : null,
     kpis: {
       expiringIn30: {
         count: expiring.reduce((sum, franchise) => sum + franchise.outlets.length, 0),

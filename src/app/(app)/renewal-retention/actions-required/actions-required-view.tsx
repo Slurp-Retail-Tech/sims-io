@@ -2,15 +2,15 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { CheckCircle2 } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Clock, Inbox } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { useToast } from "@/components/toast-provider"
 import { cn } from "@/lib/utils"
 
-import { daysLabel, PageHeader, Pill, PillTabs, TONE_TEXT } from "../ui"
-import type { Tone } from "../ui"
+import { daysLabel, PageHeader, Pill, PillTabs, RunStatusLine, TONE_TEXT } from "../ui"
+import type { RunStatus, Tone } from "../ui"
 import { REASON_FIXES, REASON_LABELS } from "./reasons"
 
 type ActionRow = {
@@ -31,6 +31,47 @@ type ActionRow = {
 }
 
 type Tab = "all" | "blocking" | "informational"
+
+type QueueState = "never_checked" | "last_run_failed" | "nothing_in_window" | "clear" | "has_entries"
+
+/**
+ * What an empty queue says, by what it actually knows. Decided server-side in
+ * `src/lib/renewal/queue-state.ts`; an empty queue only claims "clear" once a
+ * check has succeeded and had something to examine.
+ */
+function emptyQueueCopy(state: QueueState, status: RunStatus | null): {
+  icon: React.ReactNode
+  title: string
+  body: string
+} {
+  const days = status?.readinessWindowDays ?? 30
+  switch (state) {
+    case "never_checked":
+      return {
+        icon: <Clock className="text-muted-foreground size-5" />,
+        title: "Nothing has been checked yet.",
+        body: `The nightly check examines every subscription expiring in the next ${days} days for a plan, a price and a reachable renewal PIC. Anything missing appears here after it first runs.`,
+      }
+    case "last_run_failed":
+      return {
+        icon: <AlertTriangle className="size-5 text-amber-600" />,
+        title: "The last check did not complete.",
+        body: "An empty queue says nothing about today until the next check succeeds.",
+      }
+    case "nothing_in_window":
+      return {
+        icon: <Inbox className="text-muted-foreground size-5" />,
+        title: `No subscriptions expire in the next ${days} days.`,
+        body: "There is nothing for the check to examine yet.",
+      }
+    default:
+      return {
+        icon: <CheckCircle2 className="size-5 text-emerald-600" />,
+        title: "Nothing is blocked.",
+        body: `Every subscription expiring in the next ${days} days has a plan, a price and someone accountable for it.`,
+      }
+  }
+}
 
 /** Where the fix lives, per reason. The button takes the person there. */
 function fixLink(action: ActionRow): { label: string; href: string } | null {
@@ -72,6 +113,8 @@ function fixLink(action: ActionRow): { label: string; href: string } | null {
 export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
   const { showToast } = useToast()
   const [actions, setActions] = React.useState<ActionRow[]>([])
+  const [runStatus, setRunStatus] = React.useState<RunStatus | null>(null)
+  const [queueState, setQueueState] = React.useState<QueueState>("has_entries")
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [dismissing, setDismissing] = React.useState<string | null>(null)
@@ -85,8 +128,14 @@ export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
       if (!response.ok) {
         throw new Error("Unable to load the queue.")
       }
-      const payload = (await response.json()) as { actions: ActionRow[] }
+      const payload = (await response.json()) as {
+        actions: ActionRow[]
+        runStatus?: RunStatus
+        queueState?: QueueState
+      }
       setActions(payload.actions ?? [])
+      setRunStatus(payload.runStatus ?? null)
+      setQueueState(payload.queueState ?? "has_entries")
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load the queue.")
     } finally {
@@ -135,6 +184,7 @@ export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
       <PageHeader
         title="Actions Required"
         description="Outlets and franchises that cannot be carried through the renewal flow, with the reason. Entries auto-resolve on the next nightly run once the gap is closed."
+        meta={<RunStatusLine status={runStatus} />}
       >
         <PillTabs
           size="sm"
@@ -160,17 +210,28 @@ export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
       ) : visible.length === 0 ? (
         <Card>
           <CardContent className="flex items-center gap-3 py-10">
-            <CheckCircle2 className="size-5 text-emerald-600" />
-            <div>
-              <p className="text-sm font-medium">
-                {actions.length === 0 ? "Nothing is blocked." : "Nothing in this tab."}
-              </p>
-              <p className="text-muted-foreground text-sm">
-                {actions.length === 0
-                  ? "Every subscription inside the readiness window has a plan, a price and someone accountable for it."
-                  : "Switch tabs to see the rest of the queue."}
-              </p>
-            </div>
+            {actions.length === 0 ? (
+              (() => {
+                const copy = emptyQueueCopy(queueState, runStatus)
+                return (
+                  <>
+                    {copy.icon}
+                    <div>
+                      <p className="text-sm font-medium">{copy.title}</p>
+                      <p className="text-muted-foreground text-sm text-pretty">{copy.body}</p>
+                    </div>
+                  </>
+                )
+              })()
+            ) : (
+              <>
+                <CheckCircle2 className="size-5 text-emerald-600" />
+                <div>
+                  <p className="text-sm font-medium">Nothing in this tab.</p>
+                  <p className="text-muted-foreground text-sm">Switch tabs to see the rest of the queue.</p>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : (
