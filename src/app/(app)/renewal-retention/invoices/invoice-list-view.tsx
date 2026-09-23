@@ -25,9 +25,11 @@ import {
   PageHeader,
   Pill,
   plural,
+  RunStatusLine,
   TERM_LABEL,
   TONE_TEXT,
 } from "../ui"
+import type { RunStatus } from "../ui"
 
 type Invoice = {
   id: string
@@ -84,6 +86,7 @@ export function InvoiceListView() {
   })
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [runStatus, setRunStatus] = React.useState<RunStatus | null>(null)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -94,8 +97,9 @@ export function InvoiceListView() {
       if (!response.ok) {
         throw new Error("Unable to load invoices.")
       }
-      const payload = (await response.json()) as { invoices: Invoice[] }
+      const payload = (await response.json()) as { invoices: Invoice[]; runStatus?: RunStatus }
       setInvoices(payload.invoices ?? [])
+      setRunStatus(payload.runStatus ?? null)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load invoices.")
     } finally {
@@ -111,7 +115,8 @@ export function InvoiceListView() {
     <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-5">
       <PageHeader
         title="Invoices"
-        description="Proformas and tax invoices. One proforma per franchise-and-expiry-date group per cycle; the T-5 and T-1 runs reuse it."
+        description="Proformas and tax invoices. One proforma per franchise and expiry date, raised by the nightly check and reused on every later night until it is paid."
+        meta={<RunStatusLine status={runStatus} />}
       >
         <Select value={status} onValueChange={setStatus}>
           <SelectTrigger className="h-9 w-48">
@@ -144,8 +149,11 @@ export function InvoiceListView() {
               <Receipt className="text-muted-foreground size-5" />
               <div>
                 <p className="text-sm font-medium">No invoices yet.</p>
-                <p className="text-muted-foreground text-sm">
-                  The nightly run raises one for each subscription reaching a reminder point.
+                <p className="text-muted-foreground text-sm text-pretty">
+                  {runStatus && runStatus.lastSucceededAt === null
+                    ? "The nightly check has not run yet. "
+                    : ""}
+                  {`The nightly check raises a proforma for every eligible outlet expiring within the next ${runStatus?.invoiceWindowDays ?? 15} days. An outlet missing a plan or a renewal PIC is listed in Actions Required instead.`}
                 </p>
               </div>
             </div>

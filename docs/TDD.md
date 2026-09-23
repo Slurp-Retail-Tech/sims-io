@@ -1541,10 +1541,120 @@ and recorded on the invoice:
    the extension row; invoice `pos_push_status` is `pushed` only when every row
    is. Failure raises `pos_push_failed` (informational) and never rolls back.
 5. *Payer email.* Receipt and tax invoice PDFs to `payment_email` over SMTP
-   (`payer_email_status`). Failure raises `payer_email_failed`.
+   (`payer_email_status`). Failure raises `payer_email_failed`. Held as
+   `pending` while `dispatch_enabled` is off (PRD 4.9, AC36); resuming
+   dispatch enqueues post-payment for every invoice still pending.
+
+The receipt PDF is re-rendered only on the run that issues the tax invoice
+(it prints the INV- number); later reruns leave the stored receipt alone.
+
+**Bukku export.** One row per paid line, `Invoice No` from the linked INV-
+tax invoice (`parent_invoice_id`), with `Proforma No`, `Central ID`, and
+`Payment Ref` from the gateway transaction or the offline bank reference.
+Paid invoices whose tax invoice is not issued yet are left out and join a
+later batch.
 
 Automatic re-queuing by the reconcile job stops 48 hours after payment; after
 that a person uses **Retry post-payment steps** from the invoice page.
+
+**Receipt page.** While a payment is unconfirmed the receipt page re-reads
+the view with `?poll=1` (its own rate-limit bucket, never counted as an open)
+up to `receipt_poll_ceiling_seconds`, and asks
+`POST /api/public/renewal/{token}/check-payment` shortly after arriving and
+then every minute. That runs one CommercePay query for the link's open
+session through the same `querySessionOnce` the hourly sweep uses, throttled
+to one query per link per minute with `cacheAcquire`, and drives the
+post-payment job after the response when it finds a payment.
+
+**Letterhead.** Company details live in `renewal_settings` (`seller_name`,
+`seller_registration_no`, `seller_address`, `seller_contact`; migration 037)
+and are edited on Renewal Settings. `buildSellerBlock` in `seller.ts` is the
+one builder for the PDF and the public page: Settings win; the deprecated
+`RENEWAL_SELLER_*` variables are read only while no Settings line is filled
+in, and never mixed with Settings lines. Stored PDFs keep the letterhead they
+were rendered with. An open proforma can be re-rendered with **Re-print
+proforma** (`reprint_proforma` action, recorded in the timeline); issued tax
+invoices and receipts are never re-rendered.
+
+**Setup checklist.** The Overview opens with the steps to a first invoice
+(`setup-checklist.ts`, pure): company details, an active plan, outlets on a
+plan, a renewal PIC, a reachable PIC, and a succeeded nightly check. The three
+queue-based steps read "not checked yet" until the nightly check has
+succeeded once. The card disappears when every step is done.
+
+**Prices and the clock, as staff see them.** An assignment-level price is
+called an **Agreed price** (applies every cycle, may need approval); a
+line-level price is a **One-off price** (this invoice line only). Both are
+measured against the catalog price and need approval past
+`override_variance_threshold_pct`. Renewal Settings draws the readiness
+window, the invoicing window (derived from the furthest reminder offset), the
+reminders and the grace window on one line (`settings-timeline.ts`, pure).
+
+**Lapse.** The nightly cycle (full runs only) moves open proformas to
+`lapsed` once due date plus grace is behind today (`lapse.ts`, cutoff from
+`lapsedIfDueBefore`, which agrees with the public page's `payabilityOf`),
+records `status_lapsed`, and marks the billed outlets `non_renewed` where
+their expiry has not moved. An invoice with an open payment session is
+skipped, so a late payment whose callback was lost is still found by the
+reconcile sweep. Migration 038 makes `open_guard` release on `cancelled`,
+`superseded` and `lapsed`, so a voided or lapsed proforma no longer blocks a
+fresh one for the same group; a paid one still does.
+
+**POS drift.** When the POS reports a later expiry than a SIMS-owned date,
+the subscription sync raises an informational `pos_valid_until_drift` entry
+per outlet, naming any open proforma, and resolves entries for outlets in the
+same batch that no longer drift (`pos-drift.ts`, `pos-drift-store.ts`).
+**Accept POS date** (subscriptions manage key) takes the POS value as the
+SIMS date, marked `manual`, forward only; the next cycle then reports the
+open proforma for the old date as `stale_proforma`.
+
+**Analytics.** Periods (`analytics-periods.ts`, pure) run from three months
+ahead to eleven back, plus the current and previous full years; the loader
+reads the selected period's year. Figures link to the Renewal List for the
+same window through `?month=` (`YYYY-MM` or `YYYY`, which replaces the
+90-day window with that expiry range), `?state=` and `?opened=`. PIC
+directories for the list are loaded in three queries for every franchise
+(`loadRenewalDirectories`) instead of three per franchise.
+
+## Renewal message dispatch (Respond.io)
+
+Reminders and receipts go to the renewal PIC and every CC, on each channel
+they have enabled with a usable address, through the Respond.io Developer API.
+It ships switched off (`dispatch_enabled`).
+
+- **Rows.** `renewal_dispatches` (migration 039): one row per invoice,
+  dispatch type (`reminder_first`, `reminder_second`, `reminder_final`,
+  `receipt`), channel and recipient, unique on those four, so re-queueing is
+  idempotent. The address is frozen at enqueue.
+- **Queueing.** `queueRenewalMessages` (`dispatch-enqueue.ts`) writes rows only
+  while dispatch is on (AC36) and wakes the job runner. The nightly cycle
+  queues `reminder_first` the night a proforma is raised, then one reminder
+  per offset night (`reminderTypeForNight`: furthest offset first, nearest
+  final). Post-payment queues the receipt (`queueReceiptForInvoice`).
+- **Fan-out and duplicates.** `planDispatches` (pure, tested): PIC first, then
+  CCs; the same contact twice is one person; a repeated address is recorded as
+  `suppressed`; on a receipt, an email to the address the payer documents went
+  to is suppressed, the WhatsApp receipt kept (AC23).
+- **Sending.** `renewal-dispatch` job → `sendDueDispatches`. At send time it
+  cancels a reminder whose invoice closed or whose licence expired, and a
+  receipt for an unpaid invoice. It holds reminders to the send window (Kuala
+  Lumpur time; receipts go immediately), stamps the attempt before the call,
+  and calls Respond.io once. Paced at 4 per second; a 429 refunds the attempt
+  and stops the pass until `Retry-After`. Failures retry after 5, 30 and 120
+  minutes; the third marks the row failed and raises informational
+  `dispatch_failed`, cleared when a resend succeeds. A send interrupted
+  mid-call is marked failed after 15 minutes, never resent automatically.
+- **Copy.** `message-templates.ts`; `dispatch-message.ts` fills it from the
+  public invoice view. WhatsApp body parameters follow the order of the
+  placeholders in the copy; the URL button's dynamic suffix is the renewal
+  token (receipts: `{token}/receipt`). The button parameter shape must be
+  confirmed against the approved template before switch-on.
+- **Surfaces.** Invoice timeline lists every row; **Resend dispatch** re-queues
+  the latest message for everyone it went to; the Renewal List derives
+  `reminder_sent`; Overview's funnel and Analytics' engagement tab count
+  reminded invoices and failed messages.
+- **Payer documents stay on SMTP** (`post-payment.ts`), not Respond.io: a
+  deliberate deviation from PRD 4.15 (AC22), held by the same kill switch.
 
 ## Milestones
 

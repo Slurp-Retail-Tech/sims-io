@@ -31,8 +31,10 @@ import type {
 } from "./metrics.ts"
 import { loadRenewalList } from "./renewal-list-data.ts"
 import { todayInAppZone } from "./app-date.ts"
+import { resolvePeriod } from "./analytics-periods.ts"
+import type { AnalyticsPeriod } from "./analytics-periods.ts"
 
-export type AnalyticsPeriod = { key: string; from: string; to: string; label: string }
+export type { AnalyticsPeriod }
 
 export type AnalyticsData = {
   period: AnalyticsPeriod
@@ -44,27 +46,7 @@ export type AnalyticsData = {
   months: MonthBar[]
 }
 
-const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-
-function lastDayOfMonth(year: number, month: number): string {
-  const day = new Date(Date.UTC(year, month, 0)).getUTCDate()
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-}
-
-export function resolvePeriod(key: string | null, today: string): { period: AnalyticsPeriod; periods: AnalyticsPeriod[] } {
-  const [year, month] = today.split("-").map(Number)
-  const periods: AnalyticsPeriod[] = []
-  for (let offset = 0; offset < 6; offset += 1) {
-    const date = new Date(Date.UTC(year, month - 1 - offset, 1))
-    const y = date.getUTCFullYear()
-    const m = date.getUTCMonth() + 1
-    const monthKey = `${y}-${String(m).padStart(2, "0")}`
-    periods.push({ key: monthKey, from: `${monthKey}-01`, to: lastDayOfMonth(y, m), label: `${MONTH_NAMES[m - 1]} ${y}` })
-  }
-  periods.push({ key: String(year), from: `${year}-01-01`, to: `${year}-12-31`, label: `Full year ${year}` })
-  const period = periods.find((entry) => entry.key === key) ?? periods[0]
-  return { period, periods }
-}
+export { resolvePeriod }
 
 type InvoiceRow = RowDataPacket & {
   id: string
@@ -80,25 +62,33 @@ type InvoiceRow = RowDataPacket & {
   open_count: number
   period_start: string | null
   has_session: number
+  reminded: number
+  messages_failed: number
 }
 
 export async function loadAnalytics(periodKey: string | null, db: Queryable = getPool()): Promise<AnalyticsData> {
   const today = todayInAppZone()
   const { period, periods } = resolvePeriod(periodKey, today)
-  const year = Number(today.slice(0, 4))
+  // The selected period's year, not always this one: the picker reaches into
+  // next year and last year, and a month outside the loaded year would read
+  // as empty.
+  const year = Number(period.from.slice(0, 4))
 
   // The whole year of subscriptions, priced once; the period and the bars
   // are both cut from it.
-  const horizon = daysBetween(today, `${year}-12-31`)
-  const lookback = daysBetween(`${year}-01-01`, today)
   const [{ franchises }, invoiceRows, lineRows, actions, overrideRows] = await Promise.all([
-    loadRenewalList({ horizonDays: Math.max(1, horizon), lookbackDays: Math.max(0, lookback), today }, db),
+    loadRenewalList({ fromDate: `${year}-01-01`, toDate: `${year}-12-31`, today }, db),
     db.query<InvoiceRow[]>(
       `SELECT i.id, i.status, i.is_grouped, i.billing_plan_selected, i.total_amount,
               i.adjustment_amount, i.paid_at, i.paid_via, i.created_at, i.first_opened_at,
               i.open_count, i.period_start,
               EXISTS (SELECT 1 FROM renewal_payment_sessions s
-                       WHERE s.invoice_id = i.id AND s.cap_session_number IS NOT NULL) AS has_session
+                       WHERE s.invoice_id = i.id AND s.cap_session_number IS NOT NULL) AS has_session,
+              EXISTS (SELECT 1 FROM renewal_dispatches d
+                       WHERE d.invoice_id = i.id AND d.status = 'sent'
+                         AND d.dispatch_type IN ('reminder_first','reminder_second','reminder_final')) AS reminded,
+              (SELECT COUNT(*) FROM renewal_dispatches d
+                WHERE d.invoice_id = i.id AND d.status = 'failed') AS messages_failed
          FROM renewal_invoices i
         WHERE i.deleted_at IS NULL AND i.document_type = 'proforma'
           AND (i.period_start BETWEEN ? AND ? OR DATE(i.paid_at) BETWEEN ? AND ?)`,
@@ -147,6 +137,8 @@ export async function loadAnalytics(periodKey: string | null, db: Queryable = ge
     openCount: Number(row.open_count),
     hasSession: Number(row.has_session) === 1,
     reconciledBySweep: false,
+    reminded: Number(row.reminded) === 1,
+    messagesFailed: Number(row.messages_failed ?? 0),
     periodStart: row.period_start,
   }))
   const periodInvoices = allInvoices.filter(

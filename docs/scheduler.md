@@ -173,6 +173,12 @@ Notes:
 - Outlets that cannot be invoiced are written to Actions Required with the
   reason, and re-evaluated every night, so closing the underlying gap re-enters
   them automatically and resolves the entry.
+- **Check now.** An Admin with the invoices key can press **Check now** on
+  Actions Required, which POSTs `{"mode":"check"}` to the same route. A check
+  runs every plan, price and PIC check and the stale-proforma sweep, but never
+  raises an invoice, renders a document or records a cadence event. It holds
+  its own single-flight key (`check`), so it can never join or swallow the
+  nightly run. The cron path is always a full run.
 - Every gap is reported, not just the first: an outlet with no plan *and* no
   renewal PIC raises both, so one pass through the queue closes both.
 - Nothing is sent to a merchant by this job. Outbound dispatch is behind the
@@ -217,6 +223,47 @@ Notes:
   excluded from the auth middleware like every other `/api` route. Its
   `callbackUrl` is built from `APP_BASE_URL`, so that variable must be the
   public origin the gateway can reach.
+
+## Renewal message dispatch
+
+```
+POST /api/renewals/dispatch
+```
+
+Recommended cron expression (every 15 minutes):
+
+```
+*/15 * * * *
+```
+
+Command example:
+
+```
+curl -X POST "https://your-app-domain.com/api/renewals/dispatch" -H "x-cron-secret: ${RENEWAL_DISPATCH_CRON_SECRET}"
+```
+
+Notes:
+- `RENEWAL_DISPATCH_CRON_SECRET` must match the header value.
+- Reminders are queued by the nightly cycle: `reminder_first` the night a
+  proforma is raised, then one per offset night (furthest offset is the first,
+  nearest the final). Receipts to the PIC and CCs are queued by post-payment.
+  Both wake the job runner, so most messages go within a minute of the tick.
+  This route picks up what falls due later: reminders held for the send
+  window (Kuala Lumpur time) and retries after a failure.
+- **Nothing is queued or sent while dispatch is paused** in Renewal Settings
+  (PRD AC36). Resuming does not release a backlog of stale reminders; the
+  next offset night queues the current one.
+- Each row is written before the Respond.io call. A failure retries after 5,
+  30 and 120 minutes; the third failure marks the row failed and raises
+  `dispatch_failed` (informational) in Actions Required. A send interrupted
+  mid-call is never retried automatically, since it may have been delivered:
+  after 15 minutes it is marked failed and a person uses **Resend dispatch**.
+- Paced at 4 sends a second, under Respond.io's 5 per method. A 429 stops the
+  pass until `Retry-After` has passed.
+- Needs `RESPONDIO_API_TOKEN`, `RESPONDIO_EMAIL_CHANNEL_ID` (email) and the
+  WhatsApp channel id (Settings or `RESPONDIO_WHATSAPP_CHANNEL_ID`), and
+  `APP_BASE_URL` for the links. WhatsApp also needs the Meta-approved
+  templates named in `message-templates.ts`.
 
 ## Job runner tick (required)
 

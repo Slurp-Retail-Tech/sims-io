@@ -92,6 +92,41 @@ export function AppSidebar({
     }
   }, [])
 
+  // Live counts for items that carry a `badgeKey`. Only fetched when the user
+  // can see the item at all; the route enforces the same keys regardless.
+  const [badges, setBadges] = React.useState<Partial<Record<NonNullable<NavItem["badgeKey"]>, number>>>({})
+  const canSeeQueue = sessionUser
+    ? canAccessPath(sessionUser.role ?? "", sessionUser.pageAccess ?? [], "/renewal-retention/actions-required")
+    : false
+
+  React.useEffect(() => {
+    if (!canSeeQueue) {
+      return
+    }
+    let cancelled = false
+    // Re-asked on navigation so fixing something and moving on updates the
+    // count; one indexed COUNT, so the cost is negligible.
+    fetch("/api/renewals/actions-required/count", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { blocking?: number } | null) => {
+        if (!cancelled && payload && typeof payload.blocking === "number") {
+          setBadges((current) => ({ ...current, actionsRequiredBlocking: payload.blocking }))
+        }
+      })
+      .catch(() => {
+        // A badge is a convenience; a failed count must never break navigation.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [canSeeQueue, pathname])
+
+  const withBadges = React.useCallback(
+    (items: NavItem[]): NavItem[] =>
+      items.map((item) => (item.badgeKey ? { ...item, badge: badges[item.badgeKey] } : item)),
+    [badges]
+  )
+
   const userDepartment = sessionUser?.department ?? "Merchant Success"
   const isSuperAdmin = sessionUser?.role === "Super Admin"
   const isAdminOrHigher =
@@ -124,8 +159,8 @@ export function AppSidebar({
   const salesItems = markActive(
     filterNavItems(navData.sales, pageAccess, sessionUser?.role ?? "")
   )
-  const renewalItems = markActive(
-    filterNavItems(navData.renewalRetention, pageAccess, sessionUser?.role ?? "")
+  const renewalItems = withBadges(
+    markActive(filterNavItems(navData.renewalRetention, pageAccess, sessionUser?.role ?? ""))
   )
   const generalItems = markActive(
     filterNavItems(

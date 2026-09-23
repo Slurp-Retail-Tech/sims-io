@@ -35,6 +35,10 @@ export type InvoiceFact = {
   hasSession: boolean
   /** True when payment was confirmed by the query sweep rather than a callback. */
   reconciledBySweep: boolean
+  /** At least one reminder was actually sent for it. */
+  reminded?: boolean
+  /** Messages for it that gave up after their retries. */
+  messagesFailed?: number
 }
 
 export type LineFact = {
@@ -129,6 +133,9 @@ export type EngagementMetrics = {
   linkToPaymentRate: number | null
   medianHoursToFirstOpen: number | null
   sessionsStarted: number
+  reminded: number
+  remindedRate: number | null
+  messagesFailed: number
 }
 
 export function engagementMetrics(invoices: readonly InvoiceFact[]): EngagementMetrics {
@@ -147,6 +154,9 @@ export function engagementMetrics(invoices: readonly InvoiceFact[]): EngagementM
     linkToPaymentRate: percent(paidAfterOpen.length, opened.length),
     medianHoursToFirstOpen: median(hours),
     sessionsStarted: live.filter((invoice) => invoice.hasSession).length,
+    reminded: live.filter((invoice) => invoice.reminded).length,
+    remindedRate: percent(live.filter((invoice) => invoice.reminded).length, live.length),
+    messagesFailed: live.reduce((sum, invoice) => sum + (invoice.messagesFailed ?? 0), 0),
   }
 }
 

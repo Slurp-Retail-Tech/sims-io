@@ -5,6 +5,7 @@ import { clickUpSyncJobHandler } from "./job-handlers/clickup-sync.ts"
 import { merchantImportJobHandler } from "./job-handlers/merchant-import.ts"
 import { plusImportJobHandler } from "./job-handlers/plus-import.ts"
 import { renewalCycleJobHandler } from "./job-handlers/renewal-cycle.ts"
+import { renewalDispatchJobHandler } from "./job-handlers/renewal-dispatch.ts"
 import { renewalPaymentReconcileJobHandler } from "./job-handlers/renewal-payment-reconcile.ts"
 import { renewalPostPaymentJobHandler } from "./job-handlers/renewal-post-payment.ts"
 import { renewalSubscriptionSyncJobHandler } from "./job-handlers/renewal-subscription-sync.ts"
@@ -71,6 +72,7 @@ export const JOB_HANDLERS: Record<string, JobHandler> = {
   [renewalCycleJobHandler.jobType]: renewalCycleJobHandler,
   [renewalPostPaymentJobHandler.jobType]: renewalPostPaymentJobHandler,
   [renewalPaymentReconcileJobHandler.jobType]: renewalPaymentReconcileJobHandler,
+  [renewalDispatchJobHandler.jobType]: renewalDispatchJobHandler,
 }
 
 export function registerJobHandler(handler: JobHandler): void {
@@ -81,6 +83,8 @@ export function registerJobHandler(handler: JobHandler): void {
 export const JOB_TYPE_ORDER: readonly string[] = [
   // First: a merchant is sitting on the receipt page waiting for this.
   "renewal-post-payment",
+  // Next: receipts to the PIC follow a payment, and reminders are time-bound.
+  "renewal-dispatch",
   "plus-import",
   "merchant-import",
   // After merchant-import: the projection reads what that run just wrote, so

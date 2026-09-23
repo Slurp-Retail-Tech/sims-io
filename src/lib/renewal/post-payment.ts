@@ -47,6 +47,8 @@ import { getTemplate, renderTemplate } from "./message-templates.ts"
 import { formatMinorForDisplay } from "./money.ts"
 import { allocateInvoiceNumber } from "./numbering.ts"
 import { TERM_MONTHS } from "./plan-resolution.ts"
+import { loadRenewalSettings } from "./settings.ts"
+import { queueReceiptForInvoice } from "./dispatch-enqueue.ts"
 
 const log = createLogger("renewal:post-payment")
 
@@ -170,10 +172,14 @@ export async function runPostPayment(
 
   // 3. Documents
   try {
+    // A tax invoice with no PDF yet was issued on this run (or its render
+    // failed last time). The receipt prints its number, so only then does a
+    // stored receipt need re-rendering; every other rerun leaves it alone.
+    const taxInvoiceIsNew = taxInvoice !== null && !taxInvoice.pdfObjectKey
     if (taxInvoice) {
-      await ensureInvoicePdf(taxInvoice.id, { force: !taxInvoice.pdfObjectKey })
+      await ensureInvoicePdf(taxInvoice.id, { force: taxInvoiceIsNew })
     }
-    const receipt = await ensureReceiptPdf(invoice.id, { force: true })
+    const receipt = await ensureReceiptPdf(invoice.id, { force: taxInvoiceIsNew })
     steps.push({ step: "documents", outcome: "done", note: receipt.objectKey })
   } catch (error) {
     log.error("Post-payment documents could not be rendered", error, { invoiceId })
@@ -200,9 +206,22 @@ export async function runPostPayment(
     steps.push({ step: "payer_email", outcome: "skipped", note: "Already sent" })
   } else if (current.payerEmailStatus === "failed" && !options.forcePayerEmail) {
     steps.push({ step: "payer_email", outcome: "skipped", note: "Failed earlier; waiting for a person" })
+  } else if (!(await loadRenewalSettings()).dispatchEnabled) {
+    // The kill switch suspends every outbound message, the payer's documents
+    // included (PRD 4.9, 4.15, AC36). The email stays pending, not failed:
+    // nothing went wrong, and it goes out once dispatch is resumed.
+    steps.push({ step: "payer_email", outcome: "skipped", note: "Outbound dispatch is paused" })
   } else {
     steps.push(await sendPayerDocuments(current, taxInvoice ?? (await findTaxInvoiceForProforma(invoiceId))))
   }
+
+  // 6. Receipt to the PIC and CCs, through Respond.io.
+  const receipts = await queueReceiptForInvoice(invoiceId)
+  steps.push({
+    step: "receipt_dispatch",
+    outcome: receipts.queued > 0 ? "done" : "skipped",
+    note: receipts.note,
+  })
 
   log.info("Post-payment steps run", {
     invoiceId,
@@ -679,6 +698,27 @@ export async function sendPayerDocuments(
     )
     return { step: "payer_email", outcome: "failed", note: message }
   }
+}
+
+/**
+ * Paid invoices whose messages the kill switch held back: a payer email still
+ * pending, however long ago, or a receipt never queued for a payment in the
+ * last week. Resuming dispatch re-runs post-payment for these, so nothing
+ * held back has to be remembered and resent by hand. Older receipts are left
+ * alone: a thank-you weeks late does more harm than good.
+ */
+export async function listInvoicesHeldByPause(db: Queryable = getPool()): Promise<string[]> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT i.id FROM renewal_invoices i
+      WHERE i.deleted_at IS NULL AND i.document_type = 'proforma' AND i.status = 'paid'
+        AND (i.payer_email_status = 'pending'
+             OR (i.paid_at > DATE_SUB(NOW(3), INTERVAL 7 DAY)
+                 AND NOT EXISTS (SELECT 1 FROM renewal_dispatches d
+                                  WHERE d.invoice_id = i.id AND d.dispatch_type = 'receipt')))
+      ORDER BY i.paid_at ASC
+      LIMIT 500`
+  )
+  return (rows as Array<{ id: string }>).map((row) => String(row.id))
 }
 
 /** Paid invoices with a step still outstanding inside the retry window. */

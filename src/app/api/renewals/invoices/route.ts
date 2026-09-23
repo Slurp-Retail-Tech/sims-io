@@ -5,6 +5,7 @@ import { serverError } from "@/lib/api-errors"
 import { withRequestContext } from "@/lib/api-request-context"
 import { listInvoices } from "@/lib/renewal/invoices"
 import type { InvoiceStatus } from "@/lib/renewal/invoices"
+import { loadRunStatus } from "@/lib/renewal/run-status"
 
 import { INVOICES_MANAGE_PATH, INVOICES_VIEW_PATH } from "./helpers"
 
@@ -24,12 +25,15 @@ async function handleGet(request: NextRequest): Promise<Response> {
 
   try {
     const { searchParams } = new URL(request.url)
-    const invoices = await listInvoices({
-      status: (searchParams.get("status") as InvoiceStatus) || undefined,
-      franchiseId: searchParams.get("fid") ?? undefined,
-      limit: Number(searchParams.get("limit") ?? "100"),
-    })
-    return NextResponse.json({ invoices })
+    const [invoices, runStatus] = await Promise.all([
+      listInvoices({
+        status: (searchParams.get("status") as InvoiceStatus) || undefined,
+        franchiseId: searchParams.get("fid") ?? undefined,
+        limit: Number(searchParams.get("limit") ?? "100"),
+      }),
+      loadRunStatus(),
+    ])
+    return NextResponse.json({ invoices, runStatus })
   } catch (error) {
     return serverError("renewals/invoices", error, "Unable to load invoices.")
   }

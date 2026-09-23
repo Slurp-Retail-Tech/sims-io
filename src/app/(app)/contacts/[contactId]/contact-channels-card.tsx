@@ -30,6 +30,8 @@ type ContactChannelsCardProps = {
   email: string | null
   hasPhone: boolean
   onError: (message: string) => void
+  /** Told the enabled channels whenever they load or change. */
+  onChannelsChange?: (channels: ChannelState[]) => void
 }
 
 /**
@@ -49,6 +51,7 @@ export function ContactChannelsCard({
   email,
   hasPhone,
   onError,
+  onChannelsChange,
 }: ContactChannelsCardProps) {
   const [channels, setChannels] = React.useState<ChannelState[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -63,6 +66,7 @@ export function ContactChannelsCard({
       if (response.ok) {
         const payload = (await response.json()) as { channels: ChannelState[] }
         setChannels(payload.channels ?? [])
+        onChannelsChange?.(payload.channels ?? [])
       }
     } catch {
       // Left silent: a channel list that fails to load is not worth a toast on
@@ -70,7 +74,9 @@ export function ContactChannelsCard({
     } finally {
       setLoading(false)
     }
-  }, [contactId])
+    // The parent passes a setState function, whose identity is stable, so
+    // listing it does not cause a re-fetch on every render.
+  }, [contactId, onChannelsChange])
 
   React.useEffect(() => {
     void load()
@@ -104,6 +110,7 @@ export function ContactChannelsCard({
       }
       const payload = (await response.json()) as { channels: ChannelState[] }
       setChannels(payload.channels ?? [])
+      onChannelsChange?.(payload.channels ?? [])
     } catch {
       onError("Unable to reach the server. Try again.")
     } finally {

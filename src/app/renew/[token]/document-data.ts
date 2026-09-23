@@ -90,5 +90,6 @@ export function buildReceiptDocMeta(view: PublicInvoice): DocMetaRow[] {
     { label: "Tax invoice", value: view.taxInvoiceNumber ?? "Pending", mono: Boolean(view.taxInvoiceNumber) },
     { label: "Date", value: longDate(view.payment.paidAt?.slice(0, 10)) },
     { label: "Method", value: view.paidVia === "manual" ? "Bank transfer" : "CommercePay" },
+    ...(view.paymentReference ? [{ label: "Reference", value: view.paymentReference, mono: true }] : []),
   ]
 }

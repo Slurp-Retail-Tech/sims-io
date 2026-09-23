@@ -39,6 +39,13 @@ export type RenewalSettings = {
   receiptPollCeilingSeconds: number
   respondioWhatsappChannelId: string | null
   bukkuDescriptionFormat: string | null
+  /** Letterhead on every renewal document. Null falls back to the environment. */
+  sellerName: string | null
+  sellerRegistrationNo: string | null
+  /** Newline-separated address lines. */
+  sellerAddress: string | null
+  /** Newline-separated contact lines. */
+  sellerContact: string | null
   updatedAt: string | null
 }
 
@@ -62,6 +69,10 @@ export const DEFAULT_RENEWAL_SETTINGS: RenewalSettings = {
   receiptPollCeilingSeconds: 90,
   respondioWhatsappChannelId: null,
   bukkuDescriptionFormat: null,
+  sellerName: null,
+  sellerRegistrationNo: null,
+  sellerAddress: null,
+  sellerContact: null,
   updatedAt: null,
 }
 
@@ -80,6 +91,10 @@ type SettingsRow = RowDataPacket & {
   receipt_poll_ceiling_seconds: number
   respondio_whatsapp_channel_id: string | null
   bukku_description_format: string | null
+  seller_name: string | null
+  seller_registration_no: string | null
+  seller_address: string | null
+  seller_contact: string | null
   updated_at: string | null
 }
 
@@ -92,7 +107,9 @@ export async function loadRenewalSettings(
             readiness_window_days, dispatch_enabled,
             send_window_start, send_window_end, session_expiry_minutes,
             max_session_retries, receipt_poll_ceiling_seconds,
-            respondio_whatsapp_channel_id, bukku_description_format, updated_at
+            respondio_whatsapp_channel_id, bukku_description_format,
+            seller_name, seller_registration_no, seller_address, seller_contact,
+            updated_at
        FROM renewal_settings WHERE id = 1`
   )
 
@@ -116,6 +133,10 @@ export async function loadRenewalSettings(
     receiptPollCeilingSeconds: row.receipt_poll_ceiling_seconds,
     respondioWhatsappChannelId: row.respondio_whatsapp_channel_id,
     bukkuDescriptionFormat: row.bukku_description_format,
+    sellerName: row.seller_name,
+    sellerRegistrationNo: row.seller_registration_no,
+    sellerAddress: row.seller_address,
+    sellerContact: row.seller_contact,
     updatedAt: row.updated_at,
   }
 }
@@ -152,6 +173,10 @@ export async function saveRenewalSettings(
     ["receiptPollCeilingSeconds", "receipt_poll_ceiling_seconds", (value: number) => value],
     ["respondioWhatsappChannelId", "respondio_whatsapp_channel_id", (value: string | null) => value],
     ["bukkuDescriptionFormat", "bukku_description_format", (value: string | null) => value],
+    ["sellerName", "seller_name", (value: string | null) => value],
+    ["sellerRegistrationNo", "seller_registration_no", (value: string | null) => value],
+    ["sellerAddress", "seller_address", (value: string | null) => value],
+    ["sellerContact", "seller_contact", (value: string | null) => value],
   ]
 
   for (const [field, column, encode] of columns) {

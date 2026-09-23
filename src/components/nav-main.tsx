@@ -11,6 +11,7 @@ import {
   SidebarGroup,
   SidebarGroupLabel,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -28,6 +29,8 @@ export function NavMain({
     url: string
     icon: LucideIcon
     isActive?: boolean
+    /** A live count shown beside the item; hidden when zero or absent. */
+    badge?: number
     items?: {
       title: string
       url: string
@@ -76,6 +79,15 @@ export function NavMain({
                   </a>
                 </SidebarMenuButton>
               )}
+              {item.badge && item.badge > 0 ? (
+                <SidebarMenuBadge
+                  className="bg-destructive/10 text-destructive"
+                  aria-label={`${item.badge} blocking`}
+                  title={`${item.badge} blocking an invoice`}
+                >
+                  {item.badge > 99 ? "99+" : item.badge}
+                </SidebarMenuBadge>
+              ) : null}
               {item.items?.length ? (
                 <CollapsibleContent>
                   <SidebarMenuSub>

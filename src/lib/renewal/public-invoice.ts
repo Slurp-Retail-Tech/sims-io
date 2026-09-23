@@ -18,7 +18,7 @@ import { createHash } from "node:crypto"
 import { createLogger } from "../logger.ts"
 import { addDays } from "./invoice-build.ts"
 import type { InvoiceTotals } from "./invoice-build.ts"
-import { ensureInvoicePdf, sellerBlock } from "./invoice-pdf.ts"
+import { ensureInvoicePdf, sellerBlockFor } from "./invoice-pdf.ts"
 import {
   findTaxInvoiceForProforma,
   getInvoiceById,
@@ -92,6 +92,10 @@ export type PublicInvoiceView = {
   /** Whether the licence dates have moved yet after payment. */
   extension: ExtensionStatus
   paidVia: "commercepay" | "manual" | null
+  /** The gateway transaction number, or the bank reference for an offline payment. */
+  paymentReference: string | null
+  /** How long the receipt page waits on a confirmation, from Renewal Settings. */
+  receiptPollCeilingSeconds: number
   companyName: string | null
   franchiseId: string
   issueDate: string | null
@@ -252,9 +256,11 @@ export function buildPublicView(
       taxInvoice: Boolean(taxInvoice?.pdfObjectKey),
     },
     taxInvoiceNumber: taxInvoice?.invoiceNumber ?? null,
-    seller: sellerBlock(),
+    seller: sellerBlockFor(settings),
     extension: invoice.extensionStatus,
     paidVia: invoice.paidVia,
+    paymentReference: invoice.status === "paid" ? invoice.capTransactionNumber ?? invoice.paidReference : null,
+    receiptPollCeilingSeconds: settings.receiptPollCeilingSeconds,
     companyName: invoice.companyName,
     franchiseId: invoice.franchiseId,
     issueDate: invoice.issueDate,

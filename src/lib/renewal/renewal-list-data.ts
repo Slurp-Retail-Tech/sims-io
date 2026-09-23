@@ -20,7 +20,8 @@ import { listAssignments, listPlans } from "./plans.ts"
 import { resolvePlanForOutlet, resolvePriceForLine } from "./plan-resolution.ts"
 import type { AssignmentRecord, PlanRecord } from "./plan-resolution.ts"
 import { resolveRenewalPic } from "./pic-resolution.ts"
-import { loadRenewalDirectory } from "./renewal-contacts.ts"
+import { invoicesWithSentReminder } from "./dispatches.ts"
+import { loadRenewalDirectories } from "./renewal-contacts.ts"
 import {
   deriveOutletState,
   rollUpState,
@@ -103,6 +104,12 @@ export type LoadListOptions = {
   horizonDays?: number
   /** Days behind today to include, so lapsed-in-grace stays visible. */
   lookbackDays?: number
+  /**
+   * An explicit expiry window, `YYYY-MM-DD` inclusive, instead of one relative
+   * to today: a month or a year drilled into from Analytics.
+   */
+  fromDate?: string
+  toDate?: string
   today?: string
 }
 
@@ -124,7 +131,7 @@ export async function loadRenewalList(
       WHERE s.deleted_at IS NULL AND s.is_active = 1
         AND s.valid_until_date BETWEEN ? AND ?
       ORDER BY s.valid_until_date ASC, s.franchise_id ASC, s.outlet_id ASC`,
-    [addDays(today, -lookbackDays), addDays(today, horizonDays)]
+    [options.fromDate ?? addDays(today, -lookbackDays), options.toDate ?? addDays(today, horizonDays)]
   )
 
   if (rows.length === 0) {
@@ -133,7 +140,7 @@ export async function loadRenewalList(
 
   const franchiseIds = [...new Set(rows.map((row) => row.franchise_id))]
 
-  const [assignments, plans, actions, invoiceRows, groupingRows] = await Promise.all([
+  const [assignments, plans, actions, invoiceRows, groupingRows, directories] = await Promise.all([
     listAssignments({}, db),
     listPlans({ includeInactive: true }, db),
     listOpenActions({}, db),
@@ -143,6 +150,7 @@ export async function loadRenewalList(
         WHERE group_invoice_enabled = 1 AND franchise_id IN (${franchiseIds.map(() => "?").join(", ")})`,
       franchiseIds
     ),
+    loadRenewalDirectories(franchiseIds, db),
   ])
 
   const assignmentsByFranchise = new Map<string, AssignmentRecord[]>()
@@ -174,6 +182,10 @@ export async function loadRenewalList(
       invoiceByOutlet.set(key, row)
     }
   }
+  const reminded = await invoicesWithSentReminder(
+    [...new Set([...invoiceByOutlet.values()].map((row) => String(row.invoice_id)))],
+    db
+  )
 
   const byFranchise = new Map<string, SubscriptionRow[]>()
   for (const row of rows) {
@@ -186,7 +198,7 @@ export async function loadRenewalList(
 
   for (const [franchiseId, subscriptions] of byFranchise) {
     const franchiseAssignments = assignmentsByFranchise.get(franchiseId) ?? []
-    const directory = await loadRenewalDirectory(franchiseId, db)
+    const directory = directories.get(franchiseId) ?? { mappings: [], contacts: new Map() }
 
     const picNames = new Set<string>()
     let picChannels = ""
@@ -249,7 +261,7 @@ export async function loadRenewalList(
           billingHold: row.billing_hold === 1,
           hasBlockingAction: blockingReasons.length > 0,
           invoiceStatus: invoice?.status ?? null,
-          reminderSent: false,
+          reminderSent: invoice ? reminded.has(String(invoice.invoice_id)) : false,
           extended: invoice?.status === "paid" && invoice.extension_status === "applied",
         },
         today

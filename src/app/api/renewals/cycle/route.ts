@@ -26,6 +26,11 @@ export const runtime = "nodejs"
  * Safe to run repeatedly. Invoice generation races against a unique index
  * rather than checking first, so a second run reuses what the first created,
  * and Actions Required entries are upserted rather than duplicated.
+ *
+ * A manual caller may send `{ "mode": "check" }`: "Check now" on Actions
+ * Required. It runs every eligibility check and never invoices. It holds its
+ * own single-flight key, so it can never be joined by, or swallow, the
+ * nightly run. The cron path is always a full run.
  */
 export const POST = withRequestContext("/api/renewals/cycle", handlePost)
 
@@ -36,6 +41,7 @@ async function handlePost(request: NextRequest): Promise<Response> {
   )
 
   let requestedBy: string | null = null
+  let mode: "full" | "check" = "full"
 
   if (!cronAllowed) {
     // The manual path exists for re-running a night that failed, which can
@@ -49,20 +55,23 @@ async function handlePost(request: NextRequest): Promise<Response> {
       return auth.response
     }
     requestedBy = auth.user.id
+    const body = (await request.json().catch(() => null)) as { mode?: unknown } | null
+    mode = body?.mode === "check" ? "check" : "full"
   }
 
   try {
     const { jobRunId, created } = await enqueueJobRun(getPool(), {
       jobType: RENEWAL_CYCLE_JOB_TYPE,
-      dedupeKey: "singleton",
+      dedupeKey: mode === "check" ? "check" : "singleton",
       triggerSource: cronAllowed ? "cron" : "manual",
       requestedBy,
+      params: mode === "check" ? { mode } : undefined,
     })
 
     const slice = await driveJobType(RENEWAL_CYCLE_JOB_TYPE)
 
     return NextResponse.json(
-      { jobRunId, created, slice: slice ?? null },
+      { jobRunId, created, mode, slice: slice ?? null },
       { status: 202 }
     )
   } catch (error) {

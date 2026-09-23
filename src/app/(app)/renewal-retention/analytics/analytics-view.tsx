@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
+import { ChevronRight } from "lucide-react"
 
 import {
   Card,
@@ -43,6 +45,9 @@ type Analytics = {
     linkToPaymentRate: number | null
     medianHoursToFirstOpen: number | null
     sessionsStarted: number
+    reminded?: number
+    remindedRate?: number | null
+    messagesFailed?: number
   }
   pricing: {
     reductionsMinor: number
@@ -110,15 +115,24 @@ export function AnalyticsView() {
 
   const { renewal, engagement, pricing, operations } = data
 
-  const tabs: Record<TabKey, { title: string; description: string; metrics: Array<{ label: string; definition: string; value: string }> }> = {
+  // Every cohort figure drills through to the Renewal List for the same
+  // window, so the number and the rows behind it can be compared directly.
+  const list = (filters: Record<string, string> = {}) =>
+    `/renewal-retention/renewal-due?${new URLSearchParams({ month: data.period.key, ...filters }).toString()}`
+  const queue = "/renewal-retention/actions-required"
+
+  const tabs: Record<
+    TabKey,
+    { title: string; description: string; metrics: Array<{ label: string; definition: string; value: string; href?: string }> }
+  > = {
     renewal: {
       title: "Renewal and revenue",
       description: "Cohort-based. A renewal falling outside the period cannot inflate the numerator.",
       metrics: [
-        { label: "Subscriptions due", definition: "Outlets with an expiry in the period", value: String(renewal.due) },
+        { label: "Subscriptions due", definition: "Outlets with an expiry in the period", value: String(renewal.due), href: list() },
         { label: "Renewable subscriptions", definition: "Less reseller-billed, billing hold, and unresolved Actions Required", value: String(renewal.renewable) },
-        { label: "Renewed", definition: "Paid within the same cohort", value: String(renewal.renewed) },
-        { label: "Non-renewed", definition: "Expired unpaid, grace window included", value: String(renewal.nonRenewed) },
+        { label: "Renewed", definition: "Paid within the same cohort", value: String(renewal.renewed), href: list({ state: "renewed" }) },
+        { label: "Non-renewed", definition: "Expired unpaid, grace window included", value: String(renewal.nonRenewed), href: list({ state: "non_renewed" }) },
         { label: "Potential revenue", definition: "Resolved price at the default term, summed over renewable outlets", value: money(renewal.potentialMinor) },
         { label: "Collected revenue", definition: "Total of paid invoices in the cohort", value: money(renewal.collectedMinor) },
         { label: "Term mix", definition: "1-year against 6-month selections on paid invoices", value: `${renewal.termMix.annually} / ${renewal.termMix.biAnnually}` },
@@ -127,31 +141,33 @@ export function AnalyticsView() {
     },
     engagement: {
       title: "Link engagement",
-      description: "The renewal link open is the only engagement signal; message opens are not tracked. Dispatch counts join when messaging goes live.",
+      description: "The renewal link open is the only engagement signal; message opens are not tracked. Reminders count once Respond.io dispatch is switched on.",
       metrics: [
         { label: "Invoices raised", definition: "Proformas live in the cohort", value: String(engagement.invoicesRaised) },
+        { label: "Reminded", definition: "Invoices with at least one reminder sent ÷ invoices raised", value: `${engagement.reminded ?? 0} · ${pct(engagement.remindedRate ?? null)}` },
+        { label: "Messages failed", definition: "Messages that gave up after three attempts; each is in Actions Required", value: String(engagement.messagesFailed ?? 0), href: queue },
         { label: "Link open rate", definition: "Invoices with a recorded open ÷ invoices raised", value: pct(engagement.openRate) },
-        { label: "Never opened", definition: "Raised with no merchant visit", value: String(engagement.neverOpened) },
+        { label: "Never opened", definition: "Raised with no merchant visit", value: String(engagement.neverOpened), href: list({ opened: "never" }) },
         { label: "Payment initiated", definition: "Invoices with a CommercePay session", value: String(engagement.sessionsStarted) },
         { label: "Link-to-payment conversion", definition: "Invoices paid ÷ invoices with a recorded open", value: pct(engagement.linkToPaymentRate) },
         { label: "Median time to first open", definition: "First open less invoice creation", value: hours(engagement.medianHoursToFirstOpen) },
       ],
     },
     pricing: {
-      title: "Overrides and price variance",
+      title: "Agreed and one-off prices",
       description: "Reductions and increases are reported separately and never netted into one figure.",
       metrics: [
         { label: "Price reductions given", definition: "Negative adjustments on paid invoices", value: money(pricing.reductionsMinor) },
         { label: "Price increases applied", definition: "Positive adjustments on paid invoices", value: money(pricing.increasesMinor) },
-        { label: "Assignment overrides", definition: "Active assignments with a price override, applying every cycle", value: String(pricing.assignmentOverrides) },
-        { label: "Cycle override usage", definition: "One-off overrides on lines in the period; recurring use signals a stale assignment", value: `${pricing.cycleOverrides} · ${money(pricing.cycleOverrideMinor)}` },
+        { label: "Agreed prices", definition: "Active assignments with an agreed price, applying every cycle", value: String(pricing.assignmentOverrides) },
+        { label: "One-off prices", definition: "One-off prices on invoice lines in the period; recurring use signals an agreed price is out of date", value: `${pricing.cycleOverrides} · ${money(pricing.cycleOverrideMinor)}` },
       ],
     },
     operations: {
       title: "Queue and collection health",
       description: "Every entry is attributable to the rows that produced it.",
       metrics: [
-        { label: "Actions Required open", definition: `${operations.actionsBlocking} blocking`, value: String(operations.actionsOpen) },
+        { label: "Actions Required open", definition: `${operations.actionsBlocking} blocking`, value: String(operations.actionsOpen), href: queue },
         { label: "Average days open", definition: "Across open entries", value: operations.averageDaysOpen === null ? "—" : operations.averageDaysOpen.toFixed(1) },
         { label: "Median days to pay", definition: "Payment confirmed less invoice creation", value: operations.medianDaysToPay === null ? "—" : operations.medianDaysToPay.toFixed(1) },
         { label: "Collection rate", definition: "Collected ÷ potential revenue", value: pct(renewal.collectionRate) },
@@ -171,7 +187,7 @@ export function AnalyticsView() {
         description="Computed from subscription, invoice, payment and queue rows. Every figure has one definition, shown beside it."
       >
         <Select value={data.period.key} onValueChange={setPeriod}>
-          <SelectTrigger className="h-9 w-[180px]">
+          <SelectTrigger className="h-9 w-[190px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -185,12 +201,12 @@ export function AnalyticsView() {
       </PageHeader>
 
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr))]">
-        <KpiTile label="Renewable subscriptions" value={String(renewal.renewable)} meta={`${renewal.due} due, less ${renewal.due - renewal.renewable} excluded`} />
-        <KpiTile label="Renewed" value={String(renewal.renewed)} meta={`${renewal.nonRenewed} non-renewed`} />
+        <KpiTile label="Renewable subscriptions" value={String(renewal.renewable)} meta={`${renewal.due} due, less ${renewal.due - renewal.renewable} excluded`} href={list()} />
+        <KpiTile label="Renewed" value={String(renewal.renewed)} meta={`${renewal.nonRenewed} non-renewed`} href={list({ state: "renewed" })} />
         <KpiTile label="Retention rate" value={pct(renewal.retentionRate)} meta={`Within ${data.period.label}`} metaTone={renewal.retentionRate !== null && renewal.retentionRate >= 80 ? "green" : "gray"} />
         <KpiTile label="Collected revenue" value={money(renewal.collectedMinor)} meta={`of ${money(renewal.potentialMinor)} potential`} />
         <KpiTile label="Collection rate" value={pct(renewal.collectionRate)} meta="Paid invoices ÷ potential" metaTone={renewal.collectionRate !== null && renewal.collectionRate >= 80 ? "green" : "gray"} />
-        <KpiTile label="Link open rate" value={pct(engagement.openRate)} meta={`${engagement.neverOpened} never opened`} metaTone={engagement.neverOpened > 0 ? "amber" : "gray"} />
+        <KpiTile label="Link open rate" value={pct(engagement.openRate)} meta={`${engagement.neverOpened} never opened`} metaTone={engagement.neverOpened > 0 ? "amber" : "gray"} href={list({ opened: "never" })} />
       </div>
 
       <PillTabs
@@ -211,15 +227,33 @@ export function AnalyticsView() {
             <CardDescription>{active.description}</CardDescription>
           </CardHeader>
           <CardContent>
-            {active.metrics.map((metric) => (
-              <div key={metric.label} className="flex items-baseline justify-between gap-4 border-b py-2.5">
-                <span className="flex min-w-0 flex-col">
-                  <span className="text-sm">{metric.label}</span>
-                  <span className="text-muted-foreground text-xs text-pretty">{metric.definition}</span>
-                </span>
-                <span className="shrink-0 text-[0.9375rem] font-semibold tabular-nums">{metric.value}</span>
-              </div>
-            ))}
+            {active.metrics.map((metric) => {
+              const row = (
+                <>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="text-sm">{metric.label}</span>
+                    <span className="text-muted-foreground text-xs text-pretty">{metric.definition}</span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1 text-[0.9375rem] font-semibold tabular-nums">
+                    {metric.value}
+                    {metric.href ? <ChevronRight className="text-muted-foreground size-3.5" /> : null}
+                  </span>
+                </>
+              )
+              return metric.href ? (
+                <Link
+                  key={metric.label}
+                  href={metric.href}
+                  className="hover:bg-accent/40 -mx-2 flex items-baseline justify-between gap-4 rounded-sm border-b px-2 py-2.5 transition-colors"
+                >
+                  {row}
+                </Link>
+              ) : (
+                <div key={metric.label} className="flex items-baseline justify-between gap-4 border-b py-2.5">
+                  {row}
+                </div>
+              )
+            })}
           </CardContent>
         </Card>
 
@@ -233,7 +267,12 @@ export function AnalyticsView() {
           <CardContent>
             <div className="flex h-[180px] items-end gap-2 pb-2">
               {data.months.map((month) => (
-                <div key={month.month} className="flex flex-1 flex-col items-center gap-1.5">
+                <Link
+                  key={month.month}
+                  href={list({ month: month.month })}
+                  className="hover:bg-accent/40 flex flex-1 flex-col items-center gap-1.5 rounded-sm transition-colors"
+                  aria-label={`Renewal List for ${month.month}`}
+                >
                   <div className="relative flex h-[150px] w-full items-end justify-center">
                     <div
                       className="bg-muted-foreground/20 absolute bottom-0 w-[70%] rounded-t-[3px]"
@@ -249,7 +288,7 @@ export function AnalyticsView() {
                   <span className="text-muted-foreground text-[0.6875rem]">
                     {new Date(`${month.month}-01T00:00:00Z`).toLocaleString("en-GB", { month: "short", timeZone: "UTC" })}
                   </span>
-                </div>
+                </Link>
               ))}
             </div>
             <div className="text-muted-foreground flex flex-wrap gap-4 border-t pt-3 text-xs">

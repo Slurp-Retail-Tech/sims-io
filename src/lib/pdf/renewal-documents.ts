@@ -135,9 +135,13 @@ export async function renderRenewalDocument(
 
   // --- Header: seller left, title right --------------------------------
   const headerTop = writer.y
-  writer.line(document.seller.name, writer.left, { size: 16, bold: true })
+  // Confined to the left of the title block and wrapped, not drawn as single
+  // lines: an unwrapped address line ran straight under the invoice number
+  // printed on the right. The title side needs roughly the right 40%.
+  const sellerWidth = writer.contentWidth * 0.6
+  writer.paragraph(document.seller.name, writer.left, { size: 16, bold: true, width: sellerWidth })
   for (const line of document.seller.lines) {
-    writer.line(line, writer.left, { size: 9, color: COLORS.muted })
+    writer.paragraph(line, writer.left, { size: 9, color: COLORS.muted, width: sellerWidth })
   }
   const sellerBottom = writer.y
 

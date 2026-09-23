@@ -51,40 +51,43 @@ export type RenewalDirectory = {
 }
 
 /**
- * Every key a franchise might be recorded under in `contact_outlets`.
+ * Every key a franchise's contacts may be filed under, for many franchises at
+ * once.
  *
- * `merchants` carries two business keys, `external_id` and `fid`, and contact
- * mappings were recorded against whichever one the user picked — which is why
- * `loadContactMappings` resolves names with `fid = ? OR external_id = ?`.
- * `outlet_subscriptions` holds only `external_id`, because that is the
- * canonical, always-present, unique one.
- *
- * Matching on `external_id` alone would therefore miss every contact mapped
- * under a differing `fid`, and the outlet would be reported as having nobody
- * accountable for its renewal when somebody plainly is. That failure is silent
- * and looks exactly like a genuine gap, so it is resolved here rather than
- * left for whoever works the queue to puzzle over.
+ * Contacts are mapped by whichever franchise identifier was to hand when the
+ * mapping was made: the merchant's `external_id` or its `fid`. Both refer to
+ * the same franchise, so resolution has to look under both.
  */
-async function franchiseKeyAliases(
-  franchiseId: string,
+async function franchiseKeyAliasesFor(
+  franchiseIds: readonly string[],
   db: Queryable
-): Promise<string[]> {
+): Promise<Map<string, Set<string>>> {
+  const aliases = new Map<string, Set<string>>(franchiseIds.map((id) => [id, new Set([id])]))
+  if (franchiseIds.length === 0) {
+    return aliases
+  }
+  const placeholders = franchiseIds.map(() => "?").join(", ")
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT external_id, fid FROM merchants
-      WHERE external_id = ? OR fid = ?`,
-    [franchiseId, franchiseId]
+      WHERE external_id IN (${placeholders}) OR fid IN (${placeholders})`,
+    [...franchiseIds, ...franchiseIds]
   )
 
-  const keys = new Set<string>([franchiseId])
   for (const row of rows as Array<{ external_id: string; fid: string | null }>) {
-    if (row.external_id) {
-      keys.add(row.external_id)
-    }
-    if (row.fid) {
-      keys.add(row.fid)
+    for (const id of [row.external_id, row.fid]) {
+      const keys = id ? aliases.get(id) : undefined
+      if (!keys) {
+        continue
+      }
+      if (row.external_id) {
+        keys.add(row.external_id)
+      }
+      if (row.fid) {
+        keys.add(row.fid)
+      }
     }
   }
-  return [...keys]
+  return aliases
 }
 
 /**
@@ -102,7 +105,31 @@ export async function loadRenewalDirectory(
   franchiseId: string,
   db: Queryable = getPool()
 ): Promise<RenewalDirectory> {
-  const keys = await franchiseKeyAliases(franchiseId, db)
+  const directories = await loadRenewalDirectories([franchiseId], db)
+  return directories.get(franchiseId) ?? { mappings: [], contacts: new Map() }
+}
+
+/**
+ * `loadRenewalDirectory` for many franchises in three queries, however many
+ * there are.
+ *
+ * The Renewal List and Analytics resolve a PIC for every franchise in their
+ * window, which on a year of subscriptions is hundreds of franchises. One
+ * directory at a time was three round trips each, run one after another.
+ * The single-franchise loader delegates here, so the two cannot disagree.
+ */
+export async function loadRenewalDirectories(
+  franchiseIds: readonly string[],
+  db: Queryable = getPool()
+): Promise<Map<string, RenewalDirectory>> {
+  const unique = [...new Set(franchiseIds)]
+  const directories = new Map<string, RenewalDirectory>()
+  if (unique.length === 0) {
+    return directories
+  }
+
+  const aliases = await franchiseKeyAliasesFor(unique, db)
+  const allKeys = [...new Set([...aliases.values()].flatMap((keys) => [...keys]))]
 
   const [rows] = await db.query<MappingRow[]>(
     `
@@ -114,39 +141,48 @@ export async function loadRenewalDirectory(
              ORDER BY p.is_primary DESC, p.id ASC LIMIT 1) AS primary_phone
       FROM contact_outlets co
       INNER JOIN contacts c ON c.id = co.contact_id AND c.deleted_at IS NULL
-     WHERE co.franchise_id IN (${keys.map(() => "?").join(", ")})
+     WHERE co.franchise_id IN (${allKeys.map(() => "?").join(", ")})
      ORDER BY co.outlet_id IS NULL DESC, co.outlet_id ASC, co.id ASC
     `,
-    keys
+    allKeys
   )
 
   const contactIds = [...new Set(rows.map((row) => String(row.contact_id)))]
   const channels = await loadChannels(contactIds, db)
 
-  const mappings: RenewalMapping[] = rows.map((row) => ({
-    contactId: String(row.contact_id),
-    franchiseId: row.franchise_id,
-    outletId: row.outlet_id,
-    isRenewalPic: row.is_renewal_pic === 1,
-    isRenewalCc: row.is_renewal_cc === 1,
-  }))
+  for (const franchiseId of unique) {
+    const keys = aliases.get(franchiseId) ?? new Set([franchiseId])
+    // Filtering the one sorted result keeps each franchise's mappings in the
+    // same order the single-franchise query returned them.
+    const own = rows.filter((row) => keys.has(row.franchise_id))
 
-  const contacts = new Map<string, RenewalContact>()
-  for (const row of rows) {
-    const contactId = String(row.contact_id)
-    if (contacts.has(contactId)) {
-      continue
+    const mappings: RenewalMapping[] = own.map((row) => ({
+      contactId: String(row.contact_id),
+      franchiseId: row.franchise_id,
+      outletId: row.outlet_id,
+      isRenewalPic: row.is_renewal_pic === 1,
+      isRenewalCc: row.is_renewal_cc === 1,
+    }))
+
+    const contacts = new Map<string, RenewalContact>()
+    for (const row of own) {
+      const contactId = String(row.contact_id)
+      if (contacts.has(contactId)) {
+        continue
+      }
+      contacts.set(contactId, {
+        contactId,
+        name: row.name,
+        email: row.email,
+        primaryPhone: row.primary_phone,
+        channels: channels.get(contactId) ?? [],
+      })
     }
-    contacts.set(contactId, {
-      contactId,
-      name: row.name,
-      email: row.email,
-      primaryPhone: row.primary_phone,
-      channels: channels.get(contactId) ?? [],
-    })
+
+    directories.set(franchiseId, { mappings, contacts })
   }
 
-  return { mappings, contacts }
+  return directories
 }
 
 async function loadChannels(

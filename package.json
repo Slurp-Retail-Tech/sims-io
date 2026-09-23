@@ -1,6 +1,6 @@
 {
   "name": "sims",
-  "version": "4.28.1",
+  "version": "4.36.1",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",

@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronLeft, Pencil, Plus, Store, Trash2 } from "lucide-react"
+import { AlertTriangle, ChevronLeft, Pencil, Plus, Store, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +21,8 @@ import {
   summarizeMappings,
 } from "@/lib/contact-mappings"
 import { formatContactSource } from "@/lib/contacts"
+import { resolveChannels } from "@/lib/renewal/pic-resolution"
+import type { ContactChannelState } from "@/lib/renewal/pic-resolution"
 
 import { ContactDialog } from "../contact-dialog"
 import { MappingScopeBadge } from "../mapping-scope-badge"
@@ -35,6 +37,7 @@ export function ContactDetailView({ contactId }: { contactId: string }) {
 
   const [contact, setContact] = React.useState<Contact | null>(null)
   const [mappings, setMappings] = React.useState<ContactMappingRow[]>([])
+  const [channels, setChannels] = React.useState<ContactChannelState[] | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -180,6 +183,22 @@ export function ContactDetailView({ contactId }: { contactId: string }) {
 
   const groups = groupMappingsByFranchise(mappings)
 
+  // The same rule the nightly check applies, so this warning and the Actions
+  // Required entry can never disagree. Withheld until the channels have
+  // loaded, so the page never flashes a warning it would then retract.
+  const isPicAnywhere = mappings.some((mapping) => mapping.isRenewalPic)
+  const picUnreachable =
+    isPicAnywhere &&
+    channels !== null &&
+    resolveChannels({
+      contactId,
+      name: contact.name,
+      email: contact.email,
+      primaryPhone:
+        contact.phones.find((phone) => phone.isPrimary)?.phone ?? contact.phones[0]?.phone ?? null,
+      channels,
+    }).usable.length === 0
+
   return (
     <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -263,6 +282,7 @@ export function ContactDetailView({ contactId }: { contactId: string }) {
           email={contact.email}
           hasPhone={contact.phones.length > 0}
           onError={(message) => showToast(message, "error")}
+          onChannelsChange={setChannels}
         />
 
         <Card>
@@ -279,6 +299,19 @@ export function ContactDetailView({ contactId }: { contactId: string }) {
             </CardAction>
           </CardHeader>
           <CardContent>
+            {picUnreachable ? (
+              <div
+                role="alert"
+                className="mb-4 flex items-start gap-2.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-[13px] text-amber-900 dark:text-amber-100"
+              >
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  Renewals skip this contact. They are renewal PIC here, but no enabled channel has a usable
+                  address, so the nightly check reports them as unreachable and raises no invoice. Enable Email
+                  or WhatsApp above, with an address on the contact.
+                </span>
+              </div>
+            ) : null}
             {groups.length ? (
               <div className="flex flex-col gap-4">
                 {groups.map((group) => (

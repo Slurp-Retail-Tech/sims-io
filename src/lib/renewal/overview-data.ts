@@ -1,15 +1,20 @@
 /**
  * The Renewal & Retention overview: where the book stands today.
  *
- * Every figure is computed from rows that exist now. Where a stage of the
- * funnel has no data source yet (dispatch is not built), the tile says so
- * rather than showing a number that means nothing.
+ * Every figure is computed from rows that exist now. The "reminded" stage
+ * counts sent reminder rows, so it reads zero until dispatch is switched on,
+ * which is exactly what has happened.
  */
 
 import getPool, { type Queryable } from "../db.ts"
 import type { RowDataPacket } from "mysql2/promise"
 
 import { listOpenActions } from "./actions-required.ts"
+import { loadRunStatus } from "./run-status.ts"
+import { isSellerConfigured } from "./seller.ts"
+import { loadRenewalSettings } from "./settings.ts"
+import { buildSetupChecklist } from "./setup-checklist.ts"
+import type { SetupChecklist } from "./setup-checklist.ts"
 import { addDays } from "./invoice-build.ts"
 import { loadRenewalList } from "./renewal-list-data.ts"
 import type { ListFranchise } from "./renewal-list-data.ts"
@@ -17,6 +22,8 @@ import { todayInAppZone } from "./app-date.ts"
 
 export type OverviewData = {
   today: string
+  /** The steps to a first invoice, ticked off from real data. */
+  setup: SetupChecklist
   lastRun: { finishedAt: string | null; status: string | null } | null
   kpis: {
     expiringIn30: { count: number; potentialMinor: number }
@@ -27,6 +34,8 @@ export type OverviewData = {
   expiringSoon: ListFranchise[]
   funnel: {
     invoicesRaised: number
+    /** Invoices with at least one reminder actually sent. */
+    reminded: number
     linkOpened: number
     sessionsStarted: number
     paid: number
@@ -49,14 +58,10 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
   const monthStart = `${today.slice(0, 7)}-01`
   const monthEnd = addDays(`${today.slice(0, 7)}-01`, 31).slice(0, 7) + "-01"
 
-  const [{ franchises }, actions, lastRunRows, paidRows, funnelRows] = await Promise.all([
+  const [{ franchises }, actions, runStatus, paidRows, funnelRows, settings, planRows] = await Promise.all([
     loadRenewalList({ horizonDays: 30, lookbackDays: 0 }, db),
     listOpenActions({}, db),
-    db.query<RowDataPacket[]>(
-      `SELECT status, finished_at FROM job_runs
-        WHERE job_type = 'renewal-cycle' AND status IN ('succeeded', 'failed')
-        ORDER BY id DESC LIMIT 1`
-    ),
+    loadRunStatus(db),
     db.query<RowDataPacket[]>(
       `SELECT i.id, i.invoice_number, i.company_name, i.paid_at, i.total_amount,
               i.extension_status,
@@ -69,6 +74,9 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
       `SELECT
          SUM(i.status NOT IN ('cancelled','superseded','draft')) AS raised,
          SUM(i.status NOT IN ('cancelled','superseded','draft') AND i.open_count > 0) AS opened,
+         SUM(EXISTS (SELECT 1 FROM renewal_dispatches d
+                      WHERE d.invoice_id = i.id AND d.status = 'sent'
+                        AND d.dispatch_type IN ('reminder_first','reminder_second','reminder_final'))) AS reminded,
          SUM(EXISTS (SELECT 1 FROM renewal_payment_sessions s WHERE s.invoice_id = i.id AND s.cap_session_number IS NOT NULL)) AS sessions,
          SUM(i.status = 'paid') AS paid,
          SUM(CASE WHEN i.status = 'paid' THEN i.total_amount ELSE 0 END) AS paid_amount,
@@ -78,10 +86,28 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
       WHERE i.deleted_at IS NULL AND i.document_type = 'proforma'`,
       [monthStart, monthEnd, monthStart, monthEnd]
     ),
+    loadRenewalSettings(db),
+    db.query<RowDataPacket[]>(
+      `SELECT COUNT(*) AS n FROM subscription_plans WHERE is_active = 1 AND deleted_at IS NULL`
+    ),
   ])
 
-  const lastRun = (lastRunRows[0] as Array<{ status: string; finished_at: string | null }>)[0] ?? null
   const funnel = (funnelRows[0] as Array<Record<string, string | number | null>>)[0] ?? {}
+
+  // Blocking entries by reason, for the checklist's queue-based steps.
+  const openByReason = (reason: string) =>
+    actions.filter((action) => action.reason === reason && action.severity === "blocking").length
+  const setup = buildSetupChecklist({
+    sellerConfigured: isSellerConfigured(settings, process.env),
+    activePlanCount: Number((planRows[0] as Array<{ n: number | string }>)[0]?.n ?? 0),
+    checkHasSucceeded: runStatus.lastSucceededAt !== null,
+    open: {
+      noPlan: openByReason("no_plan_assigned"),
+      noPic: openByReason("no_renewal_pic"),
+      ambiguousPic: openByReason("ambiguous_renewal_pic"),
+      unreachablePic: openByReason("unreachable_renewal_pic"),
+    },
+  })
   const toMinor = (value: string | number | null | undefined) =>
     value === null || value === undefined ? 0 : Math.round(Number(value) * 100)
 
@@ -103,7 +129,10 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
 
   return {
     today,
-    lastRun: lastRun ? { finishedAt: lastRun.finished_at, status: lastRun.status } : null,
+    setup,
+    lastRun: runStatus.lastStatus
+      ? { finishedAt: runStatus.lastFinishedAt, status: runStatus.lastStatus }
+      : null,
     kpis: {
       expiringIn30: {
         count: expiring.reduce((sum, franchise) => sum + franchise.outlets.length, 0),
@@ -123,6 +152,7 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
     expiringSoon: franchises.slice(0, 6),
     funnel: {
       invoicesRaised: Number(funnel.raised ?? 0),
+      reminded: Number(funnel.reminded ?? 0),
       linkOpened: Number(funnel.opened ?? 0),
       sessionsStarted: Number(funnel.sessions ?? 0),
       paid: Number(funnel.paid ?? 0),

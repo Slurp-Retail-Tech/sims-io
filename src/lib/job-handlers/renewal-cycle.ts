@@ -4,6 +4,7 @@ import { createLogger } from "../logger.ts"
 
 import { RENEWAL_CYCLE_JOB_TYPE } from "../job-types.ts"
 import { runRenewalCycle } from "../renewal/cycle.ts"
+import type { CycleMode } from "../renewal/cycle.ts"
 
 export { RENEWAL_CYCLE_JOB_TYPE }
 
@@ -12,6 +13,8 @@ const log = createLogger("job:renewal-cycle")
 type CycleParams = {
   /** Override the run date, for replaying a past night during investigation. */
   runDate?: string
+  /** "check" runs the eligibility checks only and never invoices. */
+  mode?: CycleMode
 }
 
 /**
@@ -27,12 +30,14 @@ export const renewalCycleJobHandler: JobHandler = {
   jobType: RENEWAL_CYCLE_JOB_TYPE,
   async handle(context, params): Promise<JobSliceOutcome> {
     const runDate = (params as CycleParams | null)?.runDate ?? todayInAppZone()
+    const mode: CycleMode = (params as CycleParams | null)?.mode === "check" ? "check" : "full"
 
     try {
-      const outcome = await runRenewalCycle(runDate)
+      const outcome = await runRenewalCycle(runDate, undefined, mode)
 
       log.info("Renewal cycle complete", {
         runDate,
+        mode,
         offsets: outcome.offsetsRun.join(","),
         readinessWindowDays: outcome.readinessWindowDays,
         due: outcome.subscriptionsDue,
@@ -42,6 +47,8 @@ export const renewalCycleJobHandler: JobHandler = {
         actionsRaised: outcome.actionsRaised,
         actionsResolved: outcome.actionsResolved,
         staleProformas: outcome.staleProformas,
+        lapsed: outcome.invoicesLapsed,
+        remindersQueued: outcome.remindersQueued,
       })
 
       // Units are every subscription examined, in either pass. `failed` is the

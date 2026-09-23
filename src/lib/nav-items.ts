@@ -35,12 +35,19 @@ export type NavSubItem = {
   isActive?: boolean
 }
 
+/** A live count the sidebar fetches and shows beside an item. */
+export type NavBadgeKey = "actionsRequiredBlocking"
+
 export type NavItem = {
   title: string
   url: string
   icon: LucideIcon
   isActive?: boolean
   items?: NavSubItem[]
+  /** Names the live count shown beside the item; the sidebar fills in `badge`. */
+  badgeKey?: NavBadgeKey
+  /** The count itself, filled in at render time. Hidden when zero or absent. */
+  badge?: number
 }
 
 export type NavGroup = {
@@ -176,6 +183,7 @@ export const renewalRetentionNav: NavItem[] = [
     title: "Actions Required",
     url: "/renewal-retention/actions-required",
     icon: AlertTriangle,
+    badgeKey: "actionsRequiredBlocking",
   },
   {
     title: "Message Templates",
