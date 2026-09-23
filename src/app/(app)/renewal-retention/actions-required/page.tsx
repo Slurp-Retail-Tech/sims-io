@@ -16,6 +16,11 @@ export default async function ActionsRequiredPage() {
         user.pageAccess,
         "/renewal-retention/actions-required/manage"
       )}
+      // Same gate as the manual path of POST /api/renewals/cycle.
+      canCheckNow={
+        (user.role === "Admin" || user.role === "Super Admin") &&
+        canAccessPath(user.role, user.pageAccess, "/renewal-retention/invoices")
+      }
     />
   )
 }

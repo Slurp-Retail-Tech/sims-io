@@ -173,6 +173,12 @@ Notes:
 - Outlets that cannot be invoiced are written to Actions Required with the
   reason, and re-evaluated every night, so closing the underlying gap re-enters
   them automatically and resolves the entry.
+- **Check now.** An Admin with the invoices key can press **Check now** on
+  Actions Required, which POSTs `{"mode":"check"}` to the same route. A check
+  runs every plan, price and PIC check and the stale-proforma sweep, but never
+  raises an invoice, renders a document or records a cadence event. It holds
+  its own single-flight key (`check`), so it can never join or swallow the
+  nightly run. The cron path is always a full run.
 - Every gap is reported, not just the first: an outlet with no plan *and* no
   renewal PIC raises both, so one pass through the queue closes both.
 - Nothing is sent to a merchant by this job. Outbound dispatch is behind the

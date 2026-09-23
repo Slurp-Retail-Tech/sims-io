@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { AlertTriangle, CheckCircle2, Clock, Inbox } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Clock, Inbox, RefreshCw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -110,7 +110,14 @@ function fixLink(action: ActionRow): { label: string; href: string } | null {
  * Entries resolve themselves once the gap is closed. Dismissal is for an entry
  * that is genuinely not a problem, and it asks why.
  */
-export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
+export function ActionsRequiredView({
+  canManage,
+  canCheckNow,
+}: {
+  canManage: boolean
+  /** Admins with the invoices key may run the eligibility checks on demand. */
+  canCheckNow: boolean
+}) {
   const { showToast } = useToast()
   const [actions, setActions] = React.useState<ActionRow[]>([])
   const [runStatus, setRunStatus] = React.useState<RunStatus | null>(null)
@@ -119,6 +126,7 @@ export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
   const [error, setError] = React.useState<string | null>(null)
   const [dismissing, setDismissing] = React.useState<string | null>(null)
   const [tab, setTab] = React.useState<Tab>("all")
+  const [checking, setChecking] = React.useState(false)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -146,6 +154,30 @@ export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
   React.useEffect(() => {
     void load()
   }, [load])
+
+  // Runs the nightly check's eligibility pass now. It never raises an invoice,
+  // so a person can confirm a fix without billing anyone early.
+  async function checkNow() {
+    setChecking(true)
+    try {
+      const response = await fetch("/api/renewals/cycle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "check" }),
+      })
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as { error?: string }
+        showToast(payload.error ?? "The check could not run.", "error")
+        return
+      }
+      showToast("Checked. The queue below is current. No invoices were raised.", "success")
+      await load()
+    } catch {
+      showToast("Unable to reach the server. Try again.", "error")
+    } finally {
+      setChecking(false)
+    }
+  }
 
   async function dismiss(action: ActionRow) {
     const reason = window.prompt(
@@ -186,6 +218,18 @@ export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
         description="Outlets and franchises that cannot be carried through the renewal flow, with the reason. Entries auto-resolve on the next nightly run once the gap is closed."
         meta={<RunStatusLine status={runStatus} />}
       >
+        {canCheckNow ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={checking}
+            onClick={() => void checkNow()}
+            title="Re-runs the plan, price and PIC checks now. Never raises an invoice."
+          >
+            <RefreshCw className={cn("size-3.5", checking && "animate-spin")} />
+            {checking ? "Checking…" : "Check now"}
+          </Button>
+        ) : null}
         <PillTabs
           size="sm"
           value={tab}
@@ -251,8 +295,8 @@ export function ActionsRequiredView({ canManage }: { canManage: boolean }) {
               >
                 <div className="flex min-w-0 flex-1 basis-[22rem] flex-col gap-1.5">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={cn("font-mono text-xs font-semibold", TONE_TEXT[accent])}>
-                      {action.reason}
+                    <span className={cn("text-sm font-semibold", TONE_TEXT[accent])} title={action.reason}>
+                      {REASON_LABELS[action.reason] ?? action.reason}
                     </span>
                     <Pill tone={isBlocking ? "red" : "gray"} className="font-medium">
                       {isBlocking ? "Blocks invoicing" : "Informational"}
