@@ -138,13 +138,13 @@ export function AnalyticsView() {
       ],
     },
     pricing: {
-      title: "Overrides and price variance",
+      title: "Agreed and one-off prices",
       description: "Reductions and increases are reported separately and never netted into one figure.",
       metrics: [
         { label: "Price reductions given", definition: "Negative adjustments on paid invoices", value: money(pricing.reductionsMinor) },
         { label: "Price increases applied", definition: "Positive adjustments on paid invoices", value: money(pricing.increasesMinor) },
-        { label: "Assignment overrides", definition: "Active assignments with a price override, applying every cycle", value: String(pricing.assignmentOverrides) },
-        { label: "Cycle override usage", definition: "One-off overrides on lines in the period; recurring use signals a stale assignment", value: `${pricing.cycleOverrides} · ${money(pricing.cycleOverrideMinor)}` },
+        { label: "Agreed prices", definition: "Active assignments with an agreed price, applying every cycle", value: String(pricing.assignmentOverrides) },
+        { label: "One-off prices", definition: "One-off prices on invoice lines in the period; recurring use signals an agreed price is out of date", value: `${pricing.cycleOverrides} · ${money(pricing.cycleOverrideMinor)}` },
       ],
     },
     operations: {

@@ -14,6 +14,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/toast-provider"
+import { buildSettingsTimeline } from "@/lib/renewal/settings-timeline"
+import type { SettingsTimeline } from "@/lib/renewal/settings-timeline"
 import { cn } from "@/lib/utils"
 
 import { PageHeader } from "../ui"
@@ -243,7 +245,7 @@ export function SettingsView({ canManage }: { canManage: boolean }) {
     <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-5">
       <PageHeader
         title="Renewal Settings"
-        description="Cadence, readiness window, dispatch window, tax, grace window and override threshold. Changes need the settings manage key."
+        description="Cadence, readiness window, dispatch window, tax, grace window and price-approval threshold. Changes need the settings manage key."
       />
 
       <div
@@ -267,6 +269,14 @@ export function SettingsView({ canManage }: { canManage: boolean }) {
           </Button>
         ) : null}
       </div>
+
+      <TimelineCard
+        timeline={buildSettingsTimeline({
+          readinessWindowDays: Number(draft.readinessWindowDays),
+          reminderOffsets: offsets,
+          graceWindowDays: Number(draft.graceWindowDays),
+        })}
+      />
 
       <div className="grid items-start gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr))]">
         <Card>
@@ -346,7 +356,7 @@ export function SettingsView({ canManage }: { canManage: boolean }) {
           <CardContent>
             <div className="flex flex-col gap-3.5">
               {field("taxRatePercent", "Tax rate (%)", "Exclusive. Slurp is not SST-registered, so the line is suppressed at 0", { inputMode: "decimal" })}
-              {field("overrideVarianceThresholdPct", "Override variance threshold (%)", "Applies to increases and reductions alike", { inputMode: "decimal" })}
+              {field("overrideVarianceThresholdPct", "Price-approval threshold (%)", "An agreed or one-off price further than this from catalog, up or down, needs approval", { inputMode: "decimal" })}
               {field("graceWindowDays", "Grace window after expiry (days)", "The link stays payable; a payment inside it still renews from the original expiry", { inputMode: "numeric" })}
               <div className="flex items-center justify-between gap-4 border-b pb-2.5">
                 <span className="flex min-w-0 flex-col">
@@ -483,5 +493,105 @@ function SellerField({
       <span className="text-muted-foreground text-xs text-pretty">{hint}</span>
       {error ? <span className="text-destructive text-xs">{error}</span> : null}
     </label>
+  )
+}
+
+const SEGMENT_TONE: Record<SettingsTimeline["segments"][number]["key"], string> = {
+  readiness: "bg-sky-500/25 dark:bg-sky-400/25",
+  invoicing: "bg-amber-500/35 dark:bg-amber-400/30",
+  grace: "bg-zinc-400/30 dark:bg-zinc-500/30",
+}
+
+/**
+ * The four time settings on one line: readiness, invoicing (derived from the
+ * furthest offset), the reminders, and grace. Redraws as the fields change,
+ * before anything is saved.
+ */
+function TimelineCard({ timeline }: { timeline: SettingsTimeline }) {
+  // Keep edge labels inside the card instead of centring them off its side.
+  const anchor = (pct: number) => (pct < 6 ? "translate-x-0" : pct > 94 ? "-translate-x-full" : "-translate-x-1/2")
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">How the renewal clock runs</CardTitle>
+        <CardDescription>
+          Days around each outlet&apos;s expiry date. Redraws as you edit the fields below, before you save.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="relative h-16" aria-hidden="true">
+          {timeline.markers
+            .filter((marker) => marker.kind === "reminder")
+            .map((marker) => (
+              <span
+                key={marker.key}
+                className={cn("text-muted-foreground absolute top-0 text-[0.6875rem] tabular-nums", anchor(marker.pct))}
+                style={{ left: `${marker.pct}%` }}
+              >
+                {marker.label}
+              </span>
+            ))}
+          <div className="bg-muted absolute inset-x-0 top-6 h-3 overflow-hidden rounded-full">
+            {timeline.segments.map((segment) => (
+              <div
+                key={segment.key}
+                className={cn("absolute inset-y-0", SEGMENT_TONE[segment.key])}
+                style={{ left: `${segment.fromPct}%`, width: `${segment.toPct - segment.fromPct}%` }}
+              />
+            ))}
+          </div>
+          {timeline.markers.map((marker) => (
+            <span
+              key={`${marker.key}-tick`}
+              className={cn(
+                "absolute top-5 h-5 w-px -translate-x-1/2",
+                marker.kind === "expiry" ? "bg-foreground" : "bg-foreground/40"
+              )}
+              style={{ left: `${marker.pct}%` }}
+            />
+          ))}
+          {timeline.markers
+            .filter((marker) => marker.kind === "expiry")
+            .map((marker) => (
+              <span
+                key={marker.key}
+                className={cn("absolute top-11 text-[0.6875rem] font-medium", anchor(marker.pct))}
+                style={{ left: `${marker.pct}%` }}
+              >
+                {marker.label}
+              </span>
+            ))}
+        </div>
+
+        <ul className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))]">
+          {timeline.segments.map((segment) => (
+            <li key={segment.key} className="flex gap-2.5">
+              <span className={cn("mt-1 size-3 shrink-0 rounded-sm", SEGMENT_TONE[segment.key])} />
+              <span className="flex min-w-0 flex-col">
+                <span className="text-sm font-medium">{segment.label}</span>
+                <span className="text-muted-foreground text-xs text-pretty">{segment.detail}</span>
+              </span>
+            </li>
+          ))}
+          <li className="flex gap-2.5">
+            <span className="bg-foreground/40 mt-0.5 h-4 w-px shrink-0" />
+            <span className="flex min-w-0 flex-col">
+              <span className="text-sm font-medium">Reminders</span>
+              <span className="text-muted-foreground text-xs text-pretty">
+                {timeline.markers.filter((marker) => marker.kind === "reminder").map((marker) => marker.label).join(", ") || "None"}.
+                Reminders go out on these days only; the invoice may already exist.
+              </span>
+            </span>
+          </li>
+        </ul>
+
+        {timeline.notes.map((note) => (
+          <p key={note} className="text-xs text-amber-800 dark:text-amber-200">
+            {note}
+          </p>
+        ))}
+      </CardContent>
+    </Card>
   )
 }

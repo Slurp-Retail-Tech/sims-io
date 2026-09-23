@@ -7,8 +7,8 @@
 export const REASON_LABELS: Record<string, string> = {
   no_plan_assigned: "No plan assigned",
   plan_missing_term_price: "Plan has no price for this term",
-  override_pending_approval: "Price override awaiting approval",
-  override_rejected: "Price override was rejected",
+  override_pending_approval: "Agreed price awaiting approval",
+  override_rejected: "Agreed price was rejected",
   no_renewal_pic: "Nobody accountable for the renewal",
   ambiguous_renewal_pic: "Outlets disagree on who is accountable",
   unreachable_renewal_pic: "Renewal contact cannot be reached",
@@ -31,7 +31,7 @@ export const REASON_FIXES: Record<string, string> = {
   override_pending_approval:
     "Someone with override approval needs to accept or reject the price.",
   override_rejected:
-    "Assign the plan again at an acceptable price, or without an override.",
+    "Assign the plan again at an acceptable price, or at the catalog price.",
   no_renewal_pic:
     "Mark a contact as renewal PIC for this outlet or its franchise.",
   ambiguous_renewal_pic:

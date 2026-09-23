@@ -159,7 +159,7 @@ type Session = {
 
 const PRICE_SOURCE_LABELS: Record<string, string> = {
   catalog: "Catalog price",
-  assignment_override: "Assignment price",
+  assignment_override: "Agreed price",
   cycle_override: "One-off price",
 }
 
@@ -226,7 +226,7 @@ function describeEvent(event: Event, invoice: Invoice): TimelineEntry {
     case "payment_refunded":
       return { ...base, title: "Refund reported by the gateway", actor: "gateway", tone: "red", detail: String(payload.referenceCode ?? "") }
     case "cycle_override_applied":
-      return { ...base, title: payload.amountMinor === null ? "One-off price cleared" : "One-off price applied", tone: "amber", detail: `Outlet ${String(payload.outletId ?? "")} · ${payload.amountMinor === null ? "back to the assignment price" : money(Number(payload.amountMinor), invoice.currencyCode)}${payload.reason ? ` · ${String(payload.reason)}` : ""}${payload.approved ? " · approved" : ""}` }
+      return { ...base, title: payload.amountMinor === null ? "One-off price cleared" : "One-off price applied", tone: "amber", detail: `Outlet ${String(payload.outletId ?? "")} · ${payload.amountMinor === null ? "back to the agreed or catalog price" : money(Number(payload.amountMinor), invoice.currencyCode)}${payload.reason ? ` · ${String(payload.reason)}` : ""}${payload.approved ? " · approved" : ""}` }
     default:
       if (event.eventType.startsWith("status_")) {
         const status = event.eventType.slice("status_".length)
@@ -255,7 +255,18 @@ function describeLinkEvent(event: LinkEvent): TimelineEntry {
   }
 }
 
-export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoiceId: string; canManage: boolean; canApprove: boolean }) {
+export function InvoiceDetailView({
+  invoiceId,
+  canManage,
+  canApprove,
+  varianceThresholdPct,
+}: {
+  invoiceId: string
+  canManage: boolean
+  canApprove: boolean
+  /** From Renewal Settings; the server enforces the same value. */
+  varianceThresholdPct: number
+}) {
   const { showToast } = useToast()
   const [invoice, setInvoice] = React.useState<Invoice | null>(null)
   const [items, setItems] = React.useState<Item[]>([])
@@ -498,7 +509,7 @@ export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoic
             {canManage && isOpen ? (
               <CardAction>
                 <Button variant="outline" size="sm" onClick={() => setDialog("override")}>
-                  Cycle override
+                  One-off price
                 </Button>
               </CardAction>
             ) : null}
@@ -721,6 +732,7 @@ export function InvoiceDetailView({ invoiceId, canManage, canApprove }: { invoic
         invoice={invoice}
         items={items}
         canApprove={canApprove}
+        varianceThresholdPct={varianceThresholdPct}
         onSaved={() => {
           setDialog(null)
           void load()
@@ -859,6 +871,7 @@ function CycleOverrideDialog({
   invoice,
   items,
   canApprove,
+  varianceThresholdPct,
   onSaved,
 }: {
   open: boolean
@@ -866,6 +879,7 @@ function CycleOverrideDialog({
   invoice: Invoice
   items: Item[]
   canApprove: boolean
+  varianceThresholdPct: number
   onSaved: () => void
 }) {
   const { showToast } = useToast()
@@ -905,7 +919,7 @@ function CycleOverrideDialog({
       })
       const payload = (await response.json().catch(() => ({}))) as { error?: string }
       if (!response.ok) {
-        setError(payload.error ?? "Unable to apply the override.")
+        setError(payload.error ?? "Unable to apply the one-off price.")
         return
       }
       showToast(clear ? "One-off price cleared." : "One-off price applied.", "success")
@@ -921,9 +935,9 @@ function CycleOverrideDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Cycle override</DialogTitle>
+          <DialogTitle>One-off price</DialogTitle>
           <DialogDescription>
-            Applies to this invoice line only. The assignment is untouched, so the next cycle prices from it again.
+            Applies to this invoice line only. The outlet&apos;s agreed or catalog price is untouched, so the next invoice prices from it again.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-2">
@@ -944,10 +958,10 @@ function CycleOverrideDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2">
-              <Label htmlFor="overrideAmount">Override amount (MYR)</Label>
+              <Label htmlFor="overrideAmount">One-off price (MYR)</Label>
               <Input id="overrideAmount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="1150.00" />
               <p className="text-muted-foreground text-xs">
-                {baseline !== null ? `Agreed price ${money(baseline, invoice.currencyCode)}` : "No baseline price on this line"}
+                {baseline !== null ? `Catalog price ${money(baseline, invoice.currencyCode)}` : "No baseline price on this line"}
               </p>
             </div>
             <div className="grid gap-2">
@@ -955,13 +969,13 @@ function CycleOverrideDialog({
               <div
                 className={cn(
                   "bg-muted/40 rounded-[calc(var(--radius)-2px)] border px-3 py-2 text-sm",
-                  variance === null ? "text-muted-foreground" : Math.abs(variance.pct) > 15 ? "text-red-700" : variance.deltaMinor < 0 ? "text-amber-700" : "text-sky-700"
+                  variance === null ? "text-muted-foreground" : Math.abs(variance.pct) > varianceThresholdPct ? "text-red-700" : variance.deltaMinor < 0 ? "text-amber-700" : "text-sky-700"
                 )}
               >
                 {variance === null
                   ? "—"
                   : variance.deltaMinor === 0
-                    ? "Same as agreed"
+                    ? "Same as catalog"
                     : `${signedMoney(variance.deltaMinor, invoice.currencyCode)} (${variance.pct > 0 ? "+" : "−"}${Math.abs(variance.pct).toFixed(1)}%)`}
               </div>
             </div>
@@ -971,25 +985,25 @@ function CycleOverrideDialog({
             <Input id="overrideReason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Mandatory. Recorded on the line item." />
           </div>
           <p className="text-muted-foreground text-xs">
-            {variance && Math.abs(variance.pct) > 15
+            {variance && Math.abs(variance.pct) > varianceThresholdPct
               ? canApprove
-                ? "This variance is past the threshold. Your override-approval key lets you apply it; the approval is recorded against you."
-                : "This variance is past the threshold and needs someone with override approval."
-              : "The next cycle prices from the assignment again, with no manual reset."}
+                ? `This is more than ${varianceThresholdPct}% from the catalog price. Your price-approval access lets you apply it; the approval is recorded against you.`
+                : `This is more than ${varianceThresholdPct}% from the catalog price and needs someone with price-approval access.`
+              : "The next invoice prices from the agreed or catalog price again, with no manual reset."}
           </p>
           {error ? <p className="text-destructive text-sm">{error}</p> : null}
         </div>
         <DialogFooter>
           {item?.cycleOverrideMinor !== null && item?.cycleOverrideMinor !== undefined ? (
             <Button variant="ghost" size="sm" disabled={saving} onClick={() => void save(true)}>
-              Clear override
+              Clear one-off price
             </Button>
           ) : null}
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={saving}>
             Cancel
           </Button>
           <Button size="sm" disabled={saving || !item || !amount.trim() || !reason.trim()} onClick={() => void save(false)}>
-            {saving ? "Applying…" : "Apply override"}
+            {saving ? "Applying…" : "Apply one-off price"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -173,7 +173,7 @@ export async function applyCycleOverride(
     return {
       ok: false,
       status: 403,
-      message: `That is more than ${loaded.settings.overrideVarianceThresholdPct}% from the agreed price and needs someone with override approval.`,
+      message: `That is more than ${loaded.settings.overrideVarianceThresholdPct}% from the catalog price and needs someone with price-approval access.`,
     }
   }
 

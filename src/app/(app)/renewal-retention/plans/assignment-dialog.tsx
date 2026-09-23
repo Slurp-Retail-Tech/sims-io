@@ -458,7 +458,7 @@ export function AssignmentDialog({
 
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="overrideAnnually">Override 1 year (RM)</Label>
+                <Label htmlFor="overrideAnnually">Agreed price, 1 year (RM)</Label>
                 <Input
                   id="overrideAnnually"
                   inputMode="decimal"
@@ -479,7 +479,7 @@ export function AssignmentDialog({
                 ) : null}
               </div>
               <div className="grid gap-2">
-                <Label htmlFor="overrideBiAnnually">Override 6 months (RM)</Label>
+                <Label htmlFor="overrideBiAnnually">Agreed price, 6 months (RM)</Label>
                 <Input
                   id="overrideBiAnnually"
                   inputMode="decimal"
@@ -503,7 +503,7 @@ export function AssignmentDialog({
 
             {hasOverride ? (
               <div className="grid gap-2">
-                <Label htmlFor="overrideReason">Why the override</Label>
+                <Label htmlFor="overrideReason">Why this price</Label>
                 <Textarea
                   id="overrideReason"
                   value={form.overrideReason}
@@ -525,7 +525,7 @@ export function AssignmentDialog({
                   )}
                 >
                   {errorFor("overrideReason") ??
-                    "Required. A large change from the catalog price waits for approval before it prices anything."}
+                    "Required. Applies every cycle until the assignment changes. A large change from the catalog price waits for approval before it prices anything."}
                 </p>
               </div>
             ) : null}

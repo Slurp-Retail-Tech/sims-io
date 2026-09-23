@@ -1562,6 +1562,14 @@ plan, a renewal PIC, a reachable PIC, and a succeeded nightly check. The three
 queue-based steps read "not checked yet" until the nightly check has
 succeeded once. The card disappears when every step is done.
 
+**Prices and the clock, as staff see them.** An assignment-level price is
+called an **Agreed price** (applies every cycle, may need approval); a
+line-level price is a **One-off price** (this invoice line only). Both are
+measured against the catalog price and need approval past
+`override_variance_threshold_pct`. Renewal Settings draws the readiness
+window, the invoicing window (derived from the furthest reminder offset), the
+reminders and the grace window on one line (`settings-timeline.ts`, pure).
+
 ## Milestones
 
 **M0 – Project Setup (1 week)**

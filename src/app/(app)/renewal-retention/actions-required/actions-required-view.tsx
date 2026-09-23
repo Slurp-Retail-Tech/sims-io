@@ -81,7 +81,7 @@ function fixLink(action: ActionRow): { label: string; href: string } | null {
     case "plan_missing_term_price":
       return { label: "Assign a plan", href: "/renewal-retention/plans" }
     case "override_pending_approval":
-      return { label: "Review override", href: "/renewal-retention/plans" }
+      return { label: "Review agreed price", href: "/renewal-retention/plans" }
     case "override_rejected":
       return { label: "Reassign plan", href: "/renewal-retention/plans" }
     case "no_renewal_pic":

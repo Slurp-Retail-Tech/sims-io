@@ -149,8 +149,8 @@ export function PlanCatalogView({ canManage, canApprove }: PlanCatalogViewProps)
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <AlertTriangle className="size-4 text-amber-600" />
-              {pending.length} price{" "}
-              {pending.length === 1 ? "override" : "overrides"} waiting for approval
+              {pending.length} agreed{" "}
+              {pending.length === 1 ? "price" : "prices"} waiting for approval
             </CardTitle>
             <CardDescription>
               These assignments do not price anything until a decision is recorded. Outlets
@@ -361,11 +361,13 @@ export function describeOverride(assignment: Assignment): string {
   if (parts.length === 0) {
     return "Catalog price"
   }
+  // "Agreed price" is the assignment-level price that applies every cycle,
+  // named apart from the one-off price set on a single invoice line.
   const direction =
     assignment.overrideDirection === "increase"
-      ? "Increase"
+      ? "Agreed price, above catalog"
       : assignment.overrideDirection === "decrease"
-        ? "Reduction"
-        : "Override"
+        ? "Agreed price, below catalog"
+        : "Agreed price"
   return `${direction} · ${parts.join(", ")}`
 }
