@@ -10,7 +10,10 @@
 import getPool, { withTransaction, type Queryable } from "../db.ts"
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise"
 
+import { enqueueJobRun } from "../job-runner.ts"
+import { RENEWAL_DISPATCH_JOB_TYPE } from "../job-types.ts"
 import { createLogger } from "../logger.ts"
+import { requeueLatestDispatch } from "./dispatches.ts"
 import { ensureInvoicePdf } from "./invoice-pdf.ts"
 import { minorToDecimal, recordEvent, setInvoiceStatus } from "./invoices.ts"
 import type { InvoiceRecord } from "./invoices.ts"
@@ -444,6 +447,32 @@ export async function reprintProforma(
     return { ok: false, status: 409, message: "Only an open proforma can be re-printed." }
   }
   await ensureInvoicePdf(invoiceId, { force: true, actorUserId }, db)
+  return { ok: true }
+}
+
+/**
+ * Send the latest renewal message on this invoice again, to everyone it went
+ * to: "Resend dispatch". Refused while outbound dispatch is paused, because
+ * the row would only sit in the queue and the button would appear to work.
+ */
+export async function resendDispatch(
+  invoiceId: string,
+  actorUserId: string,
+  db: Queryable = getPool()
+): Promise<ActionOutcome> {
+  const loaded = await loadInvoiceContextById(invoiceId, db)
+  if (!loaded) {
+    return { ok: false, status: 404, message: "Invoice not found." }
+  }
+  if (!loaded.settings.dispatchEnabled) {
+    return { ok: false, status: 409, message: "Outbound dispatch is paused. Resume it in Renewal Settings first." }
+  }
+  const { dispatchType, requeued } = await requeueLatestDispatch(invoiceId, actorUserId, db)
+  if (!dispatchType || requeued === 0) {
+    return { ok: false, status: 409, message: "Nothing has been sent on this invoice to resend yet." }
+  }
+  await recordEvent(db, invoiceId, "dispatch_resend_requested", actorUserId, { dispatchType, recipients: requeued })
+  await enqueueJobRun(db, { jobType: RENEWAL_DISPATCH_JOB_TYPE, dedupeKey: "singleton", triggerSource: "manual", requestedBy: actorUserId })
   return { ok: true }
 }
 

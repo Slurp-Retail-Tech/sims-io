@@ -163,7 +163,55 @@ const PRICE_SOURCE_LABELS: Record<string, string> = {
   cycle_override: "One-off price",
 }
 
+type Dispatch = {
+  id: string
+  dispatchType: "reminder_first" | "reminder_second" | "reminder_final" | "receipt"
+  channel: "email" | "whatsapp"
+  recipientRole: "pic" | "cc"
+  recipientName: string | null
+  address: string
+  status: "queued" | "sent" | "failed" | "suppressed" | "cancelled"
+  statusNote: string | null
+  attempts: number
+  respondioMessageId: string | null
+  sentAt: string | null
+  createdAt: string
+}
+
+const DISPATCH_LABEL: Record<Dispatch["dispatchType"], string> = {
+  reminder_first: "First reminder",
+  reminder_second: "Second reminder",
+  reminder_final: "Final reminder",
+  receipt: "Receipt",
+}
+
+const DISPATCH_TONE: Record<Dispatch["status"], Tone> = {
+  queued: "amber",
+  sent: "green",
+  failed: "red",
+  suppressed: "gray",
+  cancelled: "gray",
+}
+
 type TimelineEntry = { key: string; when: string; title: string; actor: string; detail: string; tone: Tone }
+
+/** A message on the timeline: when it went, or when it was queued if it has not. */
+function describeDispatch(dispatch: Dispatch): TimelineEntry {
+  const channel = dispatch.channel === "whatsapp" ? "WhatsApp" : "Email"
+  const who = `${dispatch.recipientName ?? "Recipient"} (${dispatch.recipientRole === "pic" ? "PIC" : "CC"})`
+  const state =
+    dispatch.status === "sent"
+      ? `sent${dispatch.respondioMessageId ? ` · message ${dispatch.respondioMessageId}` : ""}`
+      : `${dispatch.status}${dispatch.statusNote ? ` · ${dispatch.statusNote}` : ""}`
+  return {
+    key: `d-${dispatch.id}`,
+    when: shortDateTime(dispatch.sentAt ?? dispatch.createdAt),
+    title: `${DISPATCH_LABEL[dispatch.dispatchType]} · ${channel}`,
+    actor: "system",
+    detail: `${who} · ${dispatch.address} · ${state}`,
+    tone: DISPATCH_TONE[dispatch.status],
+  }
+}
 
 function describeEvent(event: Event, invoice: Invoice): TimelineEntry {
   const payload = (event.payload ?? {}) as Record<string, unknown>
@@ -211,6 +259,8 @@ function describeEvent(event: Event, invoice: Invoice): TimelineEntry {
       return { ...base, title: "Payer email failed", tone: "red", detail: `${String(payload.to ?? "")} · ${String(payload.message ?? "")}` }
     case "payer_email_resend_requested":
       return { ...base, title: "Payer email re-send requested", tone: "amber", detail: String(payload.to ?? "") }
+    case "dispatch_resend_requested":
+      return { ...base, title: "Message resend requested", tone: "amber", detail: `${plural(Number(payload.recipients ?? 0), "recipient")}` }
     case "post_payment_retry_requested":
       return { ...base, title: "Post-payment steps queued again", tone: "amber", detail: "" }
     case "payment_session_reset":
@@ -279,6 +329,7 @@ export function InvoiceDetailView({
   const [extensions, setExtensions] = React.useState<Extension[]>([])
   const [taxInvoice, setTaxInvoice] = React.useState<Invoice | null>(null)
   const [callbacks, setCallbacks] = React.useState<Callback[]>([])
+  const [dispatches, setDispatches] = React.useState<Dispatch[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [copied, setCopied] = React.useState(false)
@@ -301,6 +352,7 @@ export function InvoiceDetailView({
         extensions?: Extension[]
         taxInvoice?: Invoice | null
         callbacks?: Callback[]
+        dispatches?: Dispatch[]
       }
       setInvoice(payload.invoice)
       setItems(payload.items ?? [])
@@ -310,6 +362,7 @@ export function InvoiceDetailView({
       setExtensions(payload.extensions ?? [])
       setTaxInvoice(payload.taxInvoice ?? null)
       setCallbacks(payload.callbacks ?? [])
+      setDispatches(payload.dispatches ?? [])
       setError(null)
     } catch (loadError) {
       setInvoice(null)
@@ -378,12 +431,14 @@ export function InvoiceDetailView({
   const timeline: TimelineEntry[] = [
     ...events.map((event) => describeEvent(event, invoice)),
     ...linkEvents.map(describeLinkEvent),
+    ...dispatches.map(describeDispatch),
   ].sort((a, b) => a.when.localeCompare(b.when))
   // Sorting by the formatted string would be wrong across months; sort by the
   // underlying timestamps instead.
   const timestamps = new Map<string, string>()
   events.forEach((event) => timestamps.set(`e-${event.id}`, event.createdAt))
   linkEvents.forEach((event) => timestamps.set(`l-${event.id}`, event.createdAt))
+  dispatches.forEach((dispatch) => timestamps.set(`d-${dispatch.id}`, dispatch.sentAt ?? dispatch.createdAt))
   timeline.sort((a, b) => (timestamps.get(a.key) ?? "").localeCompare(timestamps.get(b.key) ?? ""))
 
   const stats = [
@@ -661,7 +716,19 @@ export function InvoiceDetailView({
                   >
                     Reset payment session
                   </Button>
-                  <Button variant="outline" size="sm" disabled title="Arrives with Respond.io dispatch">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={busy || !dispatchEnabled || !dispatches.some((dispatch) => dispatch.status !== "suppressed")}
+                    title={
+                      dispatches.length === 0
+                        ? "Nothing has been sent on this invoice yet"
+                        : !dispatchEnabled
+                          ? "Outbound dispatch is paused in Renewal Settings"
+                          : "Send the latest message again to everyone it went to"
+                    }
+                    onClick={() => void runAction({ action: "resend_dispatch" }, "Queued to send again.")}
+                  >
                     Resend dispatch
                   </Button>
                   <Button

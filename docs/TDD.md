@@ -1616,6 +1616,46 @@ same window through `?month=` (`YYYY-MM` or `YYYY`, which replaces the
 directories for the list are loaded in three queries for every franchise
 (`loadRenewalDirectories`) instead of three per franchise.
 
+## Renewal message dispatch (Respond.io)
+
+Reminders and receipts go to the renewal PIC and every CC, on each channel
+they have enabled with a usable address, through the Respond.io Developer API.
+It ships switched off (`dispatch_enabled`).
+
+- **Rows.** `renewal_dispatches` (migration 039): one row per invoice,
+  dispatch type (`reminder_first`, `reminder_second`, `reminder_final`,
+  `receipt`), channel and recipient, unique on those four, so re-queueing is
+  idempotent. The address is frozen at enqueue.
+- **Queueing.** `queueRenewalMessages` (`dispatch-enqueue.ts`) writes rows only
+  while dispatch is on (AC36) and wakes the job runner. The nightly cycle
+  queues `reminder_first` the night a proforma is raised, then one reminder
+  per offset night (`reminderTypeForNight`: furthest offset first, nearest
+  final). Post-payment queues the receipt (`queueReceiptForInvoice`).
+- **Fan-out and duplicates.** `planDispatches` (pure, tested): PIC first, then
+  CCs; the same contact twice is one person; a repeated address is recorded as
+  `suppressed`; on a receipt, an email to the address the payer documents went
+  to is suppressed, the WhatsApp receipt kept (AC23).
+- **Sending.** `renewal-dispatch` job → `sendDueDispatches`. At send time it
+  cancels a reminder whose invoice closed or whose licence expired, and a
+  receipt for an unpaid invoice. It holds reminders to the send window (Kuala
+  Lumpur time; receipts go immediately), stamps the attempt before the call,
+  and calls Respond.io once. Paced at 4 per second; a 429 refunds the attempt
+  and stops the pass until `Retry-After`. Failures retry after 5, 30 and 120
+  minutes; the third marks the row failed and raises informational
+  `dispatch_failed`, cleared when a resend succeeds. A send interrupted
+  mid-call is marked failed after 15 minutes, never resent automatically.
+- **Copy.** `message-templates.ts`; `dispatch-message.ts` fills it from the
+  public invoice view. WhatsApp body parameters follow the order of the
+  placeholders in the copy; the URL button's dynamic suffix is the renewal
+  token (receipts: `{token}/receipt`). The button parameter shape must be
+  confirmed against the approved template before switch-on.
+- **Surfaces.** Invoice timeline lists every row; **Resend dispatch** re-queues
+  the latest message for everyone it went to; the Renewal List derives
+  `reminder_sent`; Overview's funnel and Analytics' engagement tab count
+  reminded invoices and failed messages.
+- **Payer documents stay on SMTP** (`post-payment.ts`), not Respond.io: a
+  deliberate deviation from PRD 4.15 (AC22), held by the same kill switch.
+
 ## Milestones
 
 **M0 – Project Setup (1 week)**

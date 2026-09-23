@@ -746,6 +746,13 @@ export const ENV_MANIFEST: readonly EnvSpec[] = [
     buildTime: false,
   },
   {
+    name: "RENEWAL_DISPATCH_CRON_SECRET",
+    requirement: { kind: "optional" },
+    why: "is optional — without it, reminders held for the send window and retries after a failed send wait until the next reminder is queued or an Admin runs dispatch by hand",
+    public: false,
+    buildTime: false,
+  },
+  {
     name: "RENEWAL_PAYMENT_RECONCILE_CRON_SECRET",
     requirement: { kind: "optional" },
     why: "is optional — without it the hourly payment sweep can only be run manually by an Admin, so a payment whose gateway callback never arrived waits for a person",

@@ -45,6 +45,9 @@ type Analytics = {
     linkToPaymentRate: number | null
     medianHoursToFirstOpen: number | null
     sessionsStarted: number
+    reminded?: number
+    remindedRate?: number | null
+    messagesFailed?: number
   }
   pricing: {
     reductionsMinor: number
@@ -138,9 +141,11 @@ export function AnalyticsView() {
     },
     engagement: {
       title: "Link engagement",
-      description: "The renewal link open is the only engagement signal; message opens are not tracked. Dispatch counts join when messaging goes live.",
+      description: "The renewal link open is the only engagement signal; message opens are not tracked. Reminders count once Respond.io dispatch is switched on.",
       metrics: [
         { label: "Invoices raised", definition: "Proformas live in the cohort", value: String(engagement.invoicesRaised) },
+        { label: "Reminded", definition: "Invoices with at least one reminder sent ÷ invoices raised", value: `${engagement.reminded ?? 0} · ${pct(engagement.remindedRate ?? null)}` },
+        { label: "Messages failed", definition: "Messages that gave up after three attempts; each is in Actions Required", value: String(engagement.messagesFailed ?? 0), href: queue },
         { label: "Link open rate", definition: "Invoices with a recorded open ÷ invoices raised", value: pct(engagement.openRate) },
         { label: "Never opened", definition: "Raised with no merchant visit", value: String(engagement.neverOpened), href: list({ opened: "never" }) },
         { label: "Payment initiated", definition: "Invoices with a CommercePay session", value: String(engagement.sessionsStarted) },

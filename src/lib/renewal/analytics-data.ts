@@ -62,6 +62,8 @@ type InvoiceRow = RowDataPacket & {
   open_count: number
   period_start: string | null
   has_session: number
+  reminded: number
+  messages_failed: number
 }
 
 export async function loadAnalytics(periodKey: string | null, db: Queryable = getPool()): Promise<AnalyticsData> {
@@ -81,7 +83,12 @@ export async function loadAnalytics(periodKey: string | null, db: Queryable = ge
               i.adjustment_amount, i.paid_at, i.paid_via, i.created_at, i.first_opened_at,
               i.open_count, i.period_start,
               EXISTS (SELECT 1 FROM renewal_payment_sessions s
-                       WHERE s.invoice_id = i.id AND s.cap_session_number IS NOT NULL) AS has_session
+                       WHERE s.invoice_id = i.id AND s.cap_session_number IS NOT NULL) AS has_session,
+              EXISTS (SELECT 1 FROM renewal_dispatches d
+                       WHERE d.invoice_id = i.id AND d.status = 'sent'
+                         AND d.dispatch_type IN ('reminder_first','reminder_second','reminder_final')) AS reminded,
+              (SELECT COUNT(*) FROM renewal_dispatches d
+                WHERE d.invoice_id = i.id AND d.status = 'failed') AS messages_failed
          FROM renewal_invoices i
         WHERE i.deleted_at IS NULL AND i.document_type = 'proforma'
           AND (i.period_start BETWEEN ? AND ? OR DATE(i.paid_at) BETWEEN ? AND ?)`,
@@ -130,6 +137,8 @@ export async function loadAnalytics(periodKey: string | null, db: Queryable = ge
     openCount: Number(row.open_count),
     hasSession: Number(row.has_session) === 1,
     reconciledBySweep: false,
+    reminded: Number(row.reminded) === 1,
+    messagesFailed: Number(row.messages_failed ?? 0),
     periodStart: row.period_start,
   }))
   const periodInvoices = allInvoices.filter(

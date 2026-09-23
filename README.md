@@ -206,11 +206,13 @@ RESPONDIO_CSAT_WEBHOOK_URL=
 RESPONDIO_CSAT_WEBHOOK_SECRET=
 
 # ── Renewal & Retention ──────────────────────────────────────────────────────
-# Cron secrets for the nightly subscription sync, the nightly renewal check and
-# the hourly payment sweep. See docs/scheduler.md for order and schedule.
+# Cron secrets for the nightly subscription sync, the nightly renewal check,
+# the hourly payment sweep and the 15-minute message dispatch. See
+# docs/scheduler.md for order and schedule.
 RENEWAL_SUBSCRIPTION_SYNC_CRON_SECRET=
 RENEWAL_CYCLE_CRON_SECRET=
 RENEWAL_PAYMENT_RECONCILE_CRON_SECRET=
+RENEWAL_DISPATCH_CRON_SECRET=
 # DEPRECATED fallback for the document letterhead. Set company details in
 # Renewal Settings instead; these are read only while Settings has none.
 RENEWAL_SELLER_NAME=
@@ -223,7 +225,8 @@ COMMERCEPAY_TENANT_ID=
 COMMERCEPAY_USERNAME=
 COMMERCEPAY_PASSWORD=
 COMMERCEPAY_SECRET_KEY=
-# Respond.io Developer API for renewal reminders (dispatch ships switched off).
+# Respond.io Developer API for renewal reminders and receipts. Nothing is sent
+# until dispatch is resumed in Renewal Settings.
 RESPONDIO_API_BASE_URL=https://api.respond.io/v2
 RESPONDIO_API_TOKEN=
 RESPONDIO_EMAIL_CHANNEL_ID=

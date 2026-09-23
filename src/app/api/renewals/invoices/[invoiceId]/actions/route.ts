@@ -8,6 +8,7 @@ import {
   issueInvoice,
   markPaidOffline,
   reprintProforma,
+  resendDispatch,
   resendPayerEmail,
   resetPaymentSession,
   retryPostPayment,
@@ -41,6 +42,7 @@ const bodySchema = z.discriminatedUnion("action", [
   }),
   z.object({ action: z.literal("retry_post_payment") }),
   z.object({ action: z.literal("reprint_proforma") }),
+  z.object({ action: z.literal("resend_dispatch") }),
 ])
 
 /**
@@ -100,6 +102,8 @@ async function handlePost(request: NextRequest, context: RouteContext): Promise<
           return retryPostPayment(invoiceId, auth.user.id)
         case "reprint_proforma":
           return reprintProforma(invoiceId, auth.user.id)
+        case "resend_dispatch":
+          return resendDispatch(invoiceId, auth.user.id)
       }
     })()
 

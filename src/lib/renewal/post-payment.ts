@@ -48,6 +48,7 @@ import { formatMinorForDisplay } from "./money.ts"
 import { allocateInvoiceNumber } from "./numbering.ts"
 import { TERM_MONTHS } from "./plan-resolution.ts"
 import { loadRenewalSettings } from "./settings.ts"
+import { queueReceiptForInvoice } from "./dispatch-enqueue.ts"
 
 const log = createLogger("renewal:post-payment")
 
@@ -213,6 +214,14 @@ export async function runPostPayment(
   } else {
     steps.push(await sendPayerDocuments(current, taxInvoice ?? (await findTaxInvoiceForProforma(invoiceId))))
   }
+
+  // 6. Receipt to the PIC and CCs, through Respond.io.
+  const receipts = await queueReceiptForInvoice(invoiceId)
+  steps.push({
+    step: "receipt_dispatch",
+    outcome: receipts.queued > 0 ? "done" : "skipped",
+    note: receipts.note,
+  })
 
   log.info("Post-payment steps run", {
     invoiceId,
@@ -692,16 +701,21 @@ export async function sendPayerDocuments(
 }
 
 /**
- * Paid invoices whose payer email is still waiting, however long ago they
- * were paid. Resuming dispatch sends these: an email held back by the kill
- * switch is not something anyone should have to remember to resend.
+ * Paid invoices whose messages the kill switch held back: a payer email still
+ * pending, however long ago, or a receipt never queued for a payment in the
+ * last week. Resuming dispatch re-runs post-payment for these, so nothing
+ * held back has to be remembered and resent by hand. Older receipts are left
+ * alone: a thank-you weeks late does more harm than good.
  */
-export async function listInvoicesWithPendingPayerEmail(db: Queryable = getPool()): Promise<string[]> {
+export async function listInvoicesHeldByPause(db: Queryable = getPool()): Promise<string[]> {
   const [rows] = await db.query<RowDataPacket[]>(
-    `SELECT id FROM renewal_invoices
-      WHERE deleted_at IS NULL AND document_type = 'proforma' AND status = 'paid'
-        AND payer_email_status = 'pending'
-      ORDER BY paid_at ASC
+    `SELECT i.id FROM renewal_invoices i
+      WHERE i.deleted_at IS NULL AND i.document_type = 'proforma' AND i.status = 'paid'
+        AND (i.payer_email_status = 'pending'
+             OR (i.paid_at > DATE_SUB(NOW(3), INTERVAL 7 DAY)
+                 AND NOT EXISTS (SELECT 1 FROM renewal_dispatches d
+                                  WHERE d.invoice_id = i.id AND d.dispatch_type = 'receipt')))
+      ORDER BY i.paid_at ASC
       LIMIT 500`
   )
   return (rows as Array<{ id: string }>).map((row) => String(row.id))

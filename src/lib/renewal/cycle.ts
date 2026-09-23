@@ -49,6 +49,8 @@ import {
   findStaleOpenProformas,
   recordEvent,
 } from "./invoices.ts"
+import { queueRenewalMessages } from "./dispatch-enqueue.ts"
+import { reminderTypeForNight } from "./dispatch-plan.ts"
 import { sweepLapsedProformas } from "./lapse.ts"
 import { loadAssignmentsForFranchise } from "./plans.ts"
 import {
@@ -86,6 +88,8 @@ export type CycleOutcome = {
   staleProformas: number
   /** Open proformas closed as lapsed: unpaid past due date plus grace. */
   invoicesLapsed: number
+  /** New reminder rows queued for the dispatch job. */
+  remindersQueued: number
   mode: CycleMode
 }
 
@@ -137,6 +141,7 @@ export async function runRenewalCycle(
     franchisesExamined: 0,
     staleProformas: 0,
     invoicesLapsed: 0,
+    remindersQueued: 0,
     mode,
   }
 
@@ -571,6 +576,21 @@ async function processFranchise(context: {
           issueDate: today,
           excludedOutlets: group.excluded,
         })
+
+    // The reminder for tonight, if any: the first one the night a proforma
+    // is raised, then one per offset night. Queued only while dispatch is on;
+    // the sender picks it up within the send window.
+    const reminder = reminderTypeForNight({
+      daysToExpiry,
+      offsets: settings.reminderOffsets,
+      createdTonight: result.created,
+    })
+    if (reminder) {
+      outcome.remindersQueued += await queueRenewalMessages(
+        { invoiceId: result.invoiceId, dispatchType: reminder, recipients: { pic: pic.pic, ccs: pic.ccs } },
+        db
+      )
+    }
 
     if (result.created) {
       outcome.invoicesCreated += 1
