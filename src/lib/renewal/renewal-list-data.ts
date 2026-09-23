@@ -20,6 +20,7 @@ import { listAssignments, listPlans } from "./plans.ts"
 import { resolvePlanForOutlet, resolvePriceForLine } from "./plan-resolution.ts"
 import type { AssignmentRecord, PlanRecord } from "./plan-resolution.ts"
 import { resolveRenewalPic } from "./pic-resolution.ts"
+import { invoicesWithSentReminder } from "./dispatches.ts"
 import { loadRenewalDirectories } from "./renewal-contacts.ts"
 import {
   deriveOutletState,
@@ -181,6 +182,10 @@ export async function loadRenewalList(
       invoiceByOutlet.set(key, row)
     }
   }
+  const reminded = await invoicesWithSentReminder(
+    [...new Set([...invoiceByOutlet.values()].map((row) => String(row.invoice_id)))],
+    db
+  )
 
   const byFranchise = new Map<string, SubscriptionRow[]>()
   for (const row of rows) {
@@ -256,7 +261,7 @@ export async function loadRenewalList(
           billingHold: row.billing_hold === 1,
           hasBlockingAction: blockingReasons.length > 0,
           invoiceStatus: invoice?.status ?? null,
-          reminderSent: false,
+          reminderSent: invoice ? reminded.has(String(invoice.invoice_id)) : false,
           extended: invoice?.status === "paid" && invoice.extension_status === "applied",
         },
         today

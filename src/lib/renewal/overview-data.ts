@@ -1,9 +1,9 @@
 /**
  * The Renewal & Retention overview: where the book stands today.
  *
- * Every figure is computed from rows that exist now. Where a stage of the
- * funnel has no data source yet (dispatch is not built), the tile says so
- * rather than showing a number that means nothing.
+ * Every figure is computed from rows that exist now. The "reminded" stage
+ * counts sent reminder rows, so it reads zero until dispatch is switched on,
+ * which is exactly what has happened.
  */
 
 import getPool, { type Queryable } from "../db.ts"
@@ -34,6 +34,8 @@ export type OverviewData = {
   expiringSoon: ListFranchise[]
   funnel: {
     invoicesRaised: number
+    /** Invoices with at least one reminder actually sent. */
+    reminded: number
     linkOpened: number
     sessionsStarted: number
     paid: number
@@ -72,6 +74,9 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
       `SELECT
          SUM(i.status NOT IN ('cancelled','superseded','draft')) AS raised,
          SUM(i.status NOT IN ('cancelled','superseded','draft') AND i.open_count > 0) AS opened,
+         SUM(EXISTS (SELECT 1 FROM renewal_dispatches d
+                      WHERE d.invoice_id = i.id AND d.status = 'sent'
+                        AND d.dispatch_type IN ('reminder_first','reminder_second','reminder_final'))) AS reminded,
          SUM(EXISTS (SELECT 1 FROM renewal_payment_sessions s WHERE s.invoice_id = i.id AND s.cap_session_number IS NOT NULL)) AS sessions,
          SUM(i.status = 'paid') AS paid,
          SUM(CASE WHEN i.status = 'paid' THEN i.total_amount ELSE 0 END) AS paid_amount,
@@ -147,6 +152,7 @@ export async function loadOverview(db: Queryable = getPool()): Promise<OverviewD
     expiringSoon: franchises.slice(0, 6),
     funnel: {
       invoicesRaised: Number(funnel.raised ?? 0),
+      reminded: Number(funnel.reminded ?? 0),
       linkOpened: Number(funnel.opened ?? 0),
       sessionsStarted: Number(funnel.sessions ?? 0),
       paid: Number(funnel.paid ?? 0),

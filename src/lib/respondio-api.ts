@@ -19,7 +19,7 @@
  * fast sends are attempted.
  */
 
-import { httpFetch } from "./http.ts"
+import { httpFetch, parseRetryAfterMs } from "./http.ts"
 import { createLogger } from "./logger.ts"
 
 const log = createLogger("respondio-api")
@@ -31,7 +31,14 @@ export type RespondioResult<T> =
   | { ok: true; value: T }
   /** Configuration is absent; nothing was attempted. */
   | { ok: false; reason: "not_configured" }
-  | { ok: false; reason: "failed"; status: number | null; error: string }
+  | {
+      ok: false
+      reason: "failed"
+      status: number | null
+      error: string
+      /** From `Retry-After` on a 429, when Respond.io sent one. */
+      retryAfterMs?: number | null
+    }
 
 export type RespondioChannel = {
   id: number
@@ -91,6 +98,7 @@ async function call<T>(
         reason: "failed",
         status: response.status,
         error: text ? text.slice(0, 300) : `HTTP ${response.status}`,
+        retryAfterMs: response.status === 429 ? parseRetryAfterMs(response.headers.get("retry-after")) : null,
       }
     }
 

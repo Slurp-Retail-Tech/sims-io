@@ -54,7 +54,7 @@ type Overview = {
     actions: { open: number; blocking: number }
   }
   expiringSoon: Franchise[]
-  funnel: { invoicesRaised: number; linkOpened: number; sessionsStarted: number; paid: number; paidMinor: number }
+  funnel: { invoicesRaised: number; reminded?: number; linkOpened: number; sessionsStarted: number; paid: number; paidMinor: number }
   actionSummary: Array<{ reason: string; count: number; blocking: boolean }>
   recentPayments: Array<{
     invoiceId: string
@@ -91,9 +91,9 @@ function pct(numerator: number, denominator: number): string {
  *
  * Four tiles that each open the screen behind the number, the outlets
  * expiring next, the funnel from invoice to payment, the blocked summary and
- * recent payments. The funnel starts at "invoices raised" rather than
- * "reminders dispatched" because dispatch is not built yet, and a stage with
- * no data source is worse left out than shown as zero.
+ * recent payments. The funnel runs from "invoices raised" through
+ * "reminded", counted from sent reminder rows. Before dispatch is switched
+ * on that stage reads zero, which is true: nothing has been sent.
  */
 export function OverviewView() {
   const router = useRouter()
@@ -126,7 +126,8 @@ export function OverviewView() {
   const { kpis, funnel } = data
   const monthName = new Date(`${data.today}T00:00:00Z`).toLocaleString("en-GB", { month: "long", timeZone: "UTC" })
   const stages = [
-    { label: "Invoices raised", value: funnel.invoicesRaised, meta: "Proformas live for a reminder date", tone: "gray" as Tone },
+    { label: "Invoices raised", value: funnel.invoicesRaised, meta: "Proformas live in the invoicing window", tone: "gray" as Tone },
+    { label: "Reminded", value: funnel.reminded ?? 0, meta: `${pct(funnel.reminded ?? 0, funnel.invoicesRaised)} sent at least one reminder`, tone: "blue" as Tone },
     { label: "Renewal link opened", value: funnel.linkOpened, meta: `${pct(funnel.linkOpened, funnel.invoicesRaised)} of invoices raised`, tone: "blue" as Tone },
     { label: "Payment initiated", value: funnel.sessionsStarted, meta: "Sessions created at CommercePay", tone: "amber" as Tone },
     { label: "Paid", value: funnel.paid, meta: `${money(funnel.paidMinor)} collected`, tone: "green" as Tone },
@@ -223,7 +224,7 @@ export function OverviewView() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Invoice to payment</CardTitle>
-              <CardDescription>Counted from invoice, link and payment session rows. Dispatch joins this funnel when messaging goes live.</CardDescription>
+              <CardDescription>Counted from invoice, message, link and payment session rows. Reminders count once Respond.io dispatch is switched on.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-3">

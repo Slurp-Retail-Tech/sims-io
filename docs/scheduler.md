@@ -224,6 +224,47 @@ Notes:
   `callbackUrl` is built from `APP_BASE_URL`, so that variable must be the
   public origin the gateway can reach.
 
+## Renewal message dispatch
+
+```
+POST /api/renewals/dispatch
+```
+
+Recommended cron expression (every 15 minutes):
+
+```
+*/15 * * * *
+```
+
+Command example:
+
+```
+curl -X POST "https://your-app-domain.com/api/renewals/dispatch" -H "x-cron-secret: ${RENEWAL_DISPATCH_CRON_SECRET}"
+```
+
+Notes:
+- `RENEWAL_DISPATCH_CRON_SECRET` must match the header value.
+- Reminders are queued by the nightly cycle: `reminder_first` the night a
+  proforma is raised, then one per offset night (furthest offset is the first,
+  nearest the final). Receipts to the PIC and CCs are queued by post-payment.
+  Both wake the job runner, so most messages go within a minute of the tick.
+  This route picks up what falls due later: reminders held for the send
+  window (Kuala Lumpur time) and retries after a failure.
+- **Nothing is queued or sent while dispatch is paused** in Renewal Settings
+  (PRD AC36). Resuming does not release a backlog of stale reminders; the
+  next offset night queues the current one.
+- Each row is written before the Respond.io call. A failure retries after 5,
+  30 and 120 minutes; the third failure marks the row failed and raises
+  `dispatch_failed` (informational) in Actions Required. A send interrupted
+  mid-call is never retried automatically, since it may have been delivered:
+  after 15 minutes it is marked failed and a person uses **Resend dispatch**.
+- Paced at 4 sends a second, under Respond.io's 5 per method. A 429 stops the
+  pass until `Retry-After` has passed.
+- Needs `RESPONDIO_API_TOKEN`, `RESPONDIO_EMAIL_CHANNEL_ID` (email) and the
+  WhatsApp channel id (Settings or `RESPONDIO_WHATSAPP_CHANNEL_ID`), and
+  `APP_BASE_URL` for the links. WhatsApp also needs the Meta-approved
+  templates named in `message-templates.ts`.
+
 ## Job runner tick (required)
 
 ```

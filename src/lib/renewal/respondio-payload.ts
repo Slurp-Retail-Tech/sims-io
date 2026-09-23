@@ -115,6 +115,14 @@ export function buildWhatsappTemplateMessage(input: {
   templateName: string
   languageCode?: string
   bodyParameters: readonly string[]
+  /**
+   * The dynamic suffix of the template's URL button. The component shape is
+   * the one Respond.io documents for `buttons`; confirm it against the
+   * approved template with `scripts/verify-respondio.mjs` before dispatch is
+   * switched on, because Meta rejects a template send whose button
+   * parameters do not match.
+   */
+  buttonUrlSuffix?: string
   channelId?: number
 }): SendPayload {
   const message: WhatsappTemplateMessage = {
@@ -130,6 +138,9 @@ export function buildWhatsappTemplateMessage(input: {
             text,
           })),
         },
+        ...(input.buttonUrlSuffix
+          ? [{ type: "buttons" as const, parameters: [{ type: "text" as const, text: input.buttonUrlSuffix }] }]
+          : []),
       ],
     },
   }

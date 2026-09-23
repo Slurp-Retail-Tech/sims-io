@@ -69,6 +69,7 @@ const STATE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "all", label: "All renewal states" },
   { value: "not_due", label: "Not due" },
   { value: "invoiced", label: "Invoice raised" },
+  { value: "reminder_sent", label: "Reminder sent" },
   { value: "awaiting_payment", label: "Awaiting payment" },
   { value: "renewed", label: "Renewed" },
   { value: "non_renewed", label: "Non-renewed" },

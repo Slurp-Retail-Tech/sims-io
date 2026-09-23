@@ -6,7 +6,7 @@ import { withRequestContext } from "@/lib/api-request-context"
 import { RENEWAL_POST_PAYMENT_JOB_TYPE } from "@/lib/job-types"
 import { driveJobType } from "@/lib/job-tick"
 import { enqueuePostPayment } from "@/lib/renewal/payment-confirmation"
-import { listInvoicesWithPendingPayerEmail } from "@/lib/renewal/post-payment"
+import { listInvoicesHeldByPause } from "@/lib/renewal/post-payment"
 import { loadRenewalSettings, saveRenewalSettings } from "@/lib/renewal/settings"
 import { validateSettingsPatch } from "@/lib/renewal/settings-validation"
 import type { SettingsPatchInput } from "@/lib/renewal/settings-validation"
@@ -71,9 +71,9 @@ async function handlePatch(request: NextRequest): Promise<Response> {
     const settings = await loadRenewalSettings()
 
     // Resuming dispatch releases what the pause held back: payer documents
-    // emails left pending while it was off. Driven after the response.
+    // emails left pending and receipts never queued. Driven after the response.
     if (!before.dispatchEnabled && settings.dispatchEnabled) {
-      const held = await listInvoicesWithPendingPayerEmail()
+      const held = await listInvoicesHeldByPause()
       for (const invoiceId of held) {
         await enqueuePostPayment(invoiceId, auth.user.id)
       }

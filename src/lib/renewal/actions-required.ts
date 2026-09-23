@@ -33,7 +33,10 @@ export const ACTION_REASONS = {
   unreachable_renewal_pic: "blocking",
   channel_unreachable: "informational",
   missing_valid_until: "blocking",
-  dispatch_failed: "blocking",
+  // Informational: the invoice exists and its link works. Blocking would take
+  // the outlet out of later cycles and so stop its remaining reminders
+  // (PRD 4.24: a failed send never blocks invoicing).
+  dispatch_failed: "informational",
   payment_amount_mismatch: "blocking",
   extension_failed: "blocking",
   pos_push_failed: "informational",

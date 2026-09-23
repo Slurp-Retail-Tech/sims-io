@@ -9,6 +9,7 @@ import {
   loadInvoiceEvents,
   loadInvoiceItems,
 } from "@/lib/renewal/invoices"
+import { listDispatchesForInvoice } from "@/lib/renewal/dispatches"
 import { listCallbacksForInvoice } from "@/lib/renewal/payment-callbacks"
 import { listSessions } from "@/lib/renewal/payment-sessions"
 import { listExtensions } from "@/lib/renewal/post-payment"
@@ -56,7 +57,7 @@ async function handleGet(
       return notFound("Invoice not found.")
     }
 
-    const [items, events, linkEvents, sessions, extensions, taxInvoice, callbacks] = await Promise.all([
+    const [items, events, linkEvents, sessions, extensions, taxInvoice, callbacks, dispatches] = await Promise.all([
       loadInvoiceItems(invoiceId),
       loadInvoiceEvents(invoiceId),
       listLinkEvents(invoiceId),
@@ -64,9 +65,10 @@ async function handleGet(
       listExtensions(invoiceId),
       invoice.documentType === "proforma" ? findTaxInvoiceForProforma(invoiceId) : Promise.resolve(null),
       listCallbacksForInvoice(invoiceId),
+      listDispatchesForInvoice(invoiceId),
     ])
 
-    return NextResponse.json({ invoice, items, events, linkEvents, sessions, extensions, taxInvoice, callbacks })
+    return NextResponse.json({ invoice, items, events, linkEvents, sessions, extensions, taxInvoice, callbacks, dispatches })
   } catch (error) {
     return serverError(
       "renewals/invoices/[invoiceId]",
