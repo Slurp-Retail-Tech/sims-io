@@ -113,8 +113,11 @@ function fixLink(action: ActionRow): { label: string; href: string } | null {
 export function ActionsRequiredView({
   canManage,
   canCheckNow,
+  canAcceptPosDate,
 }: {
   canManage: boolean
+  /** Subscriptions manage key: may take the POS expiry for a drift entry. */
+  canAcceptPosDate: boolean
   /** Admins with the invoices key may run the eligibility checks on demand. */
   canCheckNow: boolean
 }) {
@@ -176,6 +179,32 @@ export function ActionsRequiredView({
       showToast("Unable to reach the server. Try again.", "error")
     } finally {
       setChecking(false)
+    }
+  }
+
+  // Takes the POS expiry as the SIMS expiry. Forward only; the server
+  // refuses if the POS is no longer ahead.
+  async function acceptPosDate(action: ActionRow) {
+    const confirmed = window.confirm(
+      `Take the POS expiry date as the SIMS date for ${scopeLabel(action)}?\n\nDo this only if the outlet really was renewed outside SIMS. Any open proforma for the old date will then be reported as stale.`
+    )
+    if (!confirmed) {
+      return
+    }
+    setDismissing(action.id)
+    try {
+      const response = await fetch(`/api/renewals/actions-required/${action.id}/accept-pos-date`, { method: "POST" })
+      const payload = (await response.json().catch(() => ({}))) as { error?: string; validUntil?: string }
+      if (!response.ok) {
+        showToast(payload.error ?? "Unable to accept the POS date.", "error")
+        return
+      }
+      showToast(`Expiry set to ${payload.validUntil?.slice(0, 10) ?? "the POS date"}.`, "success")
+      void load()
+    } catch {
+      showToast("Unable to reach the server. Try again.", "error")
+    } finally {
+      setDismissing(null)
     }
   }
 
@@ -319,6 +348,16 @@ export function ActionsRequiredView({
                   {fix ? (
                     <Button variant="outline" size="sm" asChild>
                       <Link href={fix.href}>{fix.label}</Link>
+                    </Button>
+                  ) : null}
+                  {canAcceptPosDate && action.reason === "pos_valid_until_drift" && action.outletId ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={dismissing === action.id}
+                      onClick={() => void acceptPosDate(action)}
+                    >
+                      Accept POS date
                     </Button>
                   ) : null}
                   {canManage ? (

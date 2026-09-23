@@ -48,7 +48,7 @@ export const REASON_FIXES: Record<string, string> = {
   pos_push_failed:
     "The renewal is recorded in SIMS. The new date still needs to reach the POS.",
   pos_valid_until_drift:
-    "The POS shows a later expiry than SIMS. Decide which is right.",
+    "The POS shows a later expiry than SIMS. If the outlet was renewed outside SIMS, accept the POS date; if the POS is wrong, correct it there.",
   payer_email_failed: "Resend the documents to a corrected address.",
   overpayment: "Review both payments before refunding either.",
   payment_refunded:

@@ -844,8 +844,8 @@ function VoidDialog({
         <DialogHeader>
           <DialogTitle>Void {invoiceNumber}</DialogTitle>
           <DialogDescription>
-            The renewal link stops working and any open payment session is superseded. The nightly run may raise
-            a fresh proforma for these outlets at the next offset. A paid invoice cannot be voided.
+            The renewal link stops working and any open payment session is superseded. The nightly run raises a
+            fresh proforma for these outlets if they are still inside the invoicing window. A paid invoice cannot be voided.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2 py-2">

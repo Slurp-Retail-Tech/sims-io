@@ -279,7 +279,8 @@ export async function findOpenProforma(
 ): Promise<InvoiceRecord | null> {
   const [rows] = await db.query<InvoiceRow[]>(
     `${INVOICE_SELECT}
-      WHERE i.group_key = ? AND i.document_type = 'proforma' AND i.deleted_at IS NULL`,
+      WHERE i.group_key = ? AND i.document_type = 'proforma' AND i.deleted_at IS NULL
+        AND i.status NOT IN ('cancelled', 'superseded', 'lapsed')`,
     [groupKey]
   )
   const row = rows[0]

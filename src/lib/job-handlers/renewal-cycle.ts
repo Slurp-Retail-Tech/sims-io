@@ -47,6 +47,7 @@ export const renewalCycleJobHandler: JobHandler = {
         actionsRaised: outcome.actionsRaised,
         actionsResolved: outcome.actionsResolved,
         staleProformas: outcome.staleProformas,
+        lapsed: outcome.invoicesLapsed,
       })
 
       // Units are every subscription examined, in either pass. `failed` is the

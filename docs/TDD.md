@@ -1570,6 +1570,24 @@ measured against the catalog price and need approval past
 window, the invoicing window (derived from the furthest reminder offset), the
 reminders and the grace window on one line (`settings-timeline.ts`, pure).
 
+**Lapse.** The nightly cycle (full runs only) moves open proformas to
+`lapsed` once due date plus grace is behind today (`lapse.ts`, cutoff from
+`lapsedIfDueBefore`, which agrees with the public page's `payabilityOf`),
+records `status_lapsed`, and marks the billed outlets `non_renewed` where
+their expiry has not moved. An invoice with an open payment session is
+skipped, so a late payment whose callback was lost is still found by the
+reconcile sweep. Migration 038 makes `open_guard` release on `cancelled`,
+`superseded` and `lapsed`, so a voided or lapsed proforma no longer blocks a
+fresh one for the same group; a paid one still does.
+
+**POS drift.** When the POS reports a later expiry than a SIMS-owned date,
+the subscription sync raises an informational `pos_valid_until_drift` entry
+per outlet, naming any open proforma, and resolves entries for outlets in the
+same batch that no longer drift (`pos-drift.ts`, `pos-drift-store.ts`).
+**Accept POS date** (subscriptions manage key) takes the POS value as the
+SIMS date, marked `manual`, forward only; the next cycle then reports the
+open proforma for the old date as `stale_proforma`.
+
 ## Milestones
 
 **M0 – Project Setup (1 week)**

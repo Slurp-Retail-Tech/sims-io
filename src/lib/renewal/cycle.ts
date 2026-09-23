@@ -49,6 +49,7 @@ import {
   findStaleOpenProformas,
   recordEvent,
 } from "./invoices.ts"
+import { sweepLapsedProformas } from "./lapse.ts"
 import { loadAssignmentsForFranchise } from "./plans.ts"
 import {
   resolvePlanForOutlet,
@@ -83,6 +84,8 @@ export type CycleOutcome = {
   franchisesExamined: number
   /** Open proformas billing an expiry their outlet has since moved off. */
   staleProformas: number
+  /** Open proformas closed as lapsed: unpaid past due date plus grace. */
+  invoicesLapsed: number
   mode: CycleMode
 }
 
@@ -133,6 +136,7 @@ export async function runRenewalCycle(
     actionsResolved: 0,
     franchisesExamined: 0,
     staleProformas: 0,
+    invoicesLapsed: 0,
     mode,
   }
 
@@ -152,6 +156,11 @@ export async function runRenewalCycle(
   // can move to a date outside both windows, and the stale document it leaves
   // behind would then never be looked at again. Runs before the early return
   // so a quiet night still clears or reports it.
+  // First, so an invoice closed tonight is not also reported stale tonight.
+  // Closing an unpaid invoice changes it, so a check leaves it for the night.
+  if (mode === "full") {
+    outcome.invoicesLapsed = await sweepLapsedProformas(today, settings.graceWindowDays, db)
+  }
   outcome.staleProformas = await sweepStaleProformas(outcome, db)
 
   if (due.length === 0 && upcoming.length === 0) {

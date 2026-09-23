@@ -56,3 +56,15 @@ export function payabilityOf(
 export function graceEndsOn(dueDate: string | null, graceWindowDays: number): string | null {
   return dueDate ? addDays(dueDate, Math.max(0, graceWindowDays)) : null
 }
+
+/**
+ * The due date before which an open invoice has lapsed today.
+ *
+ * An invoice lapses once its last payable day (due date plus grace) is behind
+ * today, so every due date strictly earlier than `today - grace` has. The
+ * nightly lapse sweep filters on this in SQL; it agrees with `payabilityOf`,
+ * which the merchant's page uses, by construction and by test.
+ */
+export function lapsedIfDueBefore(today: string, graceWindowDays: number): string {
+  return addDays(today, -Math.max(0, graceWindowDays))
+}
