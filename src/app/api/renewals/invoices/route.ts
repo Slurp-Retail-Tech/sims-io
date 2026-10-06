@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { resolveApiUser } from "@/lib/api-auth"
 import { serverError } from "@/lib/api-errors"
 import { withRequestContext } from "@/lib/api-request-context"
-import { listInvoices } from "@/lib/renewal/invoices"
+import { listInvoices, taxInvoiceNumbersFor } from "@/lib/renewal/invoices"
 import type { InvoiceStatus } from "@/lib/renewal/invoices"
 import { loadRunStatus } from "@/lib/renewal/run-status"
 
@@ -25,14 +25,23 @@ async function handleGet(request: NextRequest): Promise<Response> {
 
   try {
     const { searchParams } = new URL(request.url)
-    const [invoices, runStatus] = await Promise.all([
+    // One row per renewal: the proforma, carrying the number of the tax
+    // invoice issued against it once paid. The tax invoice has no page of its
+    // own; it lives on the proforma's.
+    const [proformas, runStatus] = await Promise.all([
       listInvoices({
         status: (searchParams.get("status") as InvoiceStatus) || undefined,
         franchiseId: searchParams.get("fid") ?? undefined,
         limit: Number(searchParams.get("limit") ?? "100"),
+        documentType: "proforma",
       }),
       loadRunStatus(),
     ])
+    const taxNumbers = await taxInvoiceNumbersFor(proformas.map((invoice) => invoice.id))
+    const invoices = proformas.map((invoice) => ({
+      ...invoice,
+      taxInvoiceNumber: taxNumbers.get(invoice.id) ?? null,
+    }))
     return NextResponse.json({ invoices, runStatus })
   } catch (error) {
     return serverError("renewals/invoices", error, "Unable to load invoices.")

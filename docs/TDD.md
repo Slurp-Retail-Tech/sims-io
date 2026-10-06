@@ -1532,7 +1532,10 @@ and recorded on the invoice:
    `(group_key, 'tax_invoice')`. Aggregates (list, overview, analytics, Bukku)
    filter on `document_type = 'proforma'` so the pair is never double-counted.
 3. *Documents.* Receipt PDF on the proforma (`receipt_pdf_object_key`), tax
-   invoice PDF on its own row. Served through the token-gated public route
+   invoice PDF on its own row. In the staff UI the tax invoice is not a page
+   of its own: the Invoices list shows proformas only, each carrying its tax
+   invoice number, the proforma's page lists all three documents, and a tax
+   invoice's URL redirects to its proforma's page (`#documents`). Served through the token-gated public route
    (`?document=receipt|tax_invoice`) and the staff route; never through the
    generic upload proxy.
 4. *POS push.* `PATCH /api/outlet-valid-until/{fid}/{oid}` per outlet

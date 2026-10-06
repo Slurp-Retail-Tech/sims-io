@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 
 import { requirePageAccess } from "@/lib/auth-server"
 import { canAccessPath } from "@/lib/page-access"
@@ -26,6 +26,11 @@ export default async function InvoiceDetailPage({
   const [invoice, settings] = await Promise.all([getInvoiceById(invoiceId), loadRenewalSettings()])
   if (!invoice) {
     notFound()
+  }
+  // A tax invoice is one of the renewal's documents, not a page of its own:
+  // old links and bookmarks land on its proforma, at the documents.
+  if (invoice.documentType === "tax_invoice" && invoice.parentInvoiceId) {
+    redirect(`/renewal-retention/invoices/${invoice.parentInvoiceId}#documents`)
   }
 
   return (

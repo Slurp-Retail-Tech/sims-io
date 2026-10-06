@@ -412,12 +412,21 @@ export async function getInvoiceByToken(
 }
 
 export async function listInvoices(
-  filters: { status?: InvoiceStatus; franchiseId?: string; limit?: number } = {},
+  filters: {
+    status?: InvoiceStatus
+    franchiseId?: string
+    limit?: number
+    documentType?: "proforma" | "tax_invoice"
+  } = {},
   db: Queryable = getPool()
 ): Promise<InvoiceRecord[]> {
   const conditions = ["i.deleted_at IS NULL"]
   const values: unknown[] = []
 
+  if (filters.documentType) {
+    conditions.push("i.document_type = ?")
+    values.push(filters.documentType)
+  }
   if (filters.status) {
     conditions.push("i.status = ?")
     values.push(filters.status)
@@ -435,6 +444,26 @@ export async function listInvoices(
     values
   )
   return rows.map(mapInvoice)
+}
+
+/**
+ * The tax invoice number issued against each of these proformas, keyed by
+ * proforma id. One query, for the Invoices list, which shows a renewal as
+ * one row carrying both numbers.
+ */
+export async function taxInvoiceNumbersFor(
+  proformaIds: readonly string[],
+  db: Queryable = getPool()
+): Promise<Map<string, string>> {
+  if (proformaIds.length === 0) {
+    return new Map()
+  }
+  const [rows] = await db.query<Array<RowDataPacket & { parent_invoice_id: string; invoice_number: string }>>(
+    `SELECT parent_invoice_id, invoice_number FROM renewal_invoices
+      WHERE document_type = 'tax_invoice' AND deleted_at IS NULL AND parent_invoice_id IN (?)`,
+    [proformaIds]
+  )
+  return new Map(rows.map((row) => [String(row.parent_invoice_id), row.invoice_number]))
 }
 
 export type InvoiceItemRecord = {

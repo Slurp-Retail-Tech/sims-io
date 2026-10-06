@@ -376,6 +376,21 @@ export function InvoiceDetailView({
     void load()
   }, [load])
 
+  // `#documents` (a tax invoice's old link redirects here) scrolls once the
+  // page has content to scroll to. The browser's own jump fires before the
+  // invoice loads, and the router's scroll after navigation would undo an
+  // immediate one, so it waits a moment.
+  const documentsAnchor = invoice !== null
+  React.useEffect(() => {
+    if (!documentsAnchor || window.location.hash !== "#documents") {
+      return
+    }
+    const handle = window.setTimeout(() => {
+      document.getElementById("documents")?.scrollIntoView({ block: "start" })
+    }, 150)
+    return () => window.clearTimeout(handle)
+  }, [documentsAnchor])
+
   async function runAction(body: Record<string, unknown>, success: string) {
     setBusy(true)
     try {
@@ -500,25 +515,6 @@ export function InvoiceDetailView({
               {copied ? "Link copied" : "Copy renewal link"}
             </Button>
           ) : null}
-          <Button variant="outline" size="sm" asChild>
-            <a href={`/api/renewals/invoices/${invoice.id}/pdf`} target="_blank" rel="noreferrer">
-              {invoice.documentType === "tax_invoice" ? "Download tax invoice PDF" : "Download proforma PDF"}
-            </a>
-          </Button>
-          {isPaid && invoice.receiptPdfObjectKey ? (
-            <Button variant="outline" size="sm" asChild>
-              <a href={`/api/renewals/invoices/${invoice.id}/pdf?document=receipt`} target="_blank" rel="noreferrer">
-                Download receipt
-              </a>
-            </Button>
-          ) : null}
-          {taxInvoice ? (
-            <Button variant="outline" size="sm" asChild>
-              <a href={`/api/renewals/invoices/${taxInvoice.id}/pdf`} target="_blank" rel="noreferrer">
-                Download tax invoice {taxInvoice.invoiceNumber}
-              </a>
-            </Button>
-          ) : null}
           {canMarkPaid ? (
             <Button size="sm" disabled={busy} onClick={() => setDialog("markPaid")}>
               Mark paid offline
@@ -529,7 +525,14 @@ export function InvoiceDetailView({
 
       <div>
         <div className="flex flex-wrap items-center gap-2.5">
-          <h1 className="font-mono text-[1.375rem] font-semibold">{invoice.invoiceNumber}</h1>
+          <h1 className="font-mono text-[1.375rem] font-semibold">
+            {invoice.invoiceNumber}
+            {taxInvoice ? (
+              <span className="text-muted-foreground font-normal" title="Tax invoice issued against this proforma">
+                {" "}→ {taxInvoice.invoiceNumber}
+              </span>
+            ) : null}
+          </h1>
           <Pill tone={INVOICE_STATUS_TONE[invoice.status] ?? "gray"}>
             {INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status}
           </Pill>
@@ -556,6 +559,8 @@ export function InvoiceDetailView({
           </div>
         ))}
       </div>
+
+      <DocumentsCard invoice={invoice} taxInvoice={taxInvoice} isPaid={isPaid} />
 
       <div className="grid items-start gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr))]">
         <Card>
@@ -645,7 +650,7 @@ export function InvoiceDetailView({
                     tone={taxInvoice ? "green" : "amber"}
                     value={taxInvoice ? taxInvoice.invoiceNumber : "Pending"}
                     detail={taxInvoice ? `Issued ${longDate(taxInvoice.issueDate)}${taxInvoice.pdfObjectKey ? " · PDF stored" : " · PDF renders on first download"}` : "Issued by the post-payment job."}
-                    href={taxInvoice ? `/renewal-retention/invoices/${taxInvoice.id}` : undefined}
+                    href={taxInvoice ? "#documents" : undefined}
                   />
                   <StepRow
                     label="Receipt"
@@ -1229,5 +1234,77 @@ function ResendEmailDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * The renewal's documents in one place: the proforma it was raised as, the
+ * tax invoice issued against it on payment, and the receipt. They are one
+ * renewal, so they share one page; a tax invoice's own URL redirects here.
+ */
+function DocumentsCard({ invoice, taxInvoice, isPaid }: { invoice: Invoice; taxInvoice: Invoice | null; isPaid: boolean }) {
+  // `number` undefined: the document has no number of its own (a receipt).
+  const rows: Array<{ key: string; label: string; number?: string | null; detail: string; href: string | null }> = [
+    {
+      key: "proforma",
+      label: "Proforma invoice",
+      number: invoice.invoiceNumber,
+      detail: `Issued ${longDate(invoice.issueDate)} · due ${longDate(invoice.dueDate)}`,
+      href: `/api/renewals/invoices/${invoice.id}/pdf`,
+    },
+    {
+      key: "tax_invoice",
+      label: "Tax invoice",
+      number: taxInvoice?.invoiceNumber ?? null,
+      detail: taxInvoice
+        ? `Issued ${longDate(taxInvoice.issueDate)} against ${invoice.invoiceNumber}`
+        : isPaid
+          ? "Being issued by the post-payment steps"
+          : "Issued automatically when the invoice is paid",
+      href: taxInvoice ? `/api/renewals/invoices/${taxInvoice.id}/pdf` : null,
+    },
+    {
+      key: "receipt",
+      label: "Receipt",
+      detail: isPaid
+        ? invoice.receiptPdfObjectKey
+          ? `Payment received ${shortDateTime(invoice.paidAt)}`
+          : "Being produced by the post-payment steps"
+        : "Issued automatically when the invoice is paid",
+      href: isPaid && invoice.receiptPdfObjectKey ? `/api/renewals/invoices/${invoice.id}/pdf?document=receipt` : null,
+    },
+  ]
+
+  return (
+    // Clears the sticky page header when scrolled to.
+    <Card id="documents" className="scroll-mt-20">
+      <CardHeader>
+        <CardTitle className="text-base">Documents</CardTitle>
+        <CardDescription>
+          One renewal, three documents: the proforma the merchant pays, and the tax invoice and receipt issued once they have.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))]">
+        {rows.map((row) => (
+          <div
+            key={row.key}
+            className={cn("flex flex-col gap-1 rounded-[var(--radius)] border px-4 py-3", !row.href && "bg-muted/30")}
+          >
+            <span className="text-muted-foreground text-xs">{row.label}</span>
+            {row.number !== undefined ? (
+              <span className={cn("font-mono text-sm", !row.number && "text-muted-foreground")}>{row.number ?? "—"}</span>
+            ) : null}
+            <span className="text-muted-foreground text-xs text-pretty">{row.detail}</span>
+            {row.href ? (
+              <Button variant="outline" size="sm" className="mt-1.5 self-start" asChild>
+                <a href={row.href} target="_blank" rel="noreferrer">
+                  Download PDF
+                </a>
+              </Button>
+            ) : null}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   )
 }
