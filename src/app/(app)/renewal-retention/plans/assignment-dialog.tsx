@@ -35,6 +35,11 @@ type AssignmentDialogProps = {
   plans: Plan[]
   /** Pre-selected plan, when opened from a plan's own row. */
   initialPlanId?: string | null
+  /**
+   * Pre-filled franchise, and the outlet to select if the person switches to
+   * outlet scope: when opened from an Actions Required entry.
+   */
+  initialTarget?: { franchiseId: string; outletId: string | null; label?: string } | null
   onSaved: (result: AssignmentSaved) => void
 }
 
@@ -96,6 +101,7 @@ export function AssignmentDialog({
   onOpenChange,
   plans,
   initialPlanId = null,
+  initialTarget = null,
   onSaved,
 }: AssignmentDialogProps) {
   const [form, setForm] = React.useState<FormState>(emptyForm)
@@ -105,16 +111,26 @@ export function AssignmentDialog({
   const [errors, setErrors] = React.useState<FieldError[]>([])
   const [generalError, setGeneralError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
+  // The outlet to select once the pre-filled franchise has been typed in;
+  // consumed by the effect below that otherwise clears the outlet.
+  const pendingOutletId = React.useRef<string | null>(null)
 
   React.useEffect(() => {
     if (open) {
-      setForm({ ...emptyForm(), planId: initialPlanId ?? "" })
+      pendingOutletId.current = initialTarget?.outletId ?? null
+      setForm({
+        ...emptyForm(),
+        planId: initialPlanId ?? "",
+        franchiseInput: initialTarget?.franchiseId ?? "",
+      })
       setFranchise(null)
       setOutlets(null)
       setErrors([])
       setGeneralError(null)
     }
-  }, [open, initialPlanId])
+    // Keyed on the ids, not the object, so a parent re-render does not reset
+    // a form someone is halfway through.
+  }, [open, initialPlanId, initialTarget?.franchiseId, initialTarget?.outletId])
 
   // Resolve the franchise and load its outlets together, debounced, with the
   // in-flight requests aborted so a fast typist cannot race an older response
@@ -194,6 +210,12 @@ export function AssignmentDialog({
   // An outlet chosen against the previous franchise means nothing once the id
   // changes, and would otherwise be submitted as-is.
   React.useEffect(() => {
+    const pending = pendingOutletId.current
+    if (pending) {
+      pendingOutletId.current = null
+      setForm((current) => ({ ...current, outletId: pending }))
+      return
+    }
     setForm((current) =>
       current.outletId ? { ...current, outletId: "" } : current
     )
@@ -280,8 +302,9 @@ export function AssignmentDialog({
           <DialogHeader>
             <DialogTitle>Assign plan</DialogTitle>
             <DialogDescription>
-              Put a plan on an entire franchise, or on one of its outlets.
-              Assigning again at the same scope replaces what was there.
+              {initialTarget?.label
+                ? `For ${initialTarget.label}. A franchise plan covers this outlet and every other one; an outlet plan covers this outlet only.`
+                : "Put a plan on an entire franchise, or on one of its outlets. Assigning again at the same scope replaces what was there."}
             </DialogDescription>
           </DialogHeader>
 

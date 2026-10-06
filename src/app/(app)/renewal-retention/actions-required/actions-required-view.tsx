@@ -11,6 +11,9 @@ import { cn } from "@/lib/utils"
 
 import { daysLabel, PageHeader, Pill, PillTabs, RunStatusLine, TONE_TEXT } from "../ui"
 import type { RunStatus, Tone } from "../ui"
+import { AssignmentDialog } from "../plans/assignment-dialog"
+import type { Plan } from "../plans/types"
+import { PicDialog } from "./pic-dialog"
 import { REASON_FIXES, REASON_LABELS } from "./reasons"
 
 type ActionRow = {
@@ -73,21 +76,25 @@ function emptyQueueCopy(state: QueueState, status: RunStatus | null): {
   }
 }
 
-/** Where the fix lives, per reason. The button takes the person there. */
-function fixLink(action: ActionRow): { label: string; href: string } | null {
+/**
+ * Where the fix lives, per reason. The button takes the person there, or,
+ * for a missing plan or PIC, opens the fix in place (`inline`) when the
+ * person has the access the save needs.
+ */
+function fixLink(action: ActionRow): { label: string; href: string; inline?: "plan" | "pic" } | null {
   const contactsHref = `/contacts?fid=${encodeURIComponent(action.franchiseId)}`
   switch (action.reason) {
     case "no_plan_assigned":
     case "plan_missing_term_price":
-      return { label: "Assign a plan", href: "/renewal-retention/plans" }
+      return { label: "Assign a plan", href: "/renewal-retention/plans", inline: "plan" }
     case "override_pending_approval":
       return { label: "Review agreed price", href: "/renewal-retention/plans" }
     case "override_rejected":
       return { label: "Reassign plan", href: "/renewal-retention/plans" }
     case "no_renewal_pic":
-      return { label: "Set renewal PIC", href: contactsHref }
+      return { label: "Set renewal PIC", href: contactsHref, inline: "pic" }
     case "ambiguous_renewal_pic":
-      return { label: "Set franchise PIC", href: contactsHref }
+      return { label: "Set franchise PIC", href: contactsHref, inline: "pic" }
     case "unreachable_renewal_pic":
     case "channel_unreachable":
       return { label: "Fix contact", href: contactsHref }
@@ -114,8 +121,14 @@ export function ActionsRequiredView({
   canManage,
   canCheckNow,
   canAcceptPosDate,
+  canAssignPlan,
+  canSetPic,
 }: {
   canManage: boolean
+  /** Plans manage key: "Assign a plan" opens the assignment panel in place. */
+  canAssignPlan: boolean
+  /** Subscriptions manage and Contacts: "Set renewal PIC" opens in place. */
+  canSetPic: boolean
   /** Subscriptions manage key: may take the POS expiry for a drift entry. */
   canAcceptPosDate: boolean
   /** Admins with the invoices key may run the eligibility checks on demand. */
@@ -130,6 +143,31 @@ export function ActionsRequiredView({
   const [dismissing, setDismissing] = React.useState<string | null>(null)
   const [tab, setTab] = React.useState<Tab>("all")
   const [checking, setChecking] = React.useState(false)
+  const [planTarget, setPlanTarget] = React.useState<ActionRow | null>(null)
+  const [picTarget, setPicTarget] = React.useState<ActionRow | null>(null)
+  const [plans, setPlans] = React.useState<Plan[]>([])
+  // Entries fixed here that the queue still shows: the entry itself only
+  // clears when the nightly check (or Check now) confirms the fix.
+  const [fixed, setFixed] = React.useState<Set<string>>(() => new Set())
+
+  async function openPlanPanel(action: ActionRow) {
+    setPlanTarget(action)
+    try {
+      const response = await fetch("/api/renewals/plans", { cache: "no-store" })
+      const payload = (await response.json().catch(() => ({}))) as { plans?: Plan[] }
+      setPlans((payload.plans ?? []).filter((plan) => plan.isActive))
+    } catch {
+      showToast("Unable to load the plans. Try again.", "error")
+    }
+  }
+
+  function markFixed(action: ActionRow, message: string) {
+    setFixed((current) => new Set(current).add(action.id))
+    showToast(
+      canCheckNow ? `${message} Press Check now to clear the entry.` : `${message} The entry clears on the next nightly check.`,
+      "success"
+    )
+  }
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -345,7 +383,19 @@ export function ActionsRequiredView({
                   </span>
                 </div>
                 <div className="flex shrink-0 gap-2">
-                  {fix ? (
+                  {fix && fixed.has(action.id) ? (
+                    <Pill tone="green" className="self-center">
+                      Fixed · clears on the next check
+                    </Pill>
+                  ) : fix && fix.inline === "plan" && canAssignPlan ? (
+                    <Button variant="outline" size="sm" onClick={() => void openPlanPanel(action)}>
+                      {fix.label}
+                    </Button>
+                  ) : fix && fix.inline === "pic" && canSetPic ? (
+                    <Button variant="outline" size="sm" onClick={() => setPicTarget(action)}>
+                      {fix.label}
+                    </Button>
+                  ) : fix ? (
                     <Button variant="outline" size="sm" asChild>
                       <Link href={fix.href}>{fix.label}</Link>
                     </Button>
@@ -377,6 +427,46 @@ export function ActionsRequiredView({
           })}
         </div>
       )}
+
+      <AssignmentDialog
+        open={planTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setPlanTarget(null)
+        }}
+        plans={plans}
+        initialTarget={
+          planTarget
+            ? { franchiseId: planTarget.franchiseId, outletId: planTarget.outletId, label: scopeLabel(planTarget) }
+            : null
+        }
+        onSaved={(result) => {
+          if (planTarget) {
+            markFixed(
+              planTarget,
+              result.approvalStatus === "pending"
+                ? "Plan assigned. The agreed price waits for approval before it prices anything."
+                : "Plan assigned."
+            )
+          }
+        }}
+      />
+
+      <PicDialog
+        open={picTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setPicTarget(null)
+        }}
+        target={
+          picTarget
+            ? { franchiseId: picTarget.franchiseId, outletId: picTarget.outletId, label: scopeLabel(picTarget) }
+            : null
+        }
+        onSaved={(name) => {
+          if (picTarget) {
+            markFixed(picTarget, `${name} is now the renewal PIC.`)
+          }
+        }}
+      />
     </div>
   )
 }
