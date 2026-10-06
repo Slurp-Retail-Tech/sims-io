@@ -29,7 +29,7 @@ Open **Renewal & Retention → Overview**. Until setup is complete, a checklist 
 1. **Add your company details.** Go to **Settings → Company details on documents**. The name, registration number, address and contact print on every proforma, tax invoice and receipt.
 2. **Create a plan.** Go to **Plan Catalog → New plan**. A plan holds the 1-year and 6-month prices.
 3. **Put outlets on a plan.** In the Plan Catalog, use **Assign plan** for one outlet or a whole franchise. An outlet assignment beats a franchise assignment.
-4. **Name a renewal PIC.** Open the merchant's contact in **Contacts** and mark them **PIC** for the outlet or the franchise. Each outlet has exactly one PIC; others can be **CC**.
+4. **Name a renewal PIC.** Open the merchant's contact in **Contacts** and mark them **PIC** for the outlet or the franchise. Each outlet has exactly one PIC; others can be **CC**. From Actions Required, **Set renewal PIC** does this in place, and can add someone who is not in Contacts yet.
 5. **Make sure the PIC can be reached.** On the same contact, enable **Email** or **WhatsApp** *and* make sure it has an address. A contact with an email address but no enabled channel is flagged as unreachable.
 6. **Let the nightly check run.** It runs every night. Steps 3 to 5 read "Not checked yet" until it has run once.
 
