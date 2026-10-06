@@ -33,6 +33,7 @@ import {
   raiseAction,
   resolveActionsNotNaming,
   resolveUnseenActions,
+  retireEntriesPastRenewalWindow,
 } from "./actions-required.ts"
 import type { ActionReason } from "./actions-required.ts"
 import {
@@ -65,7 +66,9 @@ import {
   invoiceWindowDays,
   partitionForCycle,
   reasonsEvaluatedFor,
+  renewalWindowClosedBefore,
   scopeKey,
+  CYCLE_EVALUATED_REASONS,
 } from "./readiness.ts"
 import { loadRenewalDirectory } from "./renewal-contacts.ts"
 import { loadRenewalSettings } from "./settings.ts"
@@ -145,17 +148,27 @@ export async function runRenewalCycle(
     mode,
   }
 
-  // One read covers both passes: everything from today out to the further of
-  // the readiness window and the furthest offset, then split in memory.
+  // One read covers every pass: from the start of the grace window back from
+  // today, out to the further of the readiness window and the furthest
+  // offset, then split in memory.
+  const graceDays = settings.graceWindowDays
   const loaded = await loadSubscriptionsExpiringBetween(
-    today,
+    addDays(today, -Math.max(0, graceDays)),
     addDays(today, cycleHorizonDays(offsets, windowDays)),
     db
   )
   const invoiceWindow = invoiceWindowDays(offsets)
-  const { due, upcoming } = partitionForCycle(loaded, invoiceWindow, today, windowDays)
+  const { due, upcoming, inGrace } = partitionForCycle(loaded, invoiceWindow, today, windowDays, graceDays)
   outcome.subscriptionsDue = due.length
   outcome.subscriptionsUpcoming = upcoming.length
+
+  // Past expiry and grace, an outlet is out of the cycle for good: its plan
+  // and PIC entries can never clear, so they are retired instead.
+  outcome.actionsResolved += await retireEntriesPastRenewalWindow(
+    renewalWindowClosedBefore(today, graceDays),
+    CYCLE_EVALUATED_REASONS,
+    db
+  )
 
   // Swept across every open proforma, not just tonight's cohort: an expiry
   // can move to a date outside both windows, and the stale document it leaves
@@ -168,7 +181,7 @@ export async function runRenewalCycle(
   }
   outcome.staleProformas = await sweepStaleProformas(outcome, db)
 
-  if (due.length === 0 && upcoming.length === 0) {
+  if (due.length === 0 && upcoming.length === 0 && inGrace.length === 0) {
     return outcome
   }
 
@@ -197,12 +210,14 @@ export async function runRenewalCycle(
   // A check never invoices, so the due cohort joins the readiness sweep. Its
   // franchise-level scopes are then not examined, and the grouped-invoice
   // entries the due pass owns are left exactly as the last full run left them.
-  const cohorts = cohortsForMode(mode, { due, upcoming })
+  const cohorts = cohortsForMode(mode, { due, upcoming, inGrace })
   const dueByFranchise = groupByFranchise(cohorts.invoice)
   const upcomingByFranchise = groupByFranchise(cohorts.checkOnly)
+  const inGraceByFranchise = groupByFranchise(cohorts.existingEntriesOnly)
   const franchiseIds = new Set([
     ...dueByFranchise.keys(),
     ...upcomingByFranchise.keys(),
+    ...inGraceByFranchise.keys(),
   ])
   outcome.franchisesExamined = franchiseIds.size
 
@@ -266,6 +281,36 @@ export async function runRenewalCycle(
       log.error("Renewal readiness sweep failed for franchise", error, {
         franchiseId,
       })
+    }
+  }
+
+  // Expired outlets still inside grace: the same checks, but only to keep or
+  // clear the entries they already have. Raising new ones here would fill
+  // the queue with outlets that lapsed before anyone was asked about them,
+  // and that SIMS will not invoice anyway.
+  if (inGraceByFranchise.size > 0) {
+    const openKeys = await loadOpenActionKeys([...inGraceByFranchise.keys()], db)
+    const raiseIfOpen = async (entry: Parameters<typeof raiseAction>[0]): Promise<void> => {
+      if (openKeys.has(actionKey(entry.franchiseId, entry.outletId, entry.reason))) {
+        await raise(entry)
+      }
+    }
+    for (const [franchiseId, subscriptions] of inGraceByFranchise) {
+      for (const subscription of subscriptions) {
+        examinedScopes.add(scopeKey(franchiseId, subscription.outletId))
+      }
+      try {
+        await checkFranchiseReadiness({
+          franchiseId,
+          franchise: await contextFor(franchiseId),
+          subscriptions,
+          settings,
+          today,
+          raise: raiseIfOpen,
+        })
+      } catch (error) {
+        log.error("Renewal grace-window check failed for franchise", error, { franchiseId })
+      }
     }
   }
 
@@ -877,4 +922,17 @@ async function checkOutletAddressable(context: {
       `${pic.pic.name} is the renewal PIC but no enabled channel has a usable address.`
     )
   }
+}
+
+/** `franchise|outlet|reason` for every open entry under these franchises. */
+async function loadOpenActionKeys(franchiseIds: readonly string[], db: Queryable): Promise<Set<string>> {
+  if (franchiseIds.length === 0) {
+    return new Set()
+  }
+  const [rows] = await db.query<Array<RowDataPacket & { franchise_id: string; outlet_id: string | null; reason: string }>>(
+    `SELECT franchise_id, outlet_id, reason FROM renewal_actions_required
+      WHERE status = 'open' AND franchise_id IN (?)`,
+    [franchiseIds]
+  )
+  return new Set(rows.map((row) => actionKey(row.franchise_id, row.outlet_id, row.reason as ActionReason)))
 }

@@ -1576,6 +1576,14 @@ were rendered with. An open proforma can be re-rendered with **Re-print
 proforma** (`reprint_proforma` action, recorded in the timeline); issued tax
 invoices and receipts are never re-rendered.
 
+**Expired outlets in the queue.** The cycle reads back to the start of the
+grace window. Outlets expired but inside grace (`partitionForCycle`'s
+`inGrace`) get the readiness checks for their *existing* open entries only,
+so a fix clears them without the queue filling with outlets that lapsed
+unasked. Past expiry plus grace (`renewalWindowClosedBefore`), plan and PIC
+entries are retired as `dismissed` with a system note
+(`retireEntriesPastRenewalWindow`). Expired outlets are still never invoiced.
+
 **Setup checklist.** The Overview opens with the steps to a first invoice
 (`setup-checklist.ts`, pure): company details, an active plan, outlets on a
 plan, a renewal PIC, a reachable PIC, and a succeeded nightly check. The three

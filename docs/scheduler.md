@@ -173,6 +173,11 @@ Notes:
 - Outlets that cannot be invoiced are written to Actions Required with the
   reason, and re-evaluated every night, so closing the underlying gap re-enters
   them automatically and resolves the entry.
+- An outlet that expires with an entry still open keeps being re-checked
+  through its grace window, for that entry only: fix the gap and the entry
+  clears; no new entries are raised for outlets already past expiry. Once the
+  grace window has closed, its plan and PIC entries are retired automatically
+  (dismissed, with a note), since SIMS will never invoice it.
 - **Check now.** An Admin with the invoices key can press **Check now** on
   Actions Required, which POSTs `{"mode":"check"}` to the same route. A check
   runs every plan, price and PIC check and the stale-proforma sweep, but never

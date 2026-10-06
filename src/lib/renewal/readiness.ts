@@ -39,7 +39,7 @@
  */
 
 import type { ActionReason } from "./actions-required.ts"
-import { daysBetween } from "./invoice-build.ts"
+import { addDays, daysBetween } from "./invoice-build.ts"
 import type { DueSubscription } from "./invoice-build.ts"
 
 /**
@@ -64,6 +64,11 @@ export const CYCLE_EVALUATED_REASONS = [
 export type CyclePartition = {
   due: DueSubscription[]
   upcoming: DueSubscription[]
+  /**
+   * Expired, but still inside the grace window. Never invoiced; looked at
+   * only so an entry raised before expiry can clear once its gap is fixed.
+   */
+  inGrace: DueSubscription[]
 }
 
 /**
@@ -83,15 +88,22 @@ export function partitionForCycle(
   subscriptions: readonly DueSubscription[],
   invoiceWindowDays: number,
   today: string,
-  windowDays: number
+  windowDays: number,
+  graceDays = 0
 ): CyclePartition {
   const due: DueSubscription[] = []
   const upcoming: DueSubscription[] = []
+  const inGrace: DueSubscription[] = []
 
   for (const subscription of subscriptions) {
     const days = daysBetween(today, subscription.validUntilDate)
     if (days < 0) {
       // Already expired. Never invoiced retroactively; see the header note.
+      // Inside the grace window it is still looked at, for its existing
+      // entries only.
+      if (days >= -Math.max(0, graceDays)) {
+        inGrace.push(subscription)
+      }
       continue
     }
     if (days <= invoiceWindowDays) {
@@ -103,7 +115,7 @@ export function partitionForCycle(
     }
   }
 
-  return { due, upcoming }
+  return { due, upcoming, inGrace }
 }
 
 /**
@@ -145,11 +157,22 @@ export function scopeKey(franchiseId: string, outletId: string | null): string {
  */
 export function cohortsForMode<T>(
   mode: "full" | "check",
-  partition: { due: readonly T[]; upcoming: readonly T[] }
-): { invoice: T[]; checkOnly: T[] } {
+  partition: { due: readonly T[]; upcoming: readonly T[]; inGrace?: readonly T[] }
+): { invoice: T[]; checkOnly: T[]; existingEntriesOnly: T[] } {
+  const inGrace = [...(partition.inGrace ?? [])]
   return mode === "full"
-    ? { invoice: [...partition.due], checkOnly: [...partition.upcoming] }
-    : { invoice: [], checkOnly: [...partition.due, ...partition.upcoming] }
+    ? { invoice: [...partition.due], checkOnly: [...partition.upcoming], existingEntriesOnly: inGrace }
+    : { invoice: [], checkOnly: [...partition.due, ...partition.upcoming], existingEntriesOnly: inGrace }
+}
+
+/**
+ * The expiry before which an outlet is out of the renewal window for good:
+ * past its expiry and its grace window, so its link no longer takes payment
+ * and SIMS will never invoice it. Plan and PIC entries for it are moot, and
+ * are retired rather than left open forever.
+ */
+export function renewalWindowClosedBefore(today: string, graceDays: number): string {
+  return addDays(today, -Math.max(0, graceDays))
 }
 
 /**
