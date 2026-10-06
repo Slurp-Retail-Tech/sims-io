@@ -49,6 +49,8 @@ type Invoice = {
   openCount: number
   paidAt: string | null
   createdAt: string
+  /** The tax invoice issued against this proforma once paid, if any. */
+  taxInvoiceNumber: string | null
 }
 
 const ALL = "__all__"
@@ -115,7 +117,7 @@ export function InvoiceListView() {
     <div className="animate-in fade-in slide-in-from-bottom-2 flex flex-col gap-5">
       <PageHeader
         title="Invoices"
-        description="Proformas and tax invoices. One proforma per franchise and expiry date, raised by the nightly check and reused on every later night until it is paid."
+        description="One row per renewal: the proforma, raised by the nightly check for a franchise and expiry date, and the tax invoice issued against it once paid. Both documents and the receipt are on the invoice's page."
         meta={<RunStatusLine status={runStatus} />}
       >
         <Select value={status} onValueChange={setStatus}>
@@ -161,7 +163,7 @@ export function InvoiceListView() {
             <>
               <ColumnHeadings
                 grid={GRID}
-                columns={[{ label: "Document" }, { label: "Total", align: "right" }, { label: "Status" }]}
+                columns={[{ label: "Invoice" }, { label: "Total", align: "right" }, { label: "Status" }]}
               />
               {invoices.map((invoice) => {
                 const line = engagement(invoice)
@@ -175,7 +177,14 @@ export function InvoiceListView() {
                     )}
                   >
                     <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="font-mono text-[0.8125rem] whitespace-nowrap">{invoice.invoiceNumber}</span>
+                      <span className="flex flex-wrap items-baseline gap-x-2 font-mono text-[0.8125rem] whitespace-nowrap">
+                        <span>{invoice.invoiceNumber}</span>
+                        {invoice.taxInvoiceNumber ? (
+                          <span className="text-muted-foreground" title="Tax invoice issued against this proforma">
+                            → {invoice.taxInvoiceNumber}
+                          </span>
+                        ) : null}
+                      </span>
                       <span className="text-sm">{invoice.companyName ?? `Franchise ${invoice.franchiseId}`}</span>
                       <span className="text-muted-foreground text-xs">
                         {invoice.isGrouped ? `Grouped · ${plural(invoice.itemCount, "outlet")}` : plural(invoice.itemCount, "outlet")} · FID{" "}
@@ -201,7 +210,7 @@ export function InvoiceListView() {
                 )
               })}
               <div className="text-muted-foreground flex items-center justify-between pt-3.5 text-xs">
-                <span>{plural(invoices.length, "document")}</span>
+                <span>{plural(invoices.length, "invoice")}</span>
                 <span>Voided invoices stay listed; their public links return 404.</span>
               </div>
             </>
