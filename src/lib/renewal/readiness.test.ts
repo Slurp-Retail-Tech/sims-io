@@ -9,6 +9,7 @@ import {
   invoiceWindowDays,
   partitionForCycle,
   reasonsEvaluatedFor,
+  renewalWindowClosedBefore,
   scopeKey,
 } from "./readiness.ts"
 
@@ -131,8 +132,8 @@ test("the cycle only auto-resolves the reasons it evaluates", () => {
 
 test("a check never invoices: the due cohort joins the readiness sweep", () => {
   const partition = { due: ["a", "b"], upcoming: ["c"] }
-  assert.deepEqual(cohortsForMode("full", partition), { invoice: ["a", "b"], checkOnly: ["c"] })
-  assert.deepEqual(cohortsForMode("check", partition), { invoice: [], checkOnly: ["a", "b", "c"] })
+  assert.deepEqual(cohortsForMode("full", partition), { invoice: ["a", "b"], checkOnly: ["c"], existingEntriesOnly: [] })
+  assert.deepEqual(cohortsForMode("check", partition), { invoice: [], checkOnly: ["a", "b", "c"], existingEntriesOnly: [] })
 })
 
 test("a check does not resolve what only invoicing raises", () => {
@@ -140,4 +141,35 @@ test("a check does not resolve what only invoicing raises", () => {
   assert.ok(!(reasonsEvaluatedFor("check") as readonly string[]).includes("channel_unreachable"))
   // Everything else a check evaluates the same way a full run does.
   assert.equal(reasonsEvaluatedFor("check").length, CYCLE_EVALUATED_REASONS.length - 1)
+})
+
+test("an expired outlet inside grace is kept apart, never invoiced; past grace it is dropped", () => {
+  const { due, upcoming, inGrace } = partitionForCycle(
+    [
+      subscription("yesterday", "2026-09-16"),
+      subscription("graceEdge", "2026-08-18"), // 30 days ago
+      subscription("pastGrace", "2026-08-17"), // 31 days ago
+    ],
+    invoiceWindow,
+    today,
+    30,
+    30
+  )
+  assert.deepEqual(due, [])
+  assert.deepEqual(upcoming, [])
+  assert.deepEqual(inGrace.map((entry) => entry.outletId), ["yesterday", "graceEdge"])
+})
+
+test("in-grace outlets only ever have their existing entries kept or cleared, in either mode", () => {
+  const partition = { due: ["a"], upcoming: ["b"], inGrace: ["c"] }
+  assert.deepEqual(cohortsForMode("full", partition).existingEntriesOnly, ["c"])
+  assert.deepEqual(cohortsForMode("check", partition).existingEntriesOnly, ["c"])
+  assert.equal(cohortsForMode("full", partition).invoice.includes("c"), false)
+})
+
+test("the renewal window closes the day after the grace window ends", () => {
+  // Expired 2026-08-17 with 30 days' grace: payable to 2026-09-16, closed on the 17th.
+  assert.equal(renewalWindowClosedBefore(today, 30), "2026-08-18")
+  assert.equal(renewalWindowClosedBefore(today, 0), today)
+  assert.equal(renewalWindowClosedBefore(today, -5), today)
 })

@@ -367,3 +367,52 @@ function mapRow(row: Row): ActionRow {
     lastDetectedAt: row.last_detected_at,
   }
 }
+
+/**
+ * Retire entries whose outlet left the renewal window for good.
+ *
+ * The cycle never looks at an outlet past its expiry and grace window: SIMS
+ * will not invoice it, and its link no longer takes payment. A plan or PIC
+ * entry raised before then would otherwise stay open forever, with no fix
+ * able to clear it. It is closed as dismissed, not resolved, because the gap
+ * was not fixed; the note says why, and a renewal outside SIMS that moves the
+ * expiry forward brings the outlet back into the cycle normally.
+ *
+ * A franchise-level entry (a grouped invoice's addressee) retires once none
+ * of the franchise's outlets is still inside the window.
+ *
+ * Returns how many were retired.
+ */
+export async function retireEntriesPastRenewalWindow(
+  closedBefore: string,
+  reasons: readonly ActionReason[],
+  db: Queryable = getPool()
+): Promise<number> {
+  if (reasons.length === 0) {
+    return 0
+  }
+  const note = "Retired automatically: the outlet expired and its grace window closed without a renewal, so SIMS will not invoice it."
+  const [outletLevel] = await db.query<ResultSetHeader>(
+    `UPDATE renewal_actions_required a
+       JOIN outlet_subscriptions s
+         ON s.franchise_id = a.franchise_id AND s.outlet_id = a.outlet_id AND s.deleted_at IS NULL
+        SET a.status = 'dismissed', a.resolved_at = NOW(3), a.dismiss_reason = ?
+      WHERE a.status = 'open' AND a.outlet_id IS NOT NULL
+        AND a.reason IN (?)
+        AND s.valid_until_date < ?`,
+    [note, reasons, closedBefore]
+  )
+  const [franchiseLevel] = await db.query<ResultSetHeader>(
+    `UPDATE renewal_actions_required a
+        SET a.status = 'dismissed', a.resolved_at = NOW(3), a.dismiss_reason = ?
+      WHERE a.status = 'open' AND a.outlet_id IS NULL
+        AND a.reason IN (?)
+        AND EXISTS (SELECT 1 FROM outlet_subscriptions s
+                     WHERE s.franchise_id = a.franchise_id AND s.deleted_at IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM outlet_subscriptions s
+                         WHERE s.franchise_id = a.franchise_id AND s.deleted_at IS NULL
+                           AND s.is_active = 1 AND s.valid_until_date >= ?)`,
+    [note, reasons, closedBefore]
+  )
+  return outletLevel.affectedRows + franchiseLevel.affectedRows
+}
