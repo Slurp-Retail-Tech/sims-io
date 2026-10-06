@@ -377,12 +377,18 @@ export function InvoiceDetailView({
   }, [load])
 
   // `#documents` (a tax invoice's old link redirects here) scrolls once the
-  // page has content to scroll to; the browser's own jump fires too early.
+  // page has content to scroll to. The browser's own jump fires before the
+  // invoice loads, and the router's scroll after navigation would undo an
+  // immediate one, so it waits a moment.
   const documentsAnchor = invoice !== null
   React.useEffect(() => {
-    if (documentsAnchor && window.location.hash === "#documents") {
-      document.getElementById("documents")?.scrollIntoView({ behavior: "smooth", block: "start" })
+    if (!documentsAnchor || window.location.hash !== "#documents") {
+      return
     }
+    const handle = window.setTimeout(() => {
+      document.getElementById("documents")?.scrollIntoView({ block: "start" })
+    }, 150)
+    return () => window.clearTimeout(handle)
   }, [documentsAnchor])
 
   async function runAction(body: Record<string, unknown>, success: string) {
@@ -1237,7 +1243,8 @@ function ResendEmailDialog({
  * renewal, so they share one page; a tax invoice's own URL redirects here.
  */
 function DocumentsCard({ invoice, taxInvoice, isPaid }: { invoice: Invoice; taxInvoice: Invoice | null; isPaid: boolean }) {
-  const rows: Array<{ key: string; label: string; number: string | null; detail: string; href: string | null }> = [
+  // `number` undefined: the document has no number of its own (a receipt).
+  const rows: Array<{ key: string; label: string; number?: string | null; detail: string; href: string | null }> = [
     {
       key: "proforma",
       label: "Proforma invoice",
@@ -1259,7 +1266,6 @@ function DocumentsCard({ invoice, taxInvoice, isPaid }: { invoice: Invoice; taxI
     {
       key: "receipt",
       label: "Receipt",
-      number: null,
       detail: isPaid
         ? invoice.receiptPdfObjectKey
           ? `Payment received ${shortDateTime(invoice.paidAt)}`
@@ -1270,7 +1276,8 @@ function DocumentsCard({ invoice, taxInvoice, isPaid }: { invoice: Invoice; taxI
   ]
 
   return (
-    <Card id="documents" className="scroll-mt-4">
+    // Clears the sticky page header when scrolled to.
+    <Card id="documents" className="scroll-mt-20">
       <CardHeader>
         <CardTitle className="text-base">Documents</CardTitle>
         <CardDescription>
@@ -1284,7 +1291,9 @@ function DocumentsCard({ invoice, taxInvoice, isPaid }: { invoice: Invoice; taxI
             className={cn("flex flex-col gap-1 rounded-[var(--radius)] border px-4 py-3", !row.href && "bg-muted/30")}
           >
             <span className="text-muted-foreground text-xs">{row.label}</span>
-            <span className={cn("font-mono text-sm", !row.number && "text-muted-foreground")}>{row.number ?? "—"}</span>
+            {row.number !== undefined ? (
+              <span className={cn("font-mono text-sm", !row.number && "text-muted-foreground")}>{row.number ?? "—"}</span>
+            ) : null}
             <span className="text-muted-foreground text-xs text-pretty">{row.detail}</span>
             {row.href ? (
               <Button variant="outline" size="sm" className="mt-1.5 self-start" asChild>
