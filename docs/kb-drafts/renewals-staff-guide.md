@@ -48,7 +48,7 @@ Actions Required and Invoices show when the check last ran. Admins can press **C
 
 ## 3. Work the Actions Required queue
 
-Each entry says what is wrong, for which outlet, and how soon it expires. The button on the entry takes you to the fix.
+Each entry says what is wrong, for which outlet, and how soon it expires. The button on the entry takes you to the fix. **Assign a plan** and **Set renewal PIC** open the fix on the same page, already filled in for that outlet. The entry then shows **Fixed** until the next check clears it.
 
 - **Blocks invoicing** entries stop an invoice being raised: no plan assigned, a missing term price, an agreed price awaiting approval, no renewal PIC, or an unreachable PIC.
 - **Informational** entries never block. Examples: a payment that did not match the invoice, a new expiry that has not reached the POS yet, a proforma billing an expiry date that has since moved, or an outlet **renewed outside SIMS**.

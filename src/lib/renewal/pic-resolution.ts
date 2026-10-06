@@ -50,6 +50,8 @@ export type RenewalContact = {
 
 /** One row of `contact_outlets`, narrowed to what resolution needs. */
 export type RenewalMapping = {
+  /** The `contact_outlets` row, where loaded from the database. */
+  mappingId?: string
   contactId: string
   franchiseId: string
   /** Null means every outlet under the franchise. */

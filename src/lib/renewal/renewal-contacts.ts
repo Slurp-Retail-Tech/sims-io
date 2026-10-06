@@ -157,6 +157,7 @@ export async function loadRenewalDirectories(
     const own = rows.filter((row) => keys.has(row.franchise_id))
 
     const mappings: RenewalMapping[] = own.map((row) => ({
+      mappingId: String(row.mapping_id),
       contactId: String(row.contact_id),
       franchiseId: row.franchise_id,
       outletId: row.outlet_id,
