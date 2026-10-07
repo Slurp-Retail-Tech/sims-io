@@ -37,6 +37,8 @@ export const COLORS = {
 export type TextOptions = {
   size?: number
   bold?: boolean
+  /** Courier, for document numbers, as the web document sets them in mono. */
+  mono?: boolean
   color?: PdfColor
   /** Right edge for `align: "right"`, or the wrap width otherwise. */
   width?: number
@@ -63,11 +65,18 @@ export type TableOptions = {
 /**
  * Replace anything the standard fonts cannot encode.
  *
- * WinAnsi covers Latin-1. A stray emoji or a CJK outlet name would otherwise
- * make `drawText` throw halfway through the document.
+ * WinAnsi covers Latin-1 plus a handful of typographic characters in its
+ * 0x80-0x9F block: dashes, curly quotes, the ellipsis, bullet, euro and
+ * trade mark among them. Those are kept, so a document's "8 OCT 2026 – 8 OCT
+ * 2027" prints its en dash rather than a question mark. A stray emoji or a
+ * CJK outlet name is replaced, since it would otherwise make `drawText`
+ * throw halfway through the document.
  */
+const WIN_ANSI_EXTRAS = "\u20AC\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\u0160\u2039\u0152\u017D\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u02DC\u2122\u0161\u203A\u0153\u017E\u0178"
+const UNENCODABLE = new RegExp(`[^\\x09\\x0A\\x0D\\x20-\\x7E\\xA0-\\xFF${WIN_ANSI_EXTRAS}]`, "g")
+
 export function sanitizePdfText(value: string): string {
-  return value.replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g, "?")
+  return value.replace(UNENCODABLE, "?")
 }
 
 /**
@@ -125,14 +134,20 @@ export function wrapText(
   return lines
 }
 
-export type PdfFonts = { regular: PDFFont; bold: PDFFont }
+export type PdfFonts = { regular: PDFFont; bold: PDFFont; mono: PDFFont }
 
 export async function embedStandardFonts(doc: PDFDocument): Promise<PdfFonts> {
-  const [regular, bold] = await Promise.all([
+  const [regular, bold, mono] = await Promise.all([
     doc.embedFont(StandardFonts.Helvetica),
     doc.embedFont(StandardFonts.HelveticaBold),
+    doc.embedFont(StandardFonts.Courier),
   ])
-  return { regular, bold }
+  return { regular, bold, mono }
+}
+
+/** The font a set of text options asks for. */
+export function fontFor(fonts: PdfFonts, options: { bold?: boolean; mono?: boolean }): PDFFont {
+  return options.mono ? fonts.mono : options.bold ? fonts.bold : fonts.regular
 }
 
 /**
@@ -216,7 +231,7 @@ export class PdfWriter {
   /** Draw one line at the cursor without wrapping, then advance. */
   line(text: string, x: number, options: TextOptions = {}): void {
     const size = options.size ?? 10
-    const font = options.bold ? this.fonts.bold : this.fonts.regular
+    const font = fontFor(this.fonts, options)
     const clean = sanitizePdfText(text)
     const lineHeight = options.lineHeight ?? size * 1.4
     this.ensureSpace(lineHeight)
@@ -240,7 +255,7 @@ export class PdfWriter {
   /** Draw wrapped text at the cursor, then advance past it. */
   paragraph(text: string, x: number, options: TextOptions = {}): void {
     const size = options.size ?? 10
-    const font = options.bold ? this.fonts.bold : this.fonts.regular
+    const font = fontFor(this.fonts, options)
     const width = options.width ?? this.right - x
     for (const line of wrapText(text, font, size, width)) {
       this.line(line, x, { ...options, width, align: options.align ?? "left" })

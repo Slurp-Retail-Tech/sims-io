@@ -1538,6 +1538,14 @@ and recorded on the invoice:
    invoice's URL redirects to its proforma's page (`#documents`). Served through the token-gated public route
    (`?document=receipt|tax_invoice`) and the staff route; never through the
    generic upload proxy.
+   What every document says (title, fact rows, Bill To / Ship To, renewal
+   title, line descriptions, totals, terms) comes from
+   `src/lib/renewal/document-content.ts`, which both the merchant's page
+   (`/renew/{token}`) and the PDF renderer (`src/lib/pdf/renewal-documents.ts`)
+   read, so the printed copy is laid out and worded like the page, with the
+   Slurp logo from `public/`. A stored PDF keeps the look it was rendered
+   with; an open proforma re-renders on a term change or **Re-print
+   proforma**.
 4. *POS push.* `PATCH /api/outlet-valid-until/{fid}/{oid}` per outlet
    (`src/lib/pos-valid-until.ts`), body `{"valid_until":
    "YYYY-MM-DDTHH:mm:ss+0800"}` from `formatPosValidUntil`. Per-outlet state on

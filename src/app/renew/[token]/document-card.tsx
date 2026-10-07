@@ -16,19 +16,8 @@ import {
  * staff invoice page read — nothing here is computed a second time.
  */
 
-export type DocMetaRow = { label: string; value: string; mono?: boolean }
-
-export type DocumentLineRow = {
-  key: string
-  no: string
-  description: string
-  outlet: string
-  duration: string
-  adjustmentNote: string | null
-  qty: string
-  unitPrice: string
-  amount: string
-}
+export type { DocMetaRow, DocumentLineRow } from "@/lib/renewal/document-content"
+import type { DocMetaRow, DocumentLineRow } from "@/lib/renewal/document-content"
 
 export function RenewalDocumentCard({
   seller,
@@ -185,9 +174,5 @@ export function RenewalDocumentCard({
   )
 }
 
-/** The three legal lines every renewal document carries. */
-export const RENEWAL_TERMS_LINES: readonly string[] = [
-  "Slurp! POS System is a cloud-based system with bi-annual/yearly subscription basis. Renewal is required to ensure the system is active and functional.",
-  "Once renewed, payments are non-refundable.",
-  "Accounts that are not renewed for more than 6 months will be permanently removed from our database and can not be recovered.",
-]
+/** The three legal lines every renewal document carries; shared with the PDF. */
+export { RENEWAL_TERMS_LINES } from "@/lib/renewal/document-content"
