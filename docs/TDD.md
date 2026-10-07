@@ -1579,6 +1579,15 @@ were rendered with. An open proforma can be re-rendered with **Re-print
 proforma** (`reprint_proforma` action, recorded in the timeline); issued tax
 invoices and receipts are never re-rendered.
 
+**Setting a PIC from Actions Required.** `GET /api/renewals/pic-candidates`
+lists the contacts mapped to the outlet or franchise with reachability;
+`POST` on the same route makes someone PIC who is not mapped yet: a new
+contact (validated and duplicate-checked exactly as `POST /api/contacts`,
+409 with the matches) or an existing one, then a mapping chosen by
+`decidePicMapping` (reuse an exact or franchise-wide row, else add under the
+contact lock with the Contacts overlap rules), then `setRenewalDesignation`.
+Gated by subscriptions manage AND Contacts.
+
 **Expired outlets in the queue.** The cycle reads back to the start of the
 grace window. Outlets expired but inside grace (`partitionForCycle`'s
 `inGrace`) get the readiness checks for their *existing* open entries only,
