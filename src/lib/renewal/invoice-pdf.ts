@@ -15,10 +15,13 @@ import getPool, { type Queryable } from "../db.ts"
 import type { ResultSetHeader } from "mysql2/promise"
 
 import { createLogger } from "../logger.ts"
+import { readFile } from "node:fs/promises"
+import path from "node:path"
+
 import { renderRenewalDocument } from "../pdf/renewal-documents.ts"
-import type { DocumentLine, RenewalDocument } from "../pdf/renewal-documents.ts"
+import type { RenewalDocument } from "../pdf/renewal-documents.ts"
 import { getObjectBuffer, uploadObject } from "../storage.ts"
-import { addMonths } from "./invoice-build.ts"
+import { buildDocumentContent } from "./document-content.ts"
 import {
   findTaxInvoiceForProforma,
   getInvoiceById,
@@ -27,7 +30,6 @@ import {
 } from "./invoices.ts"
 import type { InvoiceItemRecord, InvoiceRecord } from "./invoices.ts"
 import { toObjectKeySafeNumber } from "./numbering.ts"
-import { TERM_MONTHS } from "./plan-resolution.ts"
 import { buildSellerBlock } from "./seller.ts"
 import type { SellerSettings } from "./seller.ts"
 import { loadRenewalSettings } from "./settings.ts"
@@ -64,24 +66,32 @@ export function sellerBlockFor(settings: SellerSettings): RenewalDocument["selle
   return buildSellerBlock(settings, process.env)
 }
 
-const TERM_LABELS: Record<string, string> = {
-  annually: "1 year",
-  bi_annually: "6 months",
-}
-
 export type DocumentOptions = {
   payLink: string | null
   /** The letterhead; see `sellerBlockFor`. */
   seller: RenewalDocument["seller"]
   /** Force the document kind; defaults to the invoice's own type. */
   kind?: RenewalDocument["kind"]
-  /** The proforma a tax invoice or receipt settles, or the tax invoice a receipt cites. */
-  referenceNumber?: string | null
+  /** On a tax invoice: the proforma it settles. */
+  proformaNumber?: string | null
+  /** On a receipt: the tax invoice issued against the payment. */
+  taxInvoiceNumber?: string | null
   /** Gateway transaction number or the bank reference of an offline payment. */
   paymentReference?: string | null
+  /** PNG bytes of the logo; see `loadDocumentLogo`. */
+  logo?: Uint8Array | null
 }
 
-/** Shape database rows into the document model the renderer takes. */
+const CLOSING_NOTES: Partial<Record<RenewalDocument["kind"], string>> = {
+  receipt:
+    "Payment received with thanks. Each outlet's licence has been extended from its previous expiry date for the term shown.",
+}
+
+/**
+ * Shape database rows into the document the renderer draws. The wording and
+ * figures come from `buildDocumentContent`, the same builder the merchant's
+ * page uses.
+ */
 export function buildProformaDocument(
   invoice: InvoiceRecord,
   items: readonly InvoiceItemRecord[],
@@ -90,67 +100,72 @@ export function buildProformaDocument(
   const kind: RenewalDocument["kind"] =
     options.kind ?? (invoice.documentType === "tax_invoice" ? "tax_invoice" : "proforma")
 
-  const lines: DocumentLine[] = items.map((item) => {
-    const periodStart = item.previousValidUntil
-      ? item.previousValidUntil.slice(0, 10)
-      : null
-    const months = TERM_MONTHS[item.billingPlan]
-    // Once extended, the line carries the date the licence actually moved to;
-    // before that the period end is projected from the previous expiry.
-    const periodEnd = item.newValidUntil
-      ? item.newValidUntil.slice(0, 10)
-      : periodStart
-        ? addMonths(periodStart, months)
-        : null
-    return {
-      outletName: item.outletName,
-      outletId: item.outletId,
-      licensePlan: item.licensePlan,
-      termLabel: TERM_LABELS[item.billingPlan] ?? item.billingPlan,
-      periodStart,
-      periodEnd,
-      catalogMinor: item.catalogAmountMinor,
-      adjustmentMinor: item.adjustmentAmountMinor,
-      amountMinor: item.effectiveAmountMinor,
-    }
-  })
-
-  const notes: string[] = []
-  if (invoice.taxRatePercent === 0) {
-    notes.push("Prices are exclusive of tax. No tax is charged on this document.")
-  }
-  if (kind === "proforma") {
-    notes.push(
-      "The new expiry date for each outlet is counted from its previous expiry, not from the payment date."
-    )
-  }
-
-  return {
+  const content = buildDocumentContent({
     kind,
     invoiceNumber: invoice.invoiceNumber,
-    referenceNumber: options.referenceNumber ?? null,
+    proformaNumber: options.proformaNumber ?? null,
+    taxInvoiceNumber: options.taxInvoiceNumber ?? null,
     issueDate: invoice.issueDate,
     dueDate: invoice.dueDate,
     paidAt: invoice.paidAt,
+    paidVia: invoice.paidVia,
     paymentReference: options.paymentReference ?? null,
+    companyName: invoice.companyName,
+    franchiseId: invoice.franchiseId,
+    paymentEmail: invoice.paymentEmail,
+    isGrouped: invoice.isGrouped,
+    outletCount: items.length,
+    term: invoice.billingPlanSelected ?? items[0]?.billingPlan ?? "annually",
+    periodEnd: invoice.periodEnd,
     currencyCode: invoice.currencyCode,
-    billTo: {
-      companyName: invoice.companyName,
-      franchiseId: invoice.franchiseId,
-      email: invoice.paymentEmail,
-    },
-    seller: options.seller,
-    lines,
+    lines: items.map((item) => ({
+      outletId: item.outletId,
+      outletName: item.outletName,
+      licensePlan: item.licensePlan,
+      previousValidUntil: item.previousValidUntil,
+      newValidUntil: item.newValidUntil,
+      catalogMinor: item.catalogAmountMinor,
+      adjustmentMinor: item.adjustmentAmountMinor,
+      amountMinor: item.effectiveAmountMinor,
+    })),
     totals: {
       subtotalMinor: invoice.subtotalMinor,
-      adjustmentMinor: invoice.adjustmentMinor,
       taxRatePercent: invoice.taxRatePercent,
       taxMinor: invoice.taxMinor,
       totalMinor: invoice.totalMinor,
     },
+  })
+
+  return {
+    kind,
+    invoiceNumber: invoice.invoiceNumber,
+    content,
+    seller: options.seller,
     payLink: kind === "proforma" ? options.payLink : null,
-    notes,
+    closingNote:
+      kind === "tax_invoice" && options.proformaNumber
+        ? `Issued against the payment received for proforma ${options.proformaNumber}.`
+        : (CLOSING_NOTES[kind] ?? null),
+    logo: options.logo ?? null,
   }
+}
+
+let logoCache: Promise<Uint8Array | null> | null = null
+
+/**
+ * The Slurp logo the page shows, for the top of every printed document.
+ * Read once from `public/` and kept; a missing file prints without it.
+ */
+export function loadDocumentLogo(): Promise<Uint8Array | null> {
+  logoCache ??= readFile(path.join(process.cwd(), "public", "slurp-logo-basic-03.png"))
+    .then((buffer) => new Uint8Array(buffer))
+    .catch((error: unknown) => {
+      log.warn("Document logo not found; printing without it", {
+        message: error instanceof Error ? error.message : String(error),
+      })
+      return null
+    })
+  return logoCache
 }
 
 /** What a paid document cites as its payment reference. */
@@ -201,8 +216,9 @@ export async function ensureInvoicePdf(
   const document = buildProformaDocument(invoice, items, {
     payLink: invoice.renewalToken ? buildRenewalLink(invoice.renewalToken) : null,
     seller: sellerBlockFor(settings),
-    referenceNumber: parent?.invoiceNumber ?? null,
+    proformaNumber: parent?.invoiceNumber ?? null,
     paymentReference: invoice.documentType === "tax_invoice" ? paymentReferenceOf(invoice) : null,
+    logo: await loadDocumentLogo(),
   })
   const bytes = await renderRenewalDocument(document)
 
@@ -264,8 +280,9 @@ export async function ensureReceiptPdf(
     payLink: null,
     seller: sellerBlockFor(settings),
     kind: "receipt",
-    referenceNumber: taxInvoice ? `Tax invoice ${taxInvoice.invoiceNumber}` : null,
+    taxInvoiceNumber: taxInvoice?.invoiceNumber ?? null,
     paymentReference: paymentReferenceOf(invoice),
+    logo: await loadDocumentLogo(),
   })
   const bytes = await renderRenewalDocument(document)
 
