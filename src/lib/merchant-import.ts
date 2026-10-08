@@ -2,8 +2,16 @@ import getPool from "@/lib/db"
 import { redactUrlForLogs, sanitizeUpstreamText } from "@/lib/http"
 import type { JobRunItemInput } from "@/lib/job-progress"
 import { createLogger } from "@/lib/logger"
-import { isRecordDataError, mapPosMerchant } from "@/lib/merchant-import-mapping"
-import type { MappedMerchant } from "@/lib/merchant-import-mapping"
+import {
+  buildMerchantUpsert,
+  buildOutletUpsert,
+  chunk,
+  OUTLET_BATCH_SIZE,
+  upsertWithRowFallback,
+} from "@/lib/merchant-import-batch"
+import type { OutletWrite, SqlStatement } from "@/lib/merchant-import-batch"
+import { mapPosMerchant } from "@/lib/merchant-import-mapping"
+import type { MerchantRowValues } from "@/lib/merchant-import-mapping"
 import {
   authenticatePosApiSession,
   fetchPosApiWithSessionInit,
@@ -22,131 +30,45 @@ type ImportSummary = {
   completedAt: string
 }
 
-/** Merchant upsert and its outlets; outlet data errors are caught per outlet. */
-async function writeMerchant(
-  pool: Pool,
-  mapped: Extract<MappedMerchant, { ok: true }>
-): Promise<string[]> {
-  const { merchant } = mapped
-  await pool.query(
-    `
-    INSERT INTO merchants (external_id, name, fid, outlet_count, status, raw_payload)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ON DUPLICATE KEY UPDATE
-      name = VALUES(name),
-      fid = VALUES(fid),
-      outlet_count = VALUES(outlet_count),
-      status = VALUES(status),
-      raw_payload = VALUES(raw_payload),
-      updated_at = CURRENT_TIMESTAMP
-  `,
-    [
-      merchant.externalId,
-      merchant.name,
-      merchant.fid,
-      merchant.outletCount,
-      merchant.status,
-      merchant.rawPayload,
-    ]
-  )
-
-  const outletProblems = [...mapped.skippedOutlets]
-  for (const outlet of mapped.outlets) {
-    try {
-      await pool.query(
-        `
-        INSERT INTO merchant_outlets (
-          external_id,
-          merchant_external_id,
-          name,
-          status,
-          raw_payload
-        )
-        VALUES (?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          merchant_external_id = VALUES(merchant_external_id),
-          name = VALUES(name),
-          status = VALUES(status),
-          raw_payload = VALUES(raw_payload),
-          updated_at = CURRENT_TIMESTAMP
-      `,
-        [
-          outlet.externalId,
-          merchant.externalId,
-          outlet.name,
-          outlet.status,
-          outlet.rawPayload,
-        ]
-      )
-    } catch (error) {
-      if (!isRecordDataError(error)) {
-        throw error
-      }
-      outletProblems.push(`outlet ${outlet.externalId}: ${describeWriteError(error)}`)
-    }
-  }
-  return outletProblems
-}
-
-function describeWriteError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  return sanitizeUpstreamText(message, [], 300)
-}
-
 async function fetchImportWithSession(
   url: URL,
-  session: Awaited<ReturnType<typeof authenticatePosApiSession>>
+  session: Awaited<ReturnType<typeof authenticatePosApiSession>>,
+  signal?: AbortSignal
 ) {
-  return fetchPosApiWithSessionInit(url, session)
+  return fetchPosApiWithSessionInit(url, session, signal ? { signal } : {})
 }
 
-export type MerchantImportPageResult = {
-  itemsReturned: number
-  /** Merchants written, including those with some outlets skipped. */
-  imported: number
-  failed: number
-  partial: number
-  /**
-   * Failed and partial merchants only, for `job_run_items`. A fully imported
-   * merchant is not logged — that would be one row per merchant per run.
-   */
-  items: JobRunItemInput[]
+export type MerchantPageFetch = {
+  items: unknown[]
   /** Possibly re-authenticated, so the caller must carry it into the next page. */
   session: PosApiAuthSession
-  lastLabel: string | null
 }
 
 /**
- * Fetch and upsert one page of POS merchants.
+ * Fetch one page of POS merchants. No database writes.
  *
- * Extracted from the old `while (hasMore)` loop so the job runner can drive it
- * a page at a time and checkpoint between pages. Previously a failure on page 7
- * of 40 marked the whole run failed with no record of how far it got, and a
- * re-run started again at page 1.
+ * Split from the write phase so the job handler can renew its lease in
+ * between: a slow fetch then cannot eat into the time the writes need, and a
+ * slice whose lease was taken mid-fetch stops before writing anything.
  *
- * A record that cannot be stored (see merchant-import-mapping.ts) is skipped
- * and reported in `items` instead of throwing: one bad record used to fail the
- * page on every retry, and every later run died on the same page.
+ * `signal` bounds the whole phase, including reading the body (httpFetch's own
+ * timeout stops at the response headers). An abort surfaces as the caller's
+ * abort error, so the caller can tell it apart from an upstream failure.
  */
-export async function importMerchantPage(input: {
-  pool: Pool
+export async function fetchMerchantPage(input: {
   session: PosApiAuthSession
   page: number
   perPage: number
-}): Promise<MerchantImportPageResult> {
-  const { pool, perPage, page } = input
+  signal?: AbortSignal
+}): Promise<MerchantPageFetch> {
+  const { perPage, page, signal } = input
   let session = input.session
-  let imported = 0
-  let failed = 0
-  let partial = 0
-  const runItems: JobRunItemInput[] = []
-  let lastLabel: string | null = null
 
   const url = new URL(resolvePosImportUrl())
   url.searchParams.set("per_page", String(perPage))
   url.searchParams.set("page", String(page))
 
-  let response = await fetchImportWithSession(url, session)
+  let response = await fetchImportWithSession(url, session, signal)
 
   // The token is acquired once, but a large import spans many pages and can
   // outlive the POS token's TTL — later pages then 401 with "Unauthenticated".
@@ -157,7 +79,7 @@ export async function importMerchantPage(input: {
       page,
     })
     session = await authenticatePosApiSession()
-    response = await fetchImportWithSession(url, session)
+    response = await fetchImportWithSession(url, session, signal)
   }
 
   if (!response.ok) {
@@ -199,69 +121,122 @@ export async function importMerchantPage(input: {
   }
 
   const payload = await response.json()
-  const items = getPosApiItems(payload)
+  return { items: getPosApiItems(payload), session }
+}
 
-  if (!items.length) {
-    return {
-      itemsReturned: 0,
-      imported: 0,
-      failed: 0,
-      partial: 0,
-      items: [],
-      session,
-      lastLabel: null,
-    }
+export type MerchantPageWrite = {
+  /** Merchants written, including those with some outlets skipped. */
+  imported: number
+  failed: number
+  partial: number
+  /**
+   * Failed and partial merchants only, for `job_run_items`. A fully imported
+   * merchant is not logged — that would be one row per merchant per run.
+   */
+  items: JobRunItemInput[]
+  lastLabel: string | null
+}
+
+/**
+ * Upsert one fetched page: one statement for its merchants, then one per
+ * OUTLET_BATCH_SIZE outlets (previously one INSERT per merchant and per outlet).
+ *
+ * A record that cannot be stored (see merchant-import-mapping.ts) is skipped
+ * and reported in `items` instead of throwing: one bad record used to fail the
+ * page on every retry, and every later run died on the same page.
+ */
+export async function writeMerchantPage(input: {
+  pool: Pool
+  items: readonly unknown[]
+  page: number
+  perPage: number
+}): Promise<MerchantPageWrite> {
+  const { pool, items, page, perPage } = input
+  const runItems: JobRunItemInput[] = []
+
+  type Entry = {
+    unitIndex: number
+    unitKey: string
+    merchant: MerchantRowValues
+    outlets: OutletWrite[]
+    problems: string[]
   }
+  const entries: Entry[] = []
 
   for (const [index, item] of items.entries()) {
     // Stable across replays of this page, so job_run_items upserts in place.
     const unitIndex = (page - 1) * perPage + index
-    const fallbackKey = `page ${page} #${index + 1}`
     const mapped = mapPosMerchant(item)
-
     if (!mapped.ok) {
-      failed += 1
       runItems.push({
         unitIndex,
-        unitKey: mapped.unitKey ?? fallbackKey,
+        unitKey: mapped.unitKey ?? `page ${page} #${index + 1}`,
         outcome: "failed",
         message: mapped.reason,
       })
       continue
     }
+    entries.push({
+      unitIndex,
+      unitKey: mapped.merchant.fid ?? mapped.merchant.externalId,
+      merchant: mapped.merchant,
+      outlets: mapped.outlets.map((outlet) => ({
+        ...outlet,
+        merchantExternalId: mapped.merchant.externalId,
+      })),
+      problems: [...mapped.skippedOutlets],
+    })
+  }
 
-    const unitKey = mapped.merchant.fid ?? mapped.merchant.externalId
-    lastLabel = unitKey
+  const runStatement = (statement: SqlStatement) =>
+    pool.query(statement.sql, statement.values)
 
-    let outletProblems: string[]
-    try {
-      outletProblems = await writeMerchant(pool, mapped)
-    } catch (error) {
-      if (!isRecordDataError(error)) {
-        throw error
-      }
-      failed += 1
-      runItems.push({
-        unitIndex,
-        unitKey,
-        outcome: "failed",
-        message: describeWriteError(error),
-      })
-      continue
+  const merchantFailures = await upsertWithRowFallback(
+    runStatement,
+    entries,
+    (batch) => buildMerchantUpsert(batch.map((entry) => entry.merchant))
+  )
+  const failedEntries = new Set(merchantFailures.map((failure) => failure.row))
+  for (const { row, reason } of merchantFailures) {
+    runItems.push({
+      unitIndex: row.unitIndex,
+      unitKey: row.unitKey,
+      outcome: "failed",
+      message: reason,
+    })
+  }
+
+  const written = entries.filter((entry) => !failedEntries.has(entry))
+  // Outlets of a merchant that failed are not written: they would hang off a
+  // merchant row that does not exist.
+  const outletOwners = new Map<OutletWrite, Entry>()
+  for (const entry of written) {
+    for (const outlet of entry.outlets) {
+      outletOwners.set(outlet, entry)
     }
+  }
 
-    imported += 1
-    if (outletProblems.length) {
+  for (const batch of chunk([...outletOwners.keys()], OUTLET_BATCH_SIZE)) {
+    const outletFailures = await upsertWithRowFallback(runStatement, batch, buildOutletUpsert)
+    for (const { row, reason } of outletFailures) {
+      outletOwners.get(row)?.problems.push(`outlet ${row.externalId}: ${reason}`)
+    }
+  }
+
+  let partial = 0
+  for (const entry of written) {
+    if (entry.problems.length) {
       partial += 1
       runItems.push({
-        unitIndex,
-        unitKey,
+        unitIndex: entry.unitIndex,
+        unitKey: entry.unitKey,
         outcome: "partial",
-        message: outletProblems.join("; "),
+        message: entry.problems.join("; "),
       })
     }
   }
 
+  const failed = items.length - written.length
   if (failed > 0) {
     log.warn("Skipped merchant records that could not be stored", {
       page,
@@ -269,14 +244,34 @@ export async function importMerchantPage(input: {
     })
   }
 
+  runItems.sort((a, b) => a.unitIndex - b.unitIndex)
   return {
-    itemsReturned: items.length,
-    imported,
+    imported: written.length,
     failed,
     partial,
     items: runItems,
-    session,
-    lastLabel,
+    lastLabel: written.at(-1)?.unitKey ?? null,
+  }
+}
+
+export type MerchantImportPageResult = MerchantPageWrite & {
+  itemsReturned: number
+  session: PosApiAuthSession
+}
+
+/** Fetch and write one page with no lease in between — the legacy loop's path. */
+export async function importMerchantPage(input: {
+  pool: Pool
+  session: PosApiAuthSession
+  page: number
+  perPage: number
+}): Promise<MerchantImportPageResult> {
+  const fetched = await fetchMerchantPage(input)
+  const written = await writeMerchantPage({ ...input, items: fetched.items })
+  return {
+    ...written,
+    itemsReturned: fetched.items.length,
+    session: fetched.session,
   }
 }
 

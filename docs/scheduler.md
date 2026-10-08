@@ -39,6 +39,13 @@ Notes:
   records are skipped, with a note in `error_message`; it is marked `failed`
   when more than 5% of merchants are rejected, since that points to something
   systemic. Merchants written with some outlets skipped are logged as `partial`.
+- Each page is fetched, then written. The fetch has a hard cut-off 10 seconds
+  after the slice deadline, so a slow POS can no longer outlive the job's lease;
+  the lease is renewed before the page is written. A page that runs out of time
+  after earlier pages in the same slice is retried by the next slice (no
+  attempt used); one that cannot finish even with a whole slice to itself fails
+  the attempt. A page is written as one statement for its merchants plus one per
+  500 outlets.
 - Once the job is enqueued the endpoint answers 202 even if its inline slice
   throws — the error is saved on the run and the tick retries it.
 - You can test the same call locally with `http://localhost:3000`.
