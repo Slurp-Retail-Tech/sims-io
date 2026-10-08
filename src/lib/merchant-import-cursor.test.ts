@@ -1,11 +1,16 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
+import { DEFAULT_LEASE_MARGIN_SECONDS } from "./job-runner-core.ts"
 import {
   advancePageCursor,
   INITIAL_MERCHANT_IMPORT_CURSOR,
+  onPageFetchTimeout,
+  PAGE_FETCH_GRACE_MS,
+  pageFetchDeadline,
   parseMerchantImportCursor,
 } from "./merchant-import-cursor.ts"
+import { POS_AUTH_TIMEOUT_MS } from "./pos-api.ts"
 
 const start = INITIAL_MERCHANT_IMPORT_CURSOR
 
@@ -86,4 +91,20 @@ test("failure totals accumulate across pages", () => {
   cursor = advancePageCursor(cursor, 100, 100, 500, { failed: 1, partial: 0 }).cursor
   assert.deepEqual(cursor, { page: 3, imported: 200, failed: 3, partial: 1 })
   assert.deepEqual(parseMerchantImportCursor(JSON.parse(JSON.stringify(cursor))), cursor)
+})
+
+test("a page fetch that overruns always ends inside the lease", () => {
+  // Every lease outlives the slice deadline by the margin. A fetch aborted at
+  // the grace limit can still be followed by one uninterruptible POS re-login,
+  // so both must fit inside the margin or MI-04 comes back.
+  assert.ok(PAGE_FETCH_GRACE_MS + POS_AUTH_TIMEOUT_MS < DEFAULT_LEASE_MARGIN_SECONDS * 1000)
+  assert.equal(pageFetchDeadline(1_000_000), 1_000_000 + PAGE_FETCH_GRACE_MS)
+})
+
+test("a fetch timeout yields after progress but fails on the slice's first page", () => {
+  // Yielding on the first page would retry a too-slow POS forever without
+  // ever using up an attempt.
+  assert.equal(onPageFetchTimeout(0), "fail")
+  assert.equal(onPageFetchTimeout(1), "yield")
+  assert.equal(onPageFetchTimeout(12), "yield")
 })

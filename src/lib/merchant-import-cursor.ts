@@ -87,3 +87,39 @@ export function advancePageCursor(
   }
   return { cursor: next, done: false, reason: null }
 }
+
+/**
+ * How far past the slice deadline a page fetch may run before it is aborted.
+ *
+ * `hasBudget` only gates the START of a page, and a page's POS calls could
+ * previously run ~130 s on the 401 path (two fetches, a re-login, two more
+ * fetches) against a 75 s lease. The reaper then requeued a run that was still
+ * working, the slice's checkpoint failed, and the page was replayed with an
+ * attempt burned — a slow POS alone could exhaust every attempt.
+ *
+ * Safe bound: every lease expires at least DEFAULT_LEASE_MARGIN_SECONDS (30 s)
+ * after the slice deadline (claims and checkpoints all happen before it), so a
+ * fetch aborted at deadline + 10 s — plus one POS re-login, which the abort
+ * cannot interrupt but which has its own 10 s ceiling — still ends inside the
+ * lease. The lease is then renewed before any write.
+ */
+export const PAGE_FETCH_GRACE_MS = 10_000
+
+export function pageFetchDeadline(sliceDeadlineAt: number): number {
+  return sliceDeadlineAt + PAGE_FETCH_GRACE_MS
+}
+
+/**
+ * What a slice does when a page fetch runs out of time.
+ *
+ * After at least one page this slice, the slice simply ran out of room: yield,
+ * which neither advances the cursor nor burns an attempt, and the next slice
+ * retries the page with a full budget. On the slice's FIRST page the fetch had
+ * that full budget already, so the POS is genuinely too slow — fail, and let
+ * the attempt count bound the retries instead of yielding forever.
+ */
+export function onPageFetchTimeout(
+  pagesCompletedThisSlice: number
+): "yield" | "fail" {
+  return pagesCompletedThisSlice > 0 ? "yield" : "fail"
+}

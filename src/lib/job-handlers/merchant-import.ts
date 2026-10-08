@@ -5,10 +5,12 @@ import type { JobHandler, JobSliceOutcome } from "../job-registry.ts"
 import { createLogger } from "../logger.ts"
 import {
   advancePageCursor,
+  onPageFetchTimeout,
+  pageFetchDeadline,
   parseMerchantImportCursor,
 } from "../merchant-import-cursor.ts"
 import type { MerchantImportCursor } from "../merchant-import-cursor.ts"
-import { importMerchantPage } from "../merchant-import.ts"
+import { fetchMerchantPage, writeMerchantPage } from "../merchant-import.ts"
 import { summarizeMerchantImport } from "../merchant-import-mapping.ts"
 import { authenticatePosApiSession } from "../pos-api.ts"
 
@@ -62,23 +64,69 @@ export const merchantImportJobHandler: JobHandler = {
     let progress = progressFromCursor(cursor, null)
 
     // One session per slice. It re-authenticates on a 401 inside
-    // importMerchantPage, and a fresh slice starting fresh is cheaper than
+    // fetchMerchantPage, and a fresh slice starting fresh is cheaper than
     // persisting a token.
     let session = await authenticatePosApiSession()
     const pool = getPool()
+    let pagesThisSlice = 0
 
     while (hasBudget(context.deadlineAt, Date.now())) {
-      const page = await importMerchantPage({
-        pool,
-        session,
-        page: cursor.page,
-        perPage: PER_PAGE,
-      })
-      session = page.session
+      // Phase 1: fetch, under a hard deadline the lease is sized to outlast.
+      const fetchAbort = new AbortController()
+      const timer = setTimeout(
+        () => fetchAbort.abort(),
+        Math.max(pageFetchDeadline(context.deadlineAt) - Date.now(), 0)
+      )
+      let fetched: Awaited<ReturnType<typeof fetchMerchantPage>>
+      try {
+        fetched = await fetchMerchantPage({
+          session,
+          page: cursor.page,
+          perPage: PER_PAGE,
+          signal: fetchAbort.signal,
+        })
+      } catch (error) {
+        if (!fetchAbort.signal.aborted) {
+          throw error
+        }
+        if (onPageFetchTimeout(pagesThisSlice) === "fail") {
+          throw new Error(
+            `POS page ${cursor.page} did not respond within a full slice budget.`
+          )
+        }
+        log.warn("Page fetch ran past the slice deadline; yielding", {
+          jobRunId: context.jobRunId,
+          page: cursor.page,
+        })
+        return { done: false, progress }
+      } finally {
+        clearTimeout(timer)
+      }
+      session = fetched.session
+
+      // Phase 2: renew the lease before writing, so the writes get a full
+      // lease whatever the fetch cost, and a slice whose lease was taken
+      // during the fetch stops before it writes anything.
+      if (!(await context.checkpoint({ cursor, progress }))) {
+        log.warn("Lease lost during page fetch; aborting before writes", {
+          jobRunId: context.jobRunId,
+        })
+        return { done: false, progress }
+      }
+
+      const page = fetched.items.length
+        ? await writeMerchantPage({
+            pool,
+            items: fetched.items,
+            page: cursor.page,
+            perPage: PER_PAGE,
+          })
+        : { imported: 0, failed: 0, partial: 0, items: [], lastLabel: null }
+      pagesThisSlice += 1
 
       const advanced = advancePageCursor(
         cursor,
-        page.itemsReturned,
+        fetched.items.length,
         PER_PAGE,
         MAX_PAGES,
         { failed: page.failed, partial: page.partial }
