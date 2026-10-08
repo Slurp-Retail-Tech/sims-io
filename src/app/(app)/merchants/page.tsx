@@ -740,6 +740,11 @@ export default function MerchantsPage() {
               Last import failed: {importRun.errorMessage}
             </p>
           ) : null}
+          {importRun?.status === "succeeded" && importRun.errorMessage ? (
+            <p className="text-muted-foreground text-xs">
+              Last import finished with skipped records: {importRun.errorMessage}
+            </p>
+          ) : null}
         </CardHeader>
         <CardContent className="space-y-4">
           {loading ? (
