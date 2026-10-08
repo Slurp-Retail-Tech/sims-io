@@ -76,6 +76,9 @@ Notes:
 - Set `CLICKUP_API_TOKEN` and `CLICKUP_LIST_ID` in app environment.
 - `CLICKUP_SYNC_CRON_SECRET` must match the header value.
 - This updates `support_requests.clickup_task_status` and `clickup_task_status_synced_at`.
+- Once the job is enqueued the endpoint answers 202 even if its inline slice
+  throws (`sliceFailed: true`) — the error is saved on the run and the tick
+  retries it.
 - Keep the command on one line in Coolify.
 - Quote both the URL and the header value exactly as shown above. This avoids shell parsing issues when the secret contains special characters.
 
