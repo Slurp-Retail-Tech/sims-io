@@ -21,7 +21,7 @@ const POS_API_TIMEOUT_MS = (() => {
 })()
 
 /** Login is a single short call; it does not need the data-call budget. */
-const POS_AUTH_TIMEOUT_MS = 10_000
+export const POS_AUTH_TIMEOUT_MS = 10_000
 
 function mergeHeaders(...headersList: Array<HeadersInit | undefined>) {
   const merged = new Headers()
