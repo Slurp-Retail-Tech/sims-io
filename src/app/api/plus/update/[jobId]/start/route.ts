@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 
 import { resolveApiUser } from "@/lib/api-auth"
-import { serverError } from "@/lib/api-errors"
 import { PLUS_IMPORT_JOB_TYPE } from "@/lib/job-handlers/plus-import"
 import { driveJobType } from "@/lib/job-tick"
 import { getPlusUpdateJob } from "@/lib/plus-import"
@@ -39,16 +38,27 @@ export async function POST(
     return NextResponse.json({ ok: true, alreadyFinished: true })
   }
 
+  // The run already exists, so a slice that throws does not fail the request:
+  // driveJobType has recorded the error on the run and the tick retries it.
+  // The page's status poll reports the outcome, so answering 500 here would
+  // only abort the page's loop early with a less useful message.
+  let slice: Awaited<ReturnType<typeof driveJobType>> = null
   try {
-    const slice = await driveJobType(PLUS_IMPORT_JOB_TYPE)
-    return NextResponse.json({
-      ok: true,
-      // null when another slice or the tick holds the lock; the caller simply
-      // polls again rather than treating it as an error.
-      claimed: Boolean(slice),
-      slice: slice ?? null,
-    })
-  } catch (error) {
-    return serverError("plus/update/start", error, "Unable to advance the PLUS update.")
+    slice = await driveJobType(PLUS_IMPORT_JOB_TYPE)
+  } catch {
+    // Logged with full context inside driveJobType.
+    return NextResponse.json(
+      { ok: true, claimed: true, slice: null, sliceFailed: true },
+      { status: 202 }
+    )
   }
+
+  return NextResponse.json({
+    ok: true,
+    // null when another slice or the tick holds the lock; the caller simply
+    // polls again rather than treating it as an error.
+    claimed: Boolean(slice),
+    slice: slice ?? null,
+    sliceFailed: false,
+  })
 }
