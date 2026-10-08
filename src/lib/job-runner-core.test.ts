@@ -5,6 +5,7 @@ import {
   CHECKPOINT_RESERVE_MS,
   computeLeaseSeconds,
   DEFAULT_SLICE_BUDGET_MS,
+  formatJobFailure,
   hasBudget,
   isLeaseStale,
   MAX_RECLAIM_BACKOFF_SECONDS,
@@ -108,4 +109,19 @@ test("hasBudget reserves room for the checkpoint that must follow", () => {
 test("a fresh slice has budget under the default settings", () => {
   const now = 1_000_000
   assert.equal(hasBudget(now + DEFAULT_SLICE_BUDGET_MS, now), true)
+})
+
+test("formatJobFailure labels the attempt and keeps the cause", () => {
+  assert.equal(
+    formatJobFailure(new Error("Import failed with status 500"), 2),
+    "Attempt 2 failed: Import failed with status 500"
+  )
+  assert.equal(formatJobFailure("plain", 1), "Attempt 1 failed: plain")
+  assert.equal(formatJobFailure({ odd: true }, 3), "Attempt 3 failed: Unknown error")
+})
+
+test("formatJobFailure bounds the stored message", () => {
+  const message = formatJobFailure(new Error("x".repeat(5000)), 1, 100)
+  assert.equal(Array.from(message).length, 100)
+  assert.ok(message.endsWith("…"))
 })

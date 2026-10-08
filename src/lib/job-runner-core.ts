@@ -120,3 +120,29 @@ export function hasBudget(
 ): boolean {
   return deadlineAtMs - nowMs > reserveMs
 }
+
+/** Ceiling on a failure message stored in `job_runs.error_message`. */
+export const MAX_JOB_ERROR_LENGTH = 1_000
+
+/**
+ * The message saved when a slice throws, so the status UI shows the real cause
+ * instead of the reaper's "lease expired". Callers scrub credentials first;
+ * this only labels and bounds it.
+ */
+export function formatJobFailure(
+  error: unknown,
+  attempt: number,
+  maxLength: number = MAX_JOB_ERROR_LENGTH
+): string {
+  const detail =
+    error instanceof Error && error.message
+      ? error.message
+      : typeof error === "string" && error
+        ? error
+        : "Unknown error"
+  const message = `Attempt ${attempt} failed: ${detail}`
+  const codePoints = Array.from(message)
+  return codePoints.length > maxLength
+    ? `${codePoints.slice(0, maxLength - 1).join("")}…`
+    : message
+}

@@ -8,24 +8,44 @@ export type MerchantImportCursor = {
   page: number
   /** Records imported so far, carried across slices for reporting. */
   imported: number
+  /**
+   * Merchants rejected, and merchants written with outlets skipped. Carried in
+   * the cursor because a slice is not handed the previous progress, and the
+   * run's final status is decided from the totals across every slice.
+   */
+  failed: number
+  partial: number
 }
 
 export const INITIAL_MERCHANT_IMPORT_CURSOR: MerchantImportCursor = {
   page: 1,
   imported: 0,
+  failed: 0,
+  partial: 0,
+}
+
+function readCount(value: unknown): number {
+  const count = Number(value)
+  return Number.isFinite(count) && count >= 0 ? count : 0
 }
 
 export function parseMerchantImportCursor(
   value: unknown
 ): MerchantImportCursor {
   if (value && typeof value === "object") {
-    const raw = value as { page?: unknown; imported?: unknown }
+    const raw = value as {
+      page?: unknown
+      imported?: unknown
+      failed?: unknown
+      partial?: unknown
+    }
     const page = Number(raw.page)
-    const imported = Number(raw.imported)
     if (Number.isInteger(page) && page >= 1) {
       return {
         page,
-        imported: Number.isFinite(imported) && imported >= 0 ? imported : 0,
+        imported: readCount(raw.imported),
+        failed: readCount(raw.failed),
+        partial: readCount(raw.partial),
       }
     }
   }
@@ -46,11 +66,14 @@ export function advancePageCursor(
   cursor: MerchantImportCursor,
   itemsReturned: number,
   perPage: number,
-  maxPages: number
+  maxPages: number,
+  outcomes: { failed: number; partial: number } = { failed: 0, partial: 0 }
 ): { cursor: MerchantImportCursor; done: boolean; reason: AdvanceReason } {
   const next: MerchantImportCursor = {
     page: cursor.page + 1,
     imported: cursor.imported + itemsReturned,
+    failed: cursor.failed + outcomes.failed,
+    partial: cursor.partial + outcomes.partial,
   }
 
   if (itemsReturned === 0) {

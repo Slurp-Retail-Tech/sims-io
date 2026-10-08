@@ -137,6 +137,56 @@ export function redactUrlForLogs(input: string | URL): string {
   }
 }
 
+/** Ceiling on upstream response text copied into an error message or log line. */
+export const MAX_LOGGED_TEXT_LENGTH = 500
+
+const CREDENTIAL_PARAM_PATTERN =
+  /\b((?:api_|access_|auth_)?token|api_key|password)=[^&\s"'<>]+/gi
+const CREDENTIAL_JSON_PATTERN =
+  /("(?:(?:api_|access_|auth_)?token|api_key|password)"\s*:\s*)"[^"]*"/gi
+const AUTH_SCHEME_PATTERN = /\b(Bearer|Token)\s+[A-Za-z0-9._~+/|=-]{8,}/g
+
+/**
+ * Make upstream response text safe to put in an error message or a log line.
+ *
+ * Load-bearing for the same reason as `redactUrlForLogs`: the POS 401 fallback
+ * sends the token in the query string, and an upstream debug page that echoes
+ * the request URL would otherwise copy a live credential into our logs and
+ * into `job_runs.error_message`.
+ *
+ * Known secrets are replaced verbatim and URL-encoded (a Sanctum-style
+ * `id|secret` token is echoed as `id%7Csecret`), then anything shaped like a
+ * credential parameter or auth header is scrubbed. Redaction runs before
+ * truncation so a cut can never leave half a secret behind.
+ */
+export function sanitizeUpstreamText(
+  text: string,
+  secrets: readonly string[] = [],
+  maxLength: number = MAX_LOGGED_TEXT_LENGTH
+): string {
+  let result = text
+  for (const secret of secrets) {
+    if (secret.length < 8) {
+      continue
+    }
+    for (const form of new Set([secret, encodeURIComponent(secret)])) {
+      result = result.split(form).join("[redacted]")
+    }
+  }
+
+  result = result
+    .replace(CREDENTIAL_PARAM_PATTERN, "$1=[redacted]")
+    .replace(CREDENTIAL_JSON_PATTERN, '$1"[redacted]"')
+    .replace(AUTH_SCHEME_PATTERN, "$1 [redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+
+  const codePoints = Array.from(result)
+  return codePoints.length > maxLength
+    ? `${codePoints.slice(0, maxLength - 1).join("")}…`
+    : result
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }

@@ -33,6 +33,14 @@ Notes:
   `merchant_import_runs` is retained read-only for pre-cutover history.
 - Concurrent calls are safe: the job is keyed so a second request joins the run
   already in flight rather than starting a rival one.
+- A POS record that cannot be stored (an over-long or malformed field) is
+  skipped and logged to `job_run_items` instead of failing the page, so one bad
+  record no longer blocks every later page. The run still succeeds when a few
+  records are skipped, with a note in `error_message`; it is marked `failed`
+  when more than 5% of merchants are rejected, since that points to something
+  systemic. Merchants written with some outlets skipped are logged as `partial`.
+- Once the job is enqueued the endpoint answers 202 even if its inline slice
+  throws — the error is saved on the run and the tick retries it.
 - You can test the same call locally with `http://localhost:3000`.
 - Keep the command on one line in Coolify.
 - Quote both the URL and the header value exactly as shown above.
@@ -298,5 +306,11 @@ Notes:
 - Each tick is bounded by `JOBS_TICK_BUDGET_MS` (45s default) so it stays well
   inside any proxy timeout. Long jobs resume from their checkpoint on the next
   tick rather than running to completion in one request.
+- When a slice throws, its cause (`Attempt N failed: …`, credentials scrubbed,
+  capped at 1,000 characters) is saved to `job_runs.error_message` and the
+  lease is released so the next tick requeues it. The reaper keeps that cause
+  rather than overwriting it, and an abandoned run reads
+  `Abandoned after N attempt(s). Attempt N failed: …`. Only a slice that hangs
+  without throwing gets the generic `Lease expired on attempt N.`
 - **This job must be scheduled before imports and syncs are moved onto the
   runner.** Without it, enqueued work is never claimed.

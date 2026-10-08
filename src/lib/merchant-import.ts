@@ -1,6 +1,9 @@
 import getPool from "@/lib/db"
-import { redactUrlForLogs } from "@/lib/http"
+import { redactUrlForLogs, sanitizeUpstreamText } from "@/lib/http"
+import type { JobRunItemInput } from "@/lib/job-progress"
 import { createLogger } from "@/lib/logger"
+import { isRecordDataError, mapPosMerchant } from "@/lib/merchant-import-mapping"
+import type { MappedMerchant } from "@/lib/merchant-import-mapping"
 import {
   authenticatePosApiSession,
   fetchPosApiWithSessionInit,
@@ -13,93 +16,81 @@ import type { Pool, ResultSetHeader } from "mysql2/promise"
 
 const log = createLogger("merchant-import")
 
-type PosMerchant = Record<string, unknown>
-
 type ImportSummary = {
   imported: number
   pages: number
   completedAt: string
 }
 
-function getName(item: PosMerchant) {
-  return (
-    (item.name as string) ||
-    (item.franchise_name as string) ||
-    (item.business_name as string) ||
-    "Unknown Merchant"
+/** Merchant upsert and its outlets; outlet data errors are caught per outlet. */
+async function writeMerchant(
+  pool: Pool,
+  mapped: Extract<MappedMerchant, { ok: true }>
+): Promise<string[]> {
+  const { merchant } = mapped
+  await pool.query(
+    `
+    INSERT INTO merchants (external_id, name, fid, outlet_count, status, raw_payload)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      name = VALUES(name),
+      fid = VALUES(fid),
+      outlet_count = VALUES(outlet_count),
+      status = VALUES(status),
+      raw_payload = VALUES(raw_payload),
+      updated_at = CURRENT_TIMESTAMP
+  `,
+    [
+      merchant.externalId,
+      merchant.name,
+      merchant.fid,
+      merchant.outletCount,
+      merchant.status,
+      merchant.rawPayload,
+    ]
   )
-}
 
-function getExternalId(item: PosMerchant) {
-  return String(
-    item.id ??
-      item.fid ??
-      item.franchise_id ??
-      item.code ??
-      getName(item)
-  )
-}
-
-function getOutletCount(item: PosMerchant) {
-  const outlets = item.outlets
-  if (Array.isArray(outlets)) {
-    return outlets.length
-  }
-  if (outlets && typeof outlets === "object") {
-    return 1
-  }
-  const value =
-    (outlets as number) ||
-    (item.outlet_count as number) ||
-    (item.outletCount as number) ||
-    0
-  return Number.isFinite(value) ? Number(value) : 0
-}
-
-function getStatus(item: PosMerchant) {
-  const value =
-    item.status ?? item.state ?? item.lifecycle ?? item.status_code ?? null
-  if (typeof value === "number") {
-    if (value === 1) {
-      return "Active"
+  const outletProblems = [...mapped.skippedOutlets]
+  for (const outlet of mapped.outlets) {
+    try {
+      await pool.query(
+        `
+        INSERT INTO merchant_outlets (
+          external_id,
+          merchant_external_id,
+          name,
+          status,
+          raw_payload
+        )
+        VALUES (?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          merchant_external_id = VALUES(merchant_external_id),
+          name = VALUES(name),
+          status = VALUES(status),
+          raw_payload = VALUES(raw_payload),
+          updated_at = CURRENT_TIMESTAMP
+      `,
+        [
+          outlet.externalId,
+          merchant.externalId,
+          outlet.name,
+          outlet.status,
+          outlet.rawPayload,
+        ]
+      )
+    } catch (error) {
+      if (!isRecordDataError(error)) {
+        throw error
+      }
+      outletProblems.push(`outlet ${outlet.externalId}: ${describeWriteError(error)}`)
     }
-    if (value === 0) {
-      return "Inactive"
-    }
-    return String(value)
   }
-  return (value as string) || null
+  return outletProblems
 }
 
-function getOutlets(item: PosMerchant) {
-  const outlets = item.outlets
-  if (Array.isArray(outlets)) {
-    return outlets as PosMerchant[]
-  }
-  if (outlets && typeof outlets === "object") {
-    return [outlets as PosMerchant]
-  }
-  return []
-}
-
-function getOutletExternalId(outlet: PosMerchant) {
-  return String(
-    outlet.id ??
-      outlet.oid ??
-      outlet.outlet_id ??
-      outlet.code ??
-      outlet.outlet_code ??
-      ""
-  )
-}
-
-function getOutletName(outlet: PosMerchant) {
-  return (
-    (outlet.name as string) ||
-    (outlet.outlet_name as string) ||
-    (outlet.title as string) ||
-    "Unknown Outlet"
-  )
+function describeWriteError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return sanitizeUpstreamText(message, [], 300)
 }
 
 async function fetchImportWithSession(
@@ -111,7 +102,15 @@ async function fetchImportWithSession(
 
 export type MerchantImportPageResult = {
   itemsReturned: number
+  /** Merchants written, including those with some outlets skipped. */
   imported: number
+  failed: number
+  partial: number
+  /**
+   * Failed and partial merchants only, for `job_run_items`. A fully imported
+   * merchant is not logged — that would be one row per merchant per run.
+   */
+  items: JobRunItemInput[]
   /** Possibly re-authenticated, so the caller must carry it into the next page. */
   session: PosApiAuthSession
   lastLabel: string | null
@@ -124,6 +123,10 @@ export type MerchantImportPageResult = {
  * a page at a time and checkpoint between pages. Previously a failure on page 7
  * of 40 marked the whole run failed with no record of how far it got, and a
  * re-run started again at page 1.
+ *
+ * A record that cannot be stored (see merchant-import-mapping.ts) is skipped
+ * and reported in `items` instead of throwing: one bad record used to fail the
+ * page on every retry, and every later run died on the same page.
  */
 export async function importMerchantPage(input: {
   pool: Pool
@@ -134,6 +137,9 @@ export async function importMerchantPage(input: {
   const { pool, perPage, page } = input
   let session = input.session
   let imported = 0
+  let failed = 0
+  let partial = 0
+  const runItems: JobRunItemInput[] = []
   let lastLabel: string | null = null
 
   const url = new URL(resolvePosImportUrl())
@@ -155,7 +161,13 @@ export async function importMerchantPage(input: {
   }
 
   if (!response.ok) {
-    const errorBody = await response.text().catch(() => "")
+    // Capped and scrubbed: this message lands in the logs and in
+    // job_runs.error_message, and an upstream error page can echo the request
+    // URL — which, after the 401 fallback, carries the token.
+    const errorBody = sanitizeUpstreamText(
+      await response.text().catch(() => ""),
+      [input.session.token, session.token]
+    )
     const details = errorBody ? ` - ${errorBody}` : ""
 
     if (response.status === 401) {
@@ -187,85 +199,85 @@ export async function importMerchantPage(input: {
   }
 
   const payload = await response.json()
-  const items = getPosApiItems(payload) as PosMerchant[]
+  const items = getPosApiItems(payload)
 
   if (!items.length) {
-    return { itemsReturned: 0, imported: 0, session, lastLabel: null }
-  }
-
-  for (const item of items) {
-    const externalId = String(getExternalId(item))
-    const name = getName(item)
-    const fid =
-      (item.id as string) ||
-      (item.fid as string) ||
-      (item.franchise_id as string) ||
-      null
-    const outletCount = getOutletCount(item)
-    const status = getStatus(item)
-    lastLabel = fid ?? externalId
-
-    await pool.query(
-      `
-      INSERT INTO merchants (external_id, name, fid, outlet_count, status, raw_payload)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE
-        name = VALUES(name),
-        fid = VALUES(fid),
-        outlet_count = VALUES(outlet_count),
-        status = VALUES(status),
-        raw_payload = VALUES(raw_payload),
-        updated_at = CURRENT_TIMESTAMP
-    `,
-      [
-        externalId,
-        name,
-        fid,
-        outletCount,
-        status,
-        JSON.stringify(item),
-      ]
-    )
-
-    const outlets = getOutlets(item)
-    for (const outlet of outlets) {
-      const outletExternalId = getOutletExternalId(outlet)
-      if (!outletExternalId) {
-        continue
-      }
-      const outletName = getOutletName(outlet)
-      const outletStatus = getStatus(outlet)
-
-      await pool.query(
-        `
-        INSERT INTO merchant_outlets (
-          external_id,
-          merchant_external_id,
-          name,
-          status,
-          raw_payload
-        )
-        VALUES (?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          merchant_external_id = VALUES(merchant_external_id),
-          name = VALUES(name),
-          status = VALUES(status),
-          raw_payload = VALUES(raw_payload),
-          updated_at = CURRENT_TIMESTAMP
-      `,
-        [
-          outletExternalId,
-          externalId,
-          outletName,
-          outletStatus,
-          JSON.stringify(outlet),
-        ]
-      )
+    return {
+      itemsReturned: 0,
+      imported: 0,
+      failed: 0,
+      partial: 0,
+      items: [],
+      session,
+      lastLabel: null,
     }
-    imported += 1
   }
 
-  return { itemsReturned: items.length, imported, session, lastLabel }
+  for (const [index, item] of items.entries()) {
+    // Stable across replays of this page, so job_run_items upserts in place.
+    const unitIndex = (page - 1) * perPage + index
+    const fallbackKey = `page ${page} #${index + 1}`
+    const mapped = mapPosMerchant(item)
+
+    if (!mapped.ok) {
+      failed += 1
+      runItems.push({
+        unitIndex,
+        unitKey: mapped.unitKey ?? fallbackKey,
+        outcome: "failed",
+        message: mapped.reason,
+      })
+      continue
+    }
+
+    const unitKey = mapped.merchant.fid ?? mapped.merchant.externalId
+    lastLabel = unitKey
+
+    let outletProblems: string[]
+    try {
+      outletProblems = await writeMerchant(pool, mapped)
+    } catch (error) {
+      if (!isRecordDataError(error)) {
+        throw error
+      }
+      failed += 1
+      runItems.push({
+        unitIndex,
+        unitKey,
+        outcome: "failed",
+        message: describeWriteError(error),
+      })
+      continue
+    }
+
+    imported += 1
+    if (outletProblems.length) {
+      partial += 1
+      runItems.push({
+        unitIndex,
+        unitKey,
+        outcome: "partial",
+        message: outletProblems.join("; "),
+      })
+    }
+  }
+
+  if (failed > 0) {
+    log.warn("Skipped merchant records that could not be stored", {
+      page,
+      failed,
+    })
+  }
+
+  return {
+    itemsReturned: items.length,
+    imported,
+    failed,
+    partial,
+    items: runItems,
+    session,
+    lastLabel,
+  }
 }
 
 export async function runMerchantImport(trigger: "manual" | "cron") {

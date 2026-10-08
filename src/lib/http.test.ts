@@ -11,6 +11,7 @@ import {
   MAX_BACKOFF_MS,
   parseRetryAfterMs,
   redactUrlForLogs,
+  sanitizeUpstreamText,
 } from "./http.ts"
 
 const URL_UNDER_TEST = "https://api.example.com/v1/things?api_token=secret"
@@ -74,6 +75,37 @@ test("redactUrlForLogs keeps origin and path but drops the query string", () => 
   // The POS 401 fallback puts api_token in the query string.
   assert.equal(redactUrlForLogs(URL_UNDER_TEST), "https://api.example.com/v1/things")
   assert.equal(redactUrlForLogs("not a url"), "[unparseable url]")
+})
+
+test("sanitizeUpstreamText removes a known token, raw and URL-encoded", () => {
+  const token = "42|AbCdEfGhIjKlMnOp"
+  const page = `<p>GET /api/franchise-retrieve?per_page=100&x=${encodeURIComponent(token)}</p><p>${token}</p>`
+  const result = sanitizeUpstreamText(page, [token])
+  assert.ok(!result.includes(token))
+  assert.ok(!result.includes(encodeURIComponent(token)))
+  assert.match(result, /\[redacted\]/)
+})
+
+test("sanitizeUpstreamText scrubs credential-shaped text it was not told about", () => {
+  const result = sanitizeUpstreamText(
+    'url=/x?api_token=abc123secret&token=zzz9 {"access_token": "jwt.value"} Authorization: Bearer eyJhbGciOi.payload'
+  )
+  assert.ok(!result.includes("abc123secret"))
+  assert.ok(!result.includes("zzz9"))
+  assert.ok(!result.includes("jwt.value"))
+  assert.ok(!result.includes("eyJhbGciOi.payload"))
+  assert.match(result, /api_token=\[redacted\]/)
+})
+
+test("sanitizeUpstreamText caps length and collapses whitespace", () => {
+  const result = sanitizeUpstreamText(`a\n\n  b ${"x".repeat(1000)}`, [], 50)
+  assert.equal(Array.from(result).length, 50)
+  assert.ok(result.startsWith("a b "))
+  assert.ok(result.endsWith("…"))
+})
+
+test("sanitizeUpstreamText ignores secrets too short to redact safely", () => {
+  assert.equal(sanitizeUpstreamText("status: ok", ["ok"]), "status: ok")
 })
 
 test("httpFetch returns non-2xx responses instead of throwing", async () => {
