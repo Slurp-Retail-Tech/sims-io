@@ -4,14 +4,18 @@ import {
   checkpointJobRun,
   completeJobRun,
   expireStaleLeases,
+  recordJobRunFailure,
   withJobTypeLock,
   yieldJobRun,
 } from "./job-runner.ts"
 import {
   computeLeaseSeconds,
   DEFAULT_SLICE_BUDGET_MS,
+  formatJobFailure,
   hasBudget,
+  MAX_JOB_ERROR_LENGTH,
 } from "./job-runner-core.ts"
+import { sanitizeUpstreamText } from "./http.ts"
 import { reapExpiredJobArtifacts } from "./job-artifacts.ts"
 import { writeJobRunItems } from "./job-progress.ts"
 import { JOB_HANDLERS, JOB_TYPE_ORDER } from "./job-registry.ts"
@@ -125,9 +129,26 @@ export async function driveJobType(
         jobRunId: claim.id,
         attempt: claim.attempt,
       })
-      // Deliberately not completed here: the lease lapses and the reaper
-      // decides whether attempts remain, so there is one retry policy rather
-      // than two that can disagree.
+      // Deliberately not completed here: the reaper decides whether attempts
+      // remain, so there is one retry policy rather than two that can
+      // disagree. The cause is saved first — without it the run's only
+      // recorded error was the reaper's "lease expired".
+      try {
+        await recordJobRunFailure(
+          connection,
+          claim.id,
+          sanitizeUpstreamText(
+            formatJobFailure(error, claim.attempt),
+            [],
+            MAX_JOB_ERROR_LENGTH
+          )
+        )
+      } catch (recordError) {
+        log.error("Failed to record the job failure", recordError, {
+          jobType,
+          jobRunId: claim.id,
+        })
+      }
       throw error
     }
   })

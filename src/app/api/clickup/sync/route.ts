@@ -49,28 +49,41 @@ async function handlePost(request: NextRequest): Promise<Response> {
     requestedBy = auth.user.id
   }
 
+  let enqueued: { jobRunId: string; created: boolean }
   try {
-    const { jobRunId, created } = await enqueueJobRun(getPool(), {
+    enqueued = await enqueueJobRun(getPool(), {
       jobType: CLICKUP_SYNC_JOB_TYPE,
       dedupeKey: "singleton",
       triggerSource: cronAllowed ? "cron" : "manual",
       requestedBy,
       params: { actorLabel },
     })
-
-    const slice = await driveJobType(CLICKUP_SYNC_JOB_TYPE)
-
-    return NextResponse.json(
-      {
-        jobRunId,
-        // false means a run was already in flight and this request joined it.
-        created,
-        // null when another process holds the lock; the tick will pick it up.
-        slice: slice ?? null,
-      },
-      { status: 202 }
-    )
   } catch (error) {
     return serverError("clickup/sync", error, "Failed to run ClickUp status sync.")
   }
+
+  // Once enqueued, the sync is accepted whatever the inline slice does. A slice
+  // that throws has already recorded its error on the run and will be retried
+  // by the tick, so answering 500 here would report a failure for a sync that
+  // is in fact still queued.
+  let slice: Awaited<ReturnType<typeof driveJobType>> = null
+  let sliceFailed = false
+  try {
+    slice = await driveJobType(CLICKUP_SYNC_JOB_TYPE)
+  } catch {
+    // Logged with full context inside driveJobType.
+    sliceFailed = true
+  }
+
+  return NextResponse.json(
+    {
+      jobRunId: enqueued.jobRunId,
+      // false means a run was already in flight and this request joined it.
+      created: enqueued.created,
+      // null when another process holds the lock; the tick will pick it up.
+      slice: slice ?? null,
+      sliceFailed,
+    },
+    { status: 202 }
+  )
 }

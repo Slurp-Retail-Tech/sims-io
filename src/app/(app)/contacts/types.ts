@@ -26,6 +26,10 @@ export type ContactMappingRow = {
   outletId: string | null
   franchiseName: string | null
   outletName: string | null
+  /** Accountable for this scope's renewal. At most one per franchise-and-outlet. */
+  isRenewalPic: boolean
+  /** Copied on the same reminders and receipts as the PIC, on their own channels. */
+  isRenewalCc: boolean
 }
 
 /** A contact whose phone or email collides with one being created or edited. */

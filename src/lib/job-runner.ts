@@ -189,7 +189,13 @@ export async function expireStaleLeases(
             lease_expires_at = NULL,
             heartbeat_at = NULL,
             available_at = DATE_ADD(NOW(3), INTERVAL ? SECOND),
-            error_message = CONCAT('Lease expired on attempt ', attempt, '.')
+            -- Keep the error the attempt recorded when it threw (claims clear
+            -- it, so any message here belongs to this attempt). Only a slice
+            -- that wedged without throwing gets the generic lease message.
+            error_message = COALESCE(
+              error_message,
+              CONCAT('Lease expired on attempt ', attempt, '.')
+            )
       WHERE status = 'running'
         AND lease_expires_at IS NOT NULL
         AND lease_expires_at < NOW(3)
@@ -204,7 +210,10 @@ export async function expireStaleLeases(
             lease_owner = NULL,
             lease_expires_at = NULL,
             finished_at = NOW(3),
-            error_message = CONCAT('Abandoned after ', attempt, ' attempt(s); lease expired.')
+            error_message = CONCAT(
+              'Abandoned after ', attempt, ' attempt(s). ',
+              COALESCE(error_message, 'Lease expired.')
+            )
       WHERE status = 'running'
         AND lease_expires_at IS NOT NULL
         AND lease_expires_at < NOW(3)
@@ -244,7 +253,10 @@ export async function claimNextJobRun(
             lease_expires_at = DATE_ADD(NOW(3), INTERVAL ? SECOND),
             heartbeat_at = NOW(3),
             started_at = COALESCE(started_at, NOW(3)),
-            attempt = attempt + 1
+            attempt = attempt + 1,
+            -- A fresh attempt starts with no error, so the reaper can tell a
+            -- failure recorded by THIS attempt from a stale one.
+            error_message = NULL
       WHERE id = ? AND status = 'queued' AND available_at <= NOW(3)`,
     [LEASE_OWNER, leaseSeconds, id]
   )
@@ -315,6 +327,29 @@ export async function checkpointJobRun(
     ]
   )
   return result.affectedRows === 1
+}
+
+/**
+ * Record why a slice threw, and release its lease so the reaper can requeue it
+ * on the next tick instead of waiting out the full lease.
+ *
+ * The run is left `running` on purpose: the reaper stays the single place that
+ * decides between a retry and abandoning it. Releasing the lease early is safe
+ * because the caller still holds the job type's advisory lock, so nothing can
+ * claim the run until the slice has fully unwound.
+ */
+export async function recordJobRunFailure(
+  db: Queryable,
+  jobRunId: string,
+  errorMessage: string
+): Promise<void> {
+  await db.query(
+    `UPDATE job_runs
+        SET error_message = ?,
+            lease_expires_at = NOW(3)
+      WHERE id = ? AND lease_owner = ? AND status = 'running'`,
+    [errorMessage, jobRunId, LEASE_OWNER]
+  )
 }
 
 /**

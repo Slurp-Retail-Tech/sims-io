@@ -19,6 +19,9 @@ const eslintConfig = defineConfig([
     ".design-sync/**",
     // CI scripts are plain Node .mjs, outside the Next.js lint surface.
     ".github/**",
+    // Agent worktrees are full checkouts with their own build output; linting
+    // them from the main checkout reports thousands of unrelated errors.
+    ".claude/**",
   ]),
 ]);
 

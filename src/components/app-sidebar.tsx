@@ -7,7 +7,7 @@ import Image from "next/image"
 
 import { NavMain } from "@/components/nav-main"
 import { NavUser } from "@/components/nav-user"
-import { getSessionUser } from "@/lib/session"
+import { getSessionUser, type SessionUser } from "@/lib/session"
 import { canAccessPath } from "@/lib/page-access"
 import { navData, type NavItem } from "@/lib/nav-items"
 import {
@@ -62,15 +62,28 @@ const getFirstAllowedUrl = (items: NavItem[]) => {
   return null
 }
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+type AppSidebarProps = React.ComponentProps<typeof Sidebar> & {
+  initialUser: SessionUser
+  initialWorkspace: string
+}
+
+export function AppSidebar({
+  initialUser,
+  initialWorkspace,
+  ...props
+}: AppSidebarProps) {
   const pathname = usePathname()
-  const [sessionUser, setSessionUserState] = React.useState(() => getSessionUser())
+  // Seed from the server-verified user, not the localStorage cache: the server
+  // render can't see localStorage, so the nav would differ and fail hydration.
+  // The cache still feeds later updates (e.g. profile edits) via the events.
+  const [sessionUser, setSessionUserState] = React.useState<SessionUser | null>(
+    initialUser
+  )
 
   React.useEffect(() => {
     const handleSessionUpdate = () => {
       setSessionUserState(getSessionUser())
     }
-    handleSessionUpdate()
     window.addEventListener("storage", handleSessionUpdate)
     window.addEventListener("sims-session-update", handleSessionUpdate)
     return () => {
@@ -78,6 +91,41 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       window.removeEventListener("sims-session-update", handleSessionUpdate)
     }
   }, [])
+
+  // Live counts for items that carry a `badgeKey`. Only fetched when the user
+  // can see the item at all; the route enforces the same keys regardless.
+  const [badges, setBadges] = React.useState<Partial<Record<NonNullable<NavItem["badgeKey"]>, number>>>({})
+  const canSeeQueue = sessionUser
+    ? canAccessPath(sessionUser.role ?? "", sessionUser.pageAccess ?? [], "/renewal-retention/actions-required")
+    : false
+
+  React.useEffect(() => {
+    if (!canSeeQueue) {
+      return
+    }
+    let cancelled = false
+    // Re-asked on navigation so fixing something and moving on updates the
+    // count; one indexed COUNT, so the cost is negligible.
+    fetch("/api/renewals/actions-required/count", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { blocking?: number } | null) => {
+        if (!cancelled && payload && typeof payload.blocking === "number") {
+          setBadges((current) => ({ ...current, actionsRequiredBlocking: payload.blocking }))
+        }
+      })
+      .catch(() => {
+        // A badge is a convenience; a failed count must never break navigation.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [canSeeQueue, pathname])
+
+  const withBadges = React.useCallback(
+    (items: NavItem[]): NavItem[] =>
+      items.map((item) => (item.badgeKey ? { ...item, badge: badges[item.badgeKey] } : item)),
+    [badges]
+  )
 
   const userDepartment = sessionUser?.department ?? "Merchant Success"
   const isSuperAdmin = sessionUser?.role === "Super Admin"
@@ -111,8 +159,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const salesItems = markActive(
     filterNavItems(navData.sales, pageAccess, sessionUser?.role ?? "")
   )
-  const renewalItems = markActive(
-    filterNavItems(navData.renewalRetention, pageAccess, sessionUser?.role ?? "")
+  const renewalItems = withBadges(
+    markActive(filterNavItems(navData.renewalRetention, pageAccess, sessionUser?.role ?? ""))
   )
   const generalItems = markActive(
     filterNavItems(
@@ -134,13 +182,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     ? allDepartmentGroups
     : allDepartmentGroups
 
-  const [selectedWorkspace, setSelectedWorkspace] = React.useState(() => {
-    if (typeof document === "undefined") return "All"
-    const match = document.cookie
-      .split("; ")
-      .find((c) => c.startsWith("sidebar_workspace="))
-    return match ? decodeURIComponent(match.slice("sidebar_workspace=".length)) : "All"
-  })
+  // Read from the cookie on the server (see the (app) layout) rather than
+  // document.cookie, which the server render cannot see.
+  const [selectedWorkspace, setSelectedWorkspace] = React.useState(initialWorkspace)
 
   const selectWorkspace = React.useCallback((label: string) => {
     setSelectedWorkspace(label)

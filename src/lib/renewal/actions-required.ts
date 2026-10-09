@@ -1,0 +1,418 @@
+/**
+ * The queue of things that stop a renewal being carried through.
+ *
+ * Every reason is a specific, actionable gap — a missing plan, nobody
+ * accountable, a price waiting for sign-off — rather than a generic failure.
+ * The point of the queue is that it is worked *before* the reminder window
+ * closes, so an outlet does not lapse for a reason somebody could have fixed
+ * in a minute.
+ *
+ * Entries auto-resolve. The nightly run reports what is wrong right now, and
+ * anything it no longer reports is closed with a resolution recorded. That
+ * keeps the queue a picture of the present rather than a log of everything
+ * that has ever been wrong.
+ */
+
+import getPool, { type Queryable } from "../db.ts"
+import type { ResultSetHeader, RowDataPacket } from "mysql2/promise"
+
+/**
+ * Why a subscription cannot be carried through.
+ *
+ * `blocking` reasons stop an invoice being raised. `informational` ones are
+ * recorded and shown, but the invoice and dispatch proceed — a PIC reachable
+ * on one of their two channels still gets the reminder.
+ */
+export const ACTION_REASONS = {
+  no_plan_assigned: "blocking",
+  plan_missing_term_price: "blocking",
+  override_pending_approval: "blocking",
+  override_rejected: "blocking",
+  no_renewal_pic: "blocking",
+  ambiguous_renewal_pic: "blocking",
+  unreachable_renewal_pic: "blocking",
+  channel_unreachable: "informational",
+  missing_valid_until: "blocking",
+  // Informational: the invoice exists and its link works. Blocking would take
+  // the outlet out of later cycles and so stop its remaining reminders
+  // (PRD 4.24: a failed send never blocks invoicing).
+  dispatch_failed: "informational",
+  payment_amount_mismatch: "blocking",
+  extension_failed: "blocking",
+  pos_push_failed: "informational",
+  pos_valid_until_drift: "informational",
+  payer_email_failed: "blocking",
+  overpayment: "blocking",
+  payment_refunded: "blocking",
+  // Informational on purpose. A stale proforma must never block the fresh one
+  // that covers the outlet's new expiry date -- blocking would leave the
+  // outlet with no correct invoice at all, which is the opposite of the fix.
+  stale_proforma: "informational",
+} as const
+
+export type ActionReason = keyof typeof ACTION_REASONS
+
+export type ActionEntry = {
+  franchiseId: string
+  outletId: string | null
+  centralId?: string | null
+  invoiceId?: string | null
+  reason: ActionReason
+  detail?: string | null
+  daysToExpiry?: number | null
+}
+
+export type ActionRow = {
+  id: string
+  franchiseId: string
+  outletId: string | null
+  /** Merchant and outlet names, so the queue reads as places rather than ids. */
+  franchiseName: string | null
+  outletName: string | null
+  centralId: string | null
+  invoiceId: string | null
+  reason: ActionReason
+  detail: string | null
+  severity: "blocking" | "informational"
+  daysToExpiry: number | null
+  occurrenceCount: number
+  status: "open" | "resolved" | "dismissed"
+  firstDetectedAt: string
+  lastDetectedAt: string
+}
+
+type Row = RowDataPacket & {
+  id: string
+  franchise_id: string
+  outlet_id: string | null
+  franchise_name?: string | null
+  outlet_name?: string | null
+  central_id: string | null
+  invoice_id: string | null
+  reason: ActionReason
+  detail: string | null
+  severity: "blocking" | "informational"
+  days_to_expiry: number | null
+  occurrence_count: number
+  status: "open" | "resolved" | "dismissed"
+  first_detected_at: string
+  last_detected_at: string
+}
+
+export function severityOf(reason: ActionReason): "blocking" | "informational" {
+  return ACTION_REASONS[reason]
+}
+
+/** True when this reason stops an invoice being raised. */
+export function isBlocking(reason: ActionReason): boolean {
+  return ACTION_REASONS[reason] === "blocking"
+}
+
+/**
+ * Raise an entry, or touch the one already open for the same scope and reason.
+ *
+ * Upsert rather than insert, so a gap persisting across nightly runs stays one
+ * entry with a rising occurrence count rather than becoming a pile of
+ * duplicates. The unique key is on a generated column that collapses to NULL
+ * once the entry is closed, so the same gap reappearing months later opens a
+ * fresh entry rather than resurrecting a resolved one.
+ */
+export async function raiseAction(
+  entry: ActionEntry,
+  db: Queryable = getPool()
+): Promise<void> {
+  await db.query<ResultSetHeader>(
+    `INSERT INTO renewal_actions_required
+       (franchise_id, outlet_id, central_id, invoice_id, reason, detail,
+        severity, days_to_expiry, occurrence_count, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'open')
+     ON DUPLICATE KEY UPDATE
+       detail = VALUES(detail),
+       invoice_id = VALUES(invoice_id),
+       days_to_expiry = VALUES(days_to_expiry),
+       occurrence_count = occurrence_count + 1,
+       last_detected_at = NOW(3)`,
+    [
+      entry.franchiseId,
+      entry.outletId,
+      entry.centralId ?? null,
+      entry.invoiceId ?? null,
+      entry.reason,
+      entry.detail ?? null,
+      severityOf(entry.reason),
+      entry.daysToExpiry ?? null,
+    ]
+  )
+}
+
+/**
+ * Close every open entry the current run examined and did not raise again.
+ *
+ * `examinedScopes` holds `franchiseId|outletId` (or `franchiseId|*` for a
+ * franchise-level entry) for every scope the run actually evaluated. `seen`
+ * holds `franchiseId|outletId|reason` for everything still wrong. An open
+ * entry is resolved only when its scope was examined, its reason is one the
+ * run evaluates, and it is not in `seen` — which is what makes fixing the
+ * underlying gap enough, with no second action needed to clear the queue.
+ *
+ * Scoped to the exact outlets examined rather than to whole franchises: a run
+ * that looked at one outlet in a franchise has no opinion about the others,
+ * and must not close their entries. Restricted to `reasons` for the same
+ * cause: a dispatch failure is not something the eligibility pass can vouch
+ * for, so it never closes one.
+ */
+export async function resolveUnseenActions(
+  examinedScopes: ReadonlySet<string>,
+  seen: ReadonlySet<string>,
+  reasons: readonly ActionReason[],
+  db: Queryable = getPool()
+): Promise<number> {
+  if (examinedScopes.size === 0 || reasons.length === 0) {
+    return 0
+  }
+
+  const franchiseIds = [
+    ...new Set([...examinedScopes].map((scope) => scope.slice(0, scope.indexOf("|")))),
+  ]
+
+  const [rows] = await db.query<Row[]>(
+    `SELECT id, franchise_id, outlet_id, reason
+       FROM renewal_actions_required
+      WHERE status = 'open'
+        AND franchise_id IN (${franchiseIds.map(() => "?").join(", ")})
+        AND reason IN (${reasons.map(() => "?").join(", ")})`,
+    [...franchiseIds, ...reasons]
+  )
+
+  const stale = rows
+    .filter((row) => {
+      const scope = `${row.franchise_id}|${row.outlet_id ?? "*"}`
+      return (
+        examinedScopes.has(scope) && !seen.has(`${scope}|${row.reason}`)
+      )
+    })
+    .map((row) => String(row.id))
+
+  if (stale.length === 0) {
+    return 0
+  }
+
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE renewal_actions_required
+        SET status = 'resolved', resolved_at = NOW(3)
+      WHERE id IN (${stale.map(() => "?").join(", ")})`,
+    stale
+  )
+
+  return result.affectedRows
+}
+
+/** The key `resolveUnseenActions` matches on. */
+export function actionKey(
+  franchiseId: string,
+  outletId: string | null,
+  reason: ActionReason
+): string {
+  return `${franchiseId}|${outletId ?? "*"}|${reason}`
+}
+
+export async function listOpenActions(
+  filters: { reason?: ActionReason; franchiseId?: string } = {},
+  db: Queryable = getPool()
+): Promise<ActionRow[]> {
+  const conditions = ["a.status = 'open'"]
+  const values: unknown[] = []
+
+  if (filters.reason) {
+    conditions.push("a.reason = ?")
+    values.push(filters.reason)
+  }
+  if (filters.franchiseId) {
+    conditions.push("a.franchise_id = ?")
+    values.push(filters.franchiseId)
+  }
+
+  const [rows] = await db.query<Row[]>(
+    `SELECT a.id, a.franchise_id, a.outlet_id, a.central_id, a.invoice_id, a.reason,
+            a.detail, a.severity, a.days_to_expiry, a.occurrence_count, a.status,
+            a.first_detected_at, a.last_detected_at,
+            m.name AS franchise_name, o.name AS outlet_name
+       FROM renewal_actions_required a
+       LEFT JOIN merchants m ON m.external_id = a.franchise_id
+       LEFT JOIN merchant_outlets o
+         ON o.merchant_external_id = a.franchise_id AND o.external_id = a.outlet_id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY a.severity ASC, a.days_to_expiry IS NULL, a.days_to_expiry ASC, a.id ASC`,
+    values
+  )
+
+  return rows.map(mapRow)
+}
+
+/** Blocking entries only, for the nav badge. */
+export async function countOpenBlockingActions(
+  db: Queryable = getPool()
+): Promise<number> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS total FROM renewal_actions_required
+      WHERE status = 'open' AND severity = 'blocking'`
+  )
+  return Number((rows[0] as { total: number | string } | undefined)?.total ?? 0)
+}
+
+/** Which outlets are currently blocked, keyed `franchiseId|outletId`. */
+export async function loadBlockedOutletKeys(
+  db: Queryable = getPool()
+): Promise<Set<string>> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT franchise_id, outlet_id FROM renewal_actions_required
+      WHERE status = 'open' AND severity = 'blocking' AND outlet_id IS NOT NULL`
+  )
+  return new Set(
+    (rows as Array<{ franchise_id: string; outlet_id: string }>).map(
+      (row) => `${row.franchise_id}|${row.outlet_id}`
+    )
+  )
+}
+
+/**
+ * Close the open entries an invoice's own follow-up work has just cleared,
+ * such as a POS push that finally landed. Scoped to the invoice and to the
+ * reasons the caller can vouch for, for the same reason `resolveUnseenActions`
+ * is: no step closes an entry it did not evaluate.
+ */
+export async function resolveActionsForInvoice(
+  invoiceId: string,
+  reasons: readonly ActionReason[],
+  db: Queryable = getPool()
+): Promise<number> {
+  if (reasons.length === 0) {
+    return 0
+  }
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE renewal_actions_required
+        SET status = 'resolved', resolved_at = NOW(3)
+      WHERE invoice_id = ? AND status = 'open'
+        AND reason IN (${reasons.map(() => "?").join(", ")})`,
+    [invoiceId, ...reasons]
+  )
+  return result.affectedRows
+}
+
+/**
+ * Close the entries for a reason whose invoices are no longer in the wrong.
+ *
+ * The inverse of `resolveActionsForInvoice`: a sweep reports every invoice
+ * still affected, and everything previously open for that reason and not in
+ * the report is resolved. That covers the invoice being voided, the dates
+ * coming back into line, and the invoice being paid, without the sweep having
+ * to know which of those happened.
+ */
+export async function resolveActionsNotNaming(
+  reason: ActionReason,
+  stillAffectedInvoiceIds: readonly string[],
+  db: Queryable = getPool()
+): Promise<number> {
+  const conditions = ["status = 'open'", "reason = ?"]
+  const values: unknown[] = [reason]
+
+  if (stillAffectedInvoiceIds.length > 0) {
+    conditions.push(
+      `(invoice_id IS NULL OR invoice_id NOT IN (${stillAffectedInvoiceIds.map(() => "?").join(", ")}))`
+    )
+    values.push(...stillAffectedInvoiceIds)
+  }
+
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE renewal_actions_required
+        SET status = 'resolved', resolved_at = NOW(3)
+      WHERE ${conditions.join(" AND ")}`,
+    values
+  )
+  return result.affectedRows
+}
+
+export async function dismissAction(
+  actionId: string,
+  reason: string,
+  userId: string,
+  db: Queryable = getPool()
+): Promise<boolean> {
+  const [result] = await db.query<ResultSetHeader>(
+    `UPDATE renewal_actions_required
+        SET status = 'dismissed', dismiss_reason = ?, resolved_at = NOW(3),
+            resolved_by_user_id = ?
+      WHERE id = ? AND status = 'open'`,
+    [reason, userId, actionId]
+  )
+  return result.affectedRows > 0
+}
+
+function mapRow(row: Row): ActionRow {
+  return {
+    id: String(row.id),
+    franchiseId: row.franchise_id,
+    outletId: row.outlet_id,
+    franchiseName: row.franchise_name ?? null,
+    outletName: row.outlet_name ?? null,
+    centralId: row.central_id,
+    invoiceId: row.invoice_id ? String(row.invoice_id) : null,
+    reason: row.reason,
+    detail: row.detail,
+    severity: row.severity,
+    daysToExpiry: row.days_to_expiry,
+    occurrenceCount: Number(row.occurrence_count),
+    status: row.status,
+    firstDetectedAt: row.first_detected_at,
+    lastDetectedAt: row.last_detected_at,
+  }
+}
+
+/**
+ * Retire entries whose outlet left the renewal window for good.
+ *
+ * The cycle never looks at an outlet past its expiry and grace window: SIMS
+ * will not invoice it, and its link no longer takes payment. A plan or PIC
+ * entry raised before then would otherwise stay open forever, with no fix
+ * able to clear it. It is closed as dismissed, not resolved, because the gap
+ * was not fixed; the note says why, and a renewal outside SIMS that moves the
+ * expiry forward brings the outlet back into the cycle normally.
+ *
+ * A franchise-level entry (a grouped invoice's addressee) retires once none
+ * of the franchise's outlets is still inside the window.
+ *
+ * Returns how many were retired.
+ */
+export async function retireEntriesPastRenewalWindow(
+  closedBefore: string,
+  reasons: readonly ActionReason[],
+  db: Queryable = getPool()
+): Promise<number> {
+  if (reasons.length === 0) {
+    return 0
+  }
+  const note = "Retired automatically: the outlet expired and its grace window closed without a renewal, so SIMS will not invoice it."
+  const [outletLevel] = await db.query<ResultSetHeader>(
+    `UPDATE renewal_actions_required a
+       JOIN outlet_subscriptions s
+         ON s.franchise_id = a.franchise_id AND s.outlet_id = a.outlet_id AND s.deleted_at IS NULL
+        SET a.status = 'dismissed', a.resolved_at = NOW(3), a.dismiss_reason = ?
+      WHERE a.status = 'open' AND a.outlet_id IS NOT NULL
+        AND a.reason IN (?)
+        AND s.valid_until_date < ?`,
+    [note, reasons, closedBefore]
+  )
+  const [franchiseLevel] = await db.query<ResultSetHeader>(
+    `UPDATE renewal_actions_required a
+        SET a.status = 'dismissed', a.resolved_at = NOW(3), a.dismiss_reason = ?
+      WHERE a.status = 'open' AND a.outlet_id IS NULL
+        AND a.reason IN (?)
+        AND EXISTS (SELECT 1 FROM outlet_subscriptions s
+                     WHERE s.franchise_id = a.franchise_id AND s.deleted_at IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM outlet_subscriptions s
+                         WHERE s.franchise_id = a.franchise_id AND s.deleted_at IS NULL
+                           AND s.is_active = 1 AND s.valid_until_date >= ?)`,
+    [note, reasons, closedBefore]
+  )
+  return outletLevel.affectedRows + franchiseLevel.affectedRows
+}

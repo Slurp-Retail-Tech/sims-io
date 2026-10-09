@@ -21,7 +21,7 @@ const POS_API_TIMEOUT_MS = (() => {
 })()
 
 /** Login is a single short call; it does not need the data-call budget. */
-const POS_AUTH_TIMEOUT_MS = 10_000
+export const POS_AUTH_TIMEOUT_MS = 10_000
 
 function mergeHeaders(...headersList: Array<HeadersInit | undefined>) {
   const merged = new Headers()
@@ -74,6 +74,21 @@ export function resolvePosApiUrl(path: string) {
 
 export function resolvePosMerchantIdApiUrl(path: string) {
   const configuredUrl = process.env.POS_MERCHANT_ID_BASE_URL?.trim()
+  if (configuredUrl) {
+    return new URL(path, configuredUrl).toString()
+  }
+  return resolvePosApiUrl(path)
+}
+
+/**
+ * `PATCH /api/outlet-valid-until/:fid/:oid`, the POS write that carries a
+ * renewed expiry date back. Documented in docs/valid_until API.md.
+ * `POS_OUTLET_VALID_UNTIL_URL` overrides the base, following the other
+ * `resolvePos*Url` helpers; the documented path is the default.
+ */
+export function resolvePosOutletValidUntilUrl(franchiseId: string, outletId: string) {
+  const path = `/api/outlet-valid-until/${encodeURIComponent(franchiseId)}/${encodeURIComponent(outletId)}`
+  const configuredUrl = process.env.POS_OUTLET_VALID_UNTIL_URL?.trim()
   if (configuredUrl) {
     return new URL(path, configuredUrl).toString()
   }

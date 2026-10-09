@@ -99,6 +99,8 @@ type MappingRow = RowDataPacket & {
   id: number | string
   franchise_id: string
   outlet_id: string | null
+  is_renewal_pic: number
+  is_renewal_cc: number
   franchise_name: string | null
   outlet_name: string | null
 }
@@ -123,6 +125,8 @@ export async function loadContactMappings(
       contact_outlets.id,
       contact_outlets.franchise_id,
       contact_outlets.outlet_id,
+      contact_outlets.is_renewal_pic,
+      contact_outlets.is_renewal_cc,
       merchants.name AS franchise_name,
       merchant_outlets.name AS outlet_name
     FROM contact_outlets
@@ -146,6 +150,8 @@ export async function loadContactMappings(
     outletId: row.outlet_id,
     franchiseName: row.franchise_name,
     outletName: row.outlet_name,
+    isRenewalPic: row.is_renewal_pic === 1,
+    isRenewalCc: row.is_renewal_cc === 1,
   }))
 }
 

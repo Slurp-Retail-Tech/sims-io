@@ -6,6 +6,7 @@
  */
 
 import { createLogger } from "./logger.ts"
+import { getRedisClient } from "./redis.ts"
 
 type InMemoryEntry = {
   count: number
@@ -39,34 +40,8 @@ export class RateLimitStoreUnavailableError extends Error {
   }
 }
 
-// Lazily initialised Redis client so the module can be imported without
-// a live Redis connection in environments where it is not needed.
-let redisClient: import("redis").RedisClientType | null = null
-let redisConnectPromise: Promise<void> | null = null
-
-async function getRedisClient(): Promise<import("redis").RedisClientType> {
-  if (redisClient) {
-    return redisClient
-  }
-
-  // Dynamic import so the module still loads when the package is absent in
-  // development (the in-memory path will be used instead).
-  const { createClient } = await import("redis")
-  const client = createClient({ url: process.env.REDIS_URL }) as import("redis").RedisClientType
-
-  client.on("error", (err: unknown) => {
-    createLogger("rate-limit-store").error("Redis error", err)
-  })
-
-  if (!redisConnectPromise) {
-    redisConnectPromise = client.connect().then(() => {
-      redisClient = client
-    })
-  }
-
-  await redisConnectPromise
-  return client
-}
+// The client itself lives in redis.ts so the rate limiter and the other
+// Redis users share one connection.
 
 /**
  * Atomic INCR + EXPIRE. A separate INCR-then-EXPIRE pair could be split by

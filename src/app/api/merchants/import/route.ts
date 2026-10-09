@@ -47,21 +47,33 @@ async function handlePost(request: NextRequest): Promise<Response> {
     requestedBy = auth.user.id
   }
 
+  let enqueued: { jobRunId: string; created: boolean }
   try {
-    const { jobRunId, created } = await enqueueJobRun(getPool(), {
+    enqueued = await enqueueJobRun(getPool(), {
       jobType: MERCHANT_IMPORT_JOB_TYPE,
       dedupeKey: "singleton",
       triggerSource: cronAllowed ? "cron" : "manual",
       requestedBy,
     })
-
-    const slice = await driveJobType(MERCHANT_IMPORT_JOB_TYPE)
-
-    return NextResponse.json(
-      { jobRunId, created, slice: slice ?? null },
-      { status: 202 }
-    )
   } catch (error) {
     return serverError("merchants/import", error, "Import failed. Check server logs.")
   }
+
+  // Once enqueued, the import is accepted whatever the inline slice does. A
+  // slice that throws has already recorded its error on the run and will be
+  // retried by the tick, so answering 500 here would tell the user the import
+  // failed while it is in fact still queued. The status poll reports it.
+  let slice: Awaited<ReturnType<typeof driveJobType>> = null
+  let sliceFailed = false
+  try {
+    slice = await driveJobType(MERCHANT_IMPORT_JOB_TYPE)
+  } catch {
+    // Logged with full context inside driveJobType.
+    sliceFailed = true
+  }
+
+  return NextResponse.json(
+    { ...enqueued, slice: slice ?? null, sliceFailed },
+    { status: 202 }
+  )
 }

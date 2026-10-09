@@ -35,14 +35,21 @@ const queueCandidates: KbNotionArticle[] = [
     owner: "Merchant Success Ops",
   },
   {
-    title: "Renewal Reminder Timeline",
+    // Draft text in docs/kb-drafts/renewals-staff-guide.md, for Notion.
+    title: "Renewals: how the renewal flow works",
     audience: "External User",
     category: "Renewals",
     featureArea: ["Renewal & Retention"],
     status: "Draft",
-    appVersion: "v1.0.1",
-    lastVerifiedDate: "2026-02-24",
-    sourceRefs: ["/docs/PRD.md"],
+    appVersion: "v4.35.1",
+    lastVerifiedDate: "2026-09-23",
+    sourceRefs: [
+      "/docs/kb-drafts/renewals-staff-guide.md",
+      "/src/lib/renewal/setup-checklist.ts",
+      "/src/lib/renewal/cycle.ts",
+      "/src/lib/renewal/settings-timeline.ts",
+      "/docs/scheduler.md",
+    ],
     owner: "Renewal Ops",
   },
 ]

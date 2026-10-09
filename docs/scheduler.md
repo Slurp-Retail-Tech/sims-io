@@ -33,6 +33,21 @@ Notes:
   `merchant_import_runs` is retained read-only for pre-cutover history.
 - Concurrent calls are safe: the job is keyed so a second request joins the run
   already in flight rather than starting a rival one.
+- A POS record that cannot be stored (an over-long or malformed field) is
+  skipped and logged to `job_run_items` instead of failing the page, so one bad
+  record no longer blocks every later page. The run still succeeds when a few
+  records are skipped, with a note in `error_message`; it is marked `failed`
+  when more than 5% of merchants are rejected, since that points to something
+  systemic. Merchants written with some outlets skipped are logged as `partial`.
+- Each page is fetched, then written. The fetch has a hard cut-off 10 seconds
+  after the slice deadline, so a slow POS can no longer outlive the job's lease;
+  the lease is renewed before the page is written. A page that runs out of time
+  after earlier pages in the same slice is retried by the next slice (no
+  attempt used); one that cannot finish even with a whole slice to itself fails
+  the attempt. A page is written as one statement for its merchants plus one per
+  500 outlets.
+- Once the job is enqueued the endpoint answers 202 even if its inline slice
+  throws — the error is saved on the run and the tick retries it.
 - You can test the same call locally with `http://localhost:3000`.
 - Keep the command on one line in Coolify.
 - Quote both the URL and the header value exactly as shown above.
@@ -61,6 +76,9 @@ Notes:
 - Set `CLICKUP_API_TOKEN` and `CLICKUP_LIST_ID` in app environment.
 - `CLICKUP_SYNC_CRON_SECRET` must match the header value.
 - This updates `support_requests.clickup_task_status` and `clickup_task_status_synced_at`.
+- Once the job is enqueued the endpoint answers 202 even if its inline slice
+  throws (`sliceFailed: true`) — the error is saved on the run and the tick
+  retries it.
 - Keep the command on one line in Coolify.
 - Quote both the URL and the header value exactly as shown above. This avoids shell parsing issues when the secret contains special characters.
 
@@ -70,6 +88,205 @@ Notes:
   Use an image or task environment that includes `curl`, or switch the command to `wget`.
 - `curl: (3) URL rejected: Malformed input to a URL function`
   This is usually caused by shell parsing or missing quotes. Re-enter the command as a single line and wrap the URL and header in double quotes.
+
+## Renewal subscription sync endpoint
+
+Projects POS outlets into `outlet_subscriptions`, the SIMS-owned record of
+`valid_until`.
+
+```
+POST /api/renewals/subscriptions/sync
+```
+
+Run it **after** the merchants import, since it reads what that import just
+wrote. Recommended cron expression (Asia/Kuala_Lumpur 00:45 daily):
+
+```
+45 16 * * *
+```
+
+Command example:
+
+```
+curl -X POST "https://your-app-domain.com/api/renewals/subscriptions/sync" -H "x-cron-secret: ${RENEWAL_SUBSCRIPTION_SYNC_CRON_SECRET}"
+```
+
+Notes:
+- `RENEWAL_SUBSCRIPTION_SYNC_CRON_SECRET` must match the header value.
+- Enqueues a durable job and returns 202 immediately, driving one bounded slice
+  inline. The job runner tick (below) carries the rest.
+- Safe to run repeatedly: every write is an upsert keyed on
+  `(franchise_id, outlet_id)`, and the job is keyed so a second call joins the
+  run already in flight.
+- **This is what makes SIMS the system of record for `valid_until`.** The
+  merchants import rewrites `merchant_outlets.raw_payload` wholesale, so an
+  expiry date SIMS extended could never survive there. The projection seeds
+  `valid_until` from POS the first time it sees an outlet and stops taking the
+  POS value once a renewal has been applied.
+- Where POS reports a date *later* than the one SIMS extended to, somebody
+  renewed that outlet outside SIMS. The run logs it rather than picking a
+  winner.
+- Test and closed merchant accounts are skipped and never enter a renewal
+  cadence.
+
+## Renewal cycle endpoint
+
+Nightly renewal detection: finds subscriptions expiring inside the invoicing
+window — from the furthest configured reminder offset (15 days by default)
+down to the expiry date itself — raises or reuses their proforma, and records
+the specific reason for every one it could not invoice.
+
+The same run also performs a readiness sweep over every subscription
+expiring inside `renewal_settings.readiness_window_days` (30 by default).
+Those are checked for a plan assignment and a reachable renewal PIC and
+nothing else: no invoice is raised. A gap shows up in Actions Required weeks
+before the offset that needs it and auto-resolves the night after it is
+fixed.
+
+```
+POST /api/renewals/cycle
+```
+
+Run it **after** the subscription sync, which is itself after the merchants
+import. Recommended cron expression (Asia/Kuala_Lumpur 01:15 daily):
+
+```
+15 17 * * *
+```
+
+Command example:
+
+```
+curl -X POST "https://your-app-domain.com/api/renewals/cycle" -H "x-cron-secret: ${RENEWAL_CYCLE_CRON_SECRET}"
+```
+
+Notes:
+- `RENEWAL_CYCLE_CRON_SECRET` must match the header value.
+- Safe to run repeatedly. Invoice generation races against a unique index
+  rather than checking first, so a second run reuses what the first created
+  and the T-5 and T-1 runs reuse the proforma raised at T-15. Actions Required
+  entries are upserted, not duplicated.
+- Invoicing is driven by a **window**, not by the three offset dates. Any
+  eligible outlet from 15 days out down to its expiry day gets a proforma on
+  the first night it qualifies, and every night after that reuses it. An
+  expiry date that moves — the POS sync correcting it, a renewal done outside
+  SIMS, a hand edit — can therefore no longer step over all three offsets and
+  lapse with nothing raised.
+- A run skipped for several days does not double-invoice when it comes back:
+  generation races a unique index and `findOpenProformaForOutlets` matches on
+  the outlet and the expiry it renews from, so the catch-up night reuses what
+  already exists.
+- The offsets remain the **reminder cadence**. Only a night that lands on one
+  records the cadence event on the invoice timeline, so the fourteen routine
+  reuses in between leave no trace.
+- Outlets already past expiry are never invoiced retroactively. A licence that
+  lapsed without an invoice is a question for a person.
+- The same run sweeps **every** open proforma, not just tonight's cohort, for
+  documents billing an expiry their outlet has since moved off. Those are
+  reported to Actions Required as `stale_proforma` and never voided
+  automatically: the document may have been sent, opened, or have a live
+  payment session against it. The entry clears on its own once the invoice is
+  voided, paid, or the dates come back into line. The correct proforma for the
+  new date is raised by the due pass regardless, so nobody waits on this.
+- Outlets that cannot be invoiced are written to Actions Required with the
+  reason, and re-evaluated every night, so closing the underlying gap re-enters
+  them automatically and resolves the entry.
+- An outlet that expires with an entry still open keeps being re-checked
+  through its grace window, for that entry only: fix the gap and the entry
+  clears; no new entries are raised for outlets already past expiry. Once the
+  grace window has closed, its plan and PIC entries are retired automatically
+  (dismissed, with a note), since SIMS will never invoice it.
+- **Check now.** An Admin with the invoices key can press **Check now** on
+  Actions Required, which POSTs `{"mode":"check"}` to the same route. A check
+  runs every plan, price and PIC check and the stale-proforma sweep, but never
+  raises an invoice, renders a document or records a cadence event. It holds
+  its own single-flight key (`check`), so it can never join or swallow the
+  nightly run. The cron path is always a full run.
+- Every gap is reported, not just the first: an outlet with no plan *and* no
+  renewal PIC raises both, so one pass through the queue closes both.
+- Nothing is sent to a merchant by this job. Outbound dispatch is behind the
+  `dispatch_enabled` setting, which ships off.
+
+## Renewal payment reconcile endpoint
+
+The hourly safety net under the CommercePay callback. Asks the gateway about
+every open payment session older than a few minutes, settles any that paid
+without a callback arriving (recorded as `reconciledBySweep` for the
+analytics), closes attempts that failed or expired, and re-queues any
+post-payment step still outstanding on a paid invoice: licence extension, tax
+invoice, receipt and tax invoice PDFs, the POS `valid_until` push, and the
+payer email.
+
+```
+POST /api/renewals/payments/reconcile
+```
+
+Recommended cron expression (hourly, at :20):
+
+```
+20 * * * *
+```
+
+Command example:
+
+```
+curl -X POST "https://your-app-domain.com/api/renewals/payments/reconcile" -H "x-cron-secret: ${RENEWAL_PAYMENT_RECONCILE_CRON_SECRET}"
+```
+
+Notes:
+- `RENEWAL_PAYMENT_RECONCILE_CRON_SECRET` must match the header value.
+- Safe to run repeatedly. A payment already settled is recognised as a
+  duplicate; the job is keyed so a second call joins the run already in flight.
+- Automatic re-queuing of post-payment steps stops 48 hours after payment.
+  After that the Actions Required entry (`extension_failed`, `pos_push_failed`,
+  `payer_email_failed`) is worked by a person, who uses **Retry post-payment
+  steps** on the invoice once the cause is fixed.
+- The callback itself needs no scheduling: CommercePay posts to
+  `/api/public/commercepay/callback`, which is public, signature-verified and
+  excluded from the auth middleware like every other `/api` route. Its
+  `callbackUrl` is built from `APP_BASE_URL`, so that variable must be the
+  public origin the gateway can reach.
+
+## Renewal message dispatch
+
+```
+POST /api/renewals/dispatch
+```
+
+Recommended cron expression (every 15 minutes):
+
+```
+*/15 * * * *
+```
+
+Command example:
+
+```
+curl -X POST "https://your-app-domain.com/api/renewals/dispatch" -H "x-cron-secret: ${RENEWAL_DISPATCH_CRON_SECRET}"
+```
+
+Notes:
+- `RENEWAL_DISPATCH_CRON_SECRET` must match the header value.
+- Reminders are queued by the nightly cycle: `reminder_first` the night a
+  proforma is raised, then one per offset night (furthest offset is the first,
+  nearest the final). Receipts to the PIC and CCs are queued by post-payment.
+  Both wake the job runner, so most messages go within a minute of the tick.
+  This route picks up what falls due later: reminders held for the send
+  window (Kuala Lumpur time) and retries after a failure.
+- **Nothing is queued or sent while dispatch is paused** in Renewal Settings
+  (PRD AC36). Resuming does not release a backlog of stale reminders; the
+  next offset night queues the current one.
+- Each row is written before the Respond.io call. A failure retries after 5,
+  30 and 120 minutes; the third failure marks the row failed and raises
+  `dispatch_failed` (informational) in Actions Required. A send interrupted
+  mid-call is never retried automatically, since it may have been delivered:
+  after 15 minutes it is marked failed and a person uses **Resend dispatch**.
+- Paced at 4 sends a second, under Respond.io's 5 per method. A 429 stops the
+  pass until `Retry-After` has passed.
+- Needs `RESPONDIO_API_TOKEN`, `RESPONDIO_EMAIL_CHANNEL_ID` (email) and the
+  WhatsApp channel id (Settings or `RESPONDIO_WHATSAPP_CHANNEL_ID`), and
+  `APP_BASE_URL` for the links. WhatsApp also needs the Meta-approved
+  templates named in `message-templates.ts`.
 
 ## Job runner tick (required)
 
@@ -99,5 +316,11 @@ Notes:
 - Each tick is bounded by `JOBS_TICK_BUDGET_MS` (45s default) so it stays well
   inside any proxy timeout. Long jobs resume from their checkpoint on the next
   tick rather than running to completion in one request.
+- When a slice throws, its cause (`Attempt N failed: …`, credentials scrubbed,
+  capped at 1,000 characters) is saved to `job_runs.error_message` and the
+  lease is released so the next tick requeues it. The reaper keeps that cause
+  rather than overwriting it, and an abandoned run reads
+  `Abandoned after N attempt(s). Attempt N failed: …`. Only a slice that hangs
+  without throwing gets the generic `Lease expired on attempt N.`
 - **This job must be scheduled before imports and syncs are moved onto the
   runner.** Without it, enqueued work is never claimed.

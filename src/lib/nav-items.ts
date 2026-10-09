@@ -9,13 +9,18 @@ import {
   ClipboardCheck,
   ClipboardList,
   ContactRound,
+  Download,
   FolderKanban,
   Handshake,
   LayoutDashboard,
   ListTree,
   MapPinned,
   MessageSquare,
+  MessageSquareText,
+  Receipt,
+  Settings2,
   Store,
+  Tags,
   Ticket,
   UserPlus,
   Users,
@@ -30,12 +35,19 @@ export type NavSubItem = {
   isActive?: boolean
 }
 
+/** A live count the sidebar fetches and shows beside an item. */
+export type NavBadgeKey = "actionsRequiredBlocking"
+
 export type NavItem = {
   title: string
   url: string
   icon: LucideIcon
   isActive?: boolean
   items?: NavSubItem[]
+  /** Names the live count shown beside the item; the sidebar fills in `badge`. */
+  badgeKey?: NavBadgeKey
+  /** The count itself, filled in at render time. Hidden when zero or absent. */
+  badge?: number
 }
 
 export type NavGroup = {
@@ -153,9 +165,40 @@ export const renewalRetentionNav: NavItem[] = [
     icon: BarChart3,
   },
   {
-    title: "Renewal Due",
+    title: "Renewal List",
     url: "/renewal-retention/renewal-due",
     icon: CalendarClock,
+  },
+  {
+    title: "Plan Catalog",
+    url: "/renewal-retention/plans",
+    icon: Tags,
+  },
+  {
+    title: "Invoices",
+    url: "/renewal-retention/invoices",
+    icon: Receipt,
+  },
+  {
+    title: "Actions Required",
+    url: "/renewal-retention/actions-required",
+    icon: AlertTriangle,
+    badgeKey: "actionsRequiredBlocking",
+  },
+  {
+    title: "Message Templates",
+    url: "/renewal-retention/templates",
+    icon: MessageSquareText,
+  },
+  {
+    title: "Bukku Export",
+    url: "/renewal-retention/exports",
+    icon: Download,
+  },
+  {
+    title: "Settings",
+    url: "/renewal-retention/settings",
+    icon: Settings2,
   },
 ]
 

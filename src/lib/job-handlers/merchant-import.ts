@@ -5,9 +5,13 @@ import type { JobHandler, JobSliceOutcome } from "../job-registry.ts"
 import { createLogger } from "../logger.ts"
 import {
   advancePageCursor,
+  onPageFetchTimeout,
+  pageFetchDeadline,
   parseMerchantImportCursor,
 } from "../merchant-import-cursor.ts"
-import { importMerchantPage } from "../merchant-import.ts"
+import type { MerchantImportCursor } from "../merchant-import-cursor.ts"
+import { fetchMerchantPage, writeMerchantPage } from "../merchant-import.ts"
+import { summarizeMerchantImport } from "../merchant-import-mapping.ts"
 import { authenticatePosApiSession } from "../pos-api.ts"
 
 import { MERCHANT_IMPORT_JOB_TYPE } from "../job-types.ts"
@@ -27,11 +31,22 @@ const MAX_PAGES = (() => {
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 500
 })()
 
-function readProgress(value: unknown): JobProgress {
-  if (value && typeof value === "object") {
-    return { ...EMPTY_PROGRESS, ...(value as Partial<JobProgress>) }
+/**
+ * Rebuilt from the cursor's run-wide totals rather than accumulated per slice,
+ * so the counters survive a yield or a reclaimed lease.
+ */
+function progressFromCursor(
+  cursor: MerchantImportCursor,
+  currentLabel: string | null
+): JobProgress {
+  return {
+    ...EMPTY_PROGRESS,
+    processed: cursor.imported,
+    updated: Math.max(cursor.imported - cursor.failed - cursor.partial, 0),
+    failed: cursor.failed,
+    partial: cursor.partial,
+    currentLabel,
   }
-  return { ...EMPTY_PROGRESS }
 }
 
 /**
@@ -46,40 +61,87 @@ export const merchantImportJobHandler: JobHandler = {
   jobType: MERCHANT_IMPORT_JOB_TYPE,
   async handle(context, _params, cursorValue): Promise<JobSliceOutcome> {
     let cursor = parseMerchantImportCursor(cursorValue)
-    let progress = readProgress(null)
-    progress.processed = cursor.imported
+    let progress = progressFromCursor(cursor, null)
 
     // One session per slice. It re-authenticates on a 401 inside
-    // importMerchantPage, and a fresh slice starting fresh is cheaper than
+    // fetchMerchantPage, and a fresh slice starting fresh is cheaper than
     // persisting a token.
     let session = await authenticatePosApiSession()
     const pool = getPool()
+    let pagesThisSlice = 0
 
     while (hasBudget(context.deadlineAt, Date.now())) {
-      const page = await importMerchantPage({
-        pool,
-        session,
-        page: cursor.page,
-        perPage: PER_PAGE,
-      })
-      session = page.session
+      // Phase 1: fetch, under a hard deadline the lease is sized to outlast.
+      const fetchAbort = new AbortController()
+      const timer = setTimeout(
+        () => fetchAbort.abort(),
+        Math.max(pageFetchDeadline(context.deadlineAt) - Date.now(), 0)
+      )
+      let fetched: Awaited<ReturnType<typeof fetchMerchantPage>>
+      try {
+        fetched = await fetchMerchantPage({
+          session,
+          page: cursor.page,
+          perPage: PER_PAGE,
+          signal: fetchAbort.signal,
+        })
+      } catch (error) {
+        if (!fetchAbort.signal.aborted) {
+          throw error
+        }
+        if (onPageFetchTimeout(pagesThisSlice) === "fail") {
+          throw new Error(
+            `POS page ${cursor.page} did not respond within a full slice budget.`
+          )
+        }
+        log.warn("Page fetch ran past the slice deadline; yielding", {
+          jobRunId: context.jobRunId,
+          page: cursor.page,
+        })
+        return { done: false, progress }
+      } finally {
+        clearTimeout(timer)
+      }
+      session = fetched.session
+
+      // Phase 2: renew the lease before writing, so the writes get a full
+      // lease whatever the fetch cost, and a slice whose lease was taken
+      // during the fetch stops before it writes anything.
+      if (!(await context.checkpoint({ cursor, progress }))) {
+        log.warn("Lease lost during page fetch; aborting before writes", {
+          jobRunId: context.jobRunId,
+        })
+        return { done: false, progress }
+      }
+
+      const page = fetched.items.length
+        ? await writeMerchantPage({
+            pool,
+            items: fetched.items,
+            page: cursor.page,
+            perPage: PER_PAGE,
+          })
+        : { imported: 0, failed: 0, partial: 0, items: [], lastLabel: null }
+      pagesThisSlice += 1
 
       const advanced = advancePageCursor(
         cursor,
-        page.itemsReturned,
+        fetched.items.length,
         PER_PAGE,
-        MAX_PAGES
+        MAX_PAGES,
+        { failed: page.failed, partial: page.partial }
       )
       cursor = advanced.cursor
+      progress = progressFromCursor(
+        cursor,
+        page.lastLabel ?? progress.currentLabel
+      )
 
-      progress = {
-        ...progress,
-        processed: cursor.imported,
-        updated: progress.updated + page.imported,
-        currentLabel: page.lastLabel ?? progress.currentLabel,
-      }
-
-      const alive = await context.checkpoint({ cursor, progress })
+      const alive = await context.checkpoint({
+        cursor,
+        progress,
+        items: page.items,
+      })
       if (!alive) {
         // Lease stolen mid-slice: stop without further external work.
         log.warn("Lease lost mid-slice; aborting", {
@@ -104,7 +166,28 @@ export const merchantImportJobHandler: JobHandler = {
             errorMessage: `Stopped after ${MAX_PAGES} pages (MERCHANT_IMPORT_MAX_PAGES). The POS feed did not signal an end.`,
           }
         }
-        return { done: true, status: "succeeded", progress }
+        // Skipped records no longer fail the page, so the run's outcome is
+        // decided here from the totals: a few bad records still succeed (with
+        // a note), a large share fails the run so it is noticed.
+        const outcome = summarizeMerchantImport({
+          processed: cursor.imported,
+          failed: cursor.failed,
+          partial: cursor.partial,
+        })
+        if (outcome.errorMessage) {
+          log.warn("Merchant import finished with skipped records", {
+            jobRunId: context.jobRunId,
+            failed: cursor.failed,
+            partial: cursor.partial,
+            status: outcome.status,
+          })
+        }
+        return {
+          done: true,
+          status: outcome.status,
+          progress,
+          ...(outcome.errorMessage ? { errorMessage: outcome.errorMessage } : {}),
+        }
       }
     }
 

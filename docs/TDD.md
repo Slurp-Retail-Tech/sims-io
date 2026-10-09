@@ -69,7 +69,7 @@ All date fields in the module use the shared `DateTimePicker` (`mode="date"`) ra
 * The app is currently deployed as one web application rather than separate `api/`, `worker/`, and `packages/shared/` services.
 * The schema in `schema.sql` is the current operational schema and should be treated as the source of truth for implemented tables.
 * Redis-, RabbitMQ-, and webhook-driven messaging components in this document are target-state design, not current runtime dependencies (with the exception of Redis, which is now used in production for rate limiting — see Rate Limiting below).
-* Some pages are intentionally UI previews. In particular, the Renewal & Retention overview page currently shows sample KPI cards and placeholder chart panels instead of live reporting.
+* The Renewal & Retention module is live end to end: plan catalog, subscription projection, renewal contacts, nightly detection, proformas with PDFs, the merchant renewal link, CommercePay checkout, the signed callback, licence extension, tax invoices and receipts, POS push-back, analytics and the Bukku export. See "Renewal post-payment pipeline" below.
 
 #### Session / Authentication Architecture
 
@@ -85,9 +85,9 @@ Sessions use **opaque tokens** rather than storing user IDs directly in cookies.
 
 ### Current Gaps to Track
 
-* Renewal analytics are not fully wired to live data.
+* Renewal reminders are generated but not yet dispatched: Respond.io messaging waits on Meta template approval and the `dispatch_enabled` setting.
 * Messaging-provider webhook ingestion is not implemented.
-* Automated renewal messaging and full CSAT flow are not implemented.
+* Automated renewal messaging (outbound) and full CSAT flow are not implemented.
 * Automated test coverage is minimal and currently focused on shared timezone helpers.
 * RabbitMQ is not a current runtime dependency; Redis is required in production for rate limiting (in-memory fallback for local dev).
 
@@ -1493,6 +1493,208 @@ Ticket -> AgentUI : websocket update
 AgentUI -> Merchant : reply via WA (send API)
 @enduml
 ```
+
+## Renewal post-payment pipeline
+
+What happens after a renewal proforma is paid, and where each fact lives.
+
+**Marking paid.** Exactly one function, `confirmPayment` in
+`src/lib/renewal/payment-confirmation.ts`, writes `renewal_invoices.status =
+'paid'`. It is reached from three directions: the signed CommercePay callback
+(`POST /api/public/commercepay/callback`), the hourly Query sweep
+(`renewal-payment-reconcile` job) and a staff member recording an offline
+payment (`mark_paid_offline` action). It locks the invoice, settles the paying
+session, supersedes every other open session, flags the downstream steps
+`pending`, and enqueues the `renewal-post-payment` job. The decision of what a
+gateway notice means (paid, duplicate, overpayment, amount mismatch, closed,
+refunded, ignore) is pure, in `payment-confirmation-rules.ts`, and shared by
+the callback and the sweep.
+
+**Callback verification.** The raw body is persisted to
+`renewal_payment_callbacks` before parsing. `cap-signature` is verified over
+the callback URL the session was opened with (read back from the session's
+stored request) using `verifyCallbackSignature`. A mismatch is 401 and nothing
+downstream runs. The response is 200 as soon as the notice is applied; the
+post-payment job is driven after the response with `after()`.
+
+**Post-payment steps** (`src/lib/renewal/post-payment.ts`), each idempotent
+and recorded on the invoice:
+
+1. *Extension.* One transaction: every line's outlet moves from the
+   subscription's current `valid_until` by the paid term
+   (`planExtensions`/`extendValidUntil` in `extension.ts`, pure). One row per
+   line in `outlet_subscription_extensions`, unique on `invoice_item_id`, so a
+   replay cannot extend twice. All or nothing; a refusal sets
+   `extension_status = 'failed'` and raises `extension_failed`.
+2. *Tax invoice.* A second `renewal_invoices` row, `document_type =
+   'tax_invoice'`, `INV-` numbered from `renewal_invoice_sequences`, linked by
+   `parent_invoice_id`; idempotent through `open_guard` on
+   `(group_key, 'tax_invoice')`. Aggregates (list, overview, analytics, Bukku)
+   filter on `document_type = 'proforma'` so the pair is never double-counted.
+3. *Documents.* Receipt PDF on the proforma (`receipt_pdf_object_key`), tax
+   invoice PDF on its own row. In the staff UI the tax invoice is not a page
+   of its own: the Invoices list shows proformas only, each carrying its tax
+   invoice number, the proforma's page lists all three documents, and a tax
+   invoice's URL redirects to its proforma's page (`#documents`). Served through the token-gated public route
+   (`?document=receipt|tax_invoice`) and the staff route; never through the
+   generic upload proxy.
+   What every document says (title, fact rows, Bill To / Ship To, renewal
+   title, line descriptions, totals, terms) comes from
+   `src/lib/renewal/document-content.ts`, which both the merchant's page
+   (`/renew/{token}`) and the PDF renderer (`src/lib/pdf/renewal-documents.ts`)
+   read, so the printed copy is laid out and worded like the page, with the
+   Slurp logo from `public/`. A stored PDF keeps the look it was rendered
+   with; an open proforma re-renders on a term change or **Re-print
+   proforma**.
+4. *POS push.* `PATCH /api/outlet-valid-until/{fid}/{oid}` per outlet
+   (`src/lib/pos-valid-until.ts`), body `{"valid_until":
+   "YYYY-MM-DDTHH:mm:ss+0800"}` from `formatPosValidUntil`. Per-outlet state on
+   the extension row; invoice `pos_push_status` is `pushed` only when every row
+   is. Failure raises `pos_push_failed` (informational) and never rolls back.
+5. *Payer email.* Receipt and tax invoice PDFs to `payment_email` over SMTP
+   (`payer_email_status`). Failure raises `payer_email_failed`. Held as
+   `pending` while `dispatch_enabled` is off (PRD 4.9, AC36); resuming
+   dispatch enqueues post-payment for every invoice still pending.
+
+The receipt PDF is re-rendered only on the run that issues the tax invoice
+(it prints the INV- number); later reruns leave the stored receipt alone.
+
+**Bukku export.** One row per paid line, `Invoice No` from the linked INV-
+tax invoice (`parent_invoice_id`), with `Proforma No`, `Central ID`, and
+`Payment Ref` from the gateway transaction or the offline bank reference.
+Paid invoices whose tax invoice is not issued yet are left out and join a
+later batch.
+
+Automatic re-queuing by the reconcile job stops 48 hours after payment; after
+that a person uses **Retry post-payment steps** from the invoice page.
+
+**Receipt page.** While a payment is unconfirmed the receipt page re-reads
+the view with `?poll=1` (its own rate-limit bucket, never counted as an open)
+up to `receipt_poll_ceiling_seconds`, and asks
+`POST /api/public/renewal/{token}/check-payment` shortly after arriving and
+then every minute. That runs one CommercePay query for the link's open
+session through the same `querySessionOnce` the hourly sweep uses, throttled
+to one query per link per minute with `cacheAcquire`, and drives the
+post-payment job after the response when it finds a payment.
+
+**Letterhead.** Company details live in `renewal_settings` (`seller_name`,
+`seller_registration_no`, `seller_address`, `seller_contact`; migration 037)
+and are edited on Renewal Settings. `buildSellerBlock` in `seller.ts` is the
+one builder for the PDF and the public page: Settings win; the deprecated
+`RENEWAL_SELLER_*` variables are read only while no Settings line is filled
+in, and never mixed with Settings lines. Stored PDFs keep the letterhead they
+were rendered with. An open proforma can be re-rendered with **Re-print
+proforma** (`reprint_proforma` action, recorded in the timeline); issued tax
+invoices and receipts are never re-rendered.
+
+**Document preview.** **Preview documents** on the Company details card in
+Renewal Settings opens a dialog with a toggle between a sample proforma, tax
+invoice and receipt (`sample-document.ts`: a made-up
+two-outlet renewal whose every name and number says SAMPLE) drawn by the
+merchant page's `RenewalDocumentCard`. The on-screen preview follows the form
+as it is typed, through `previewSellerBlock`, which applies `buildSellerBlock`'s
+rules over the environment-only letterhead the settings GET returns as
+`sellerFallback`. **Open PDF** calls
+`GET /api/renewals/settings/document-preview?kind=` (settings view key), which
+renders the sample with the saved details through the real PDF renderer. It
+is never stored or numbered.
+
+**Setting a PIC from Actions Required.** `GET /api/renewals/pic-candidates`
+lists the contacts mapped to the outlet or franchise with reachability;
+`POST` on the same route makes someone PIC who is not mapped yet: a new
+contact (validated and duplicate-checked exactly as `POST /api/contacts`,
+409 with the matches) or an existing one, then a mapping chosen by
+`decidePicMapping` (reuse an exact or franchise-wide row, else add under the
+contact lock with the Contacts overlap rules), then `setRenewalDesignation`.
+Gated by subscriptions manage AND Contacts.
+
+**Expired outlets in the queue.** The cycle reads back to the start of the
+grace window. Outlets expired but inside grace (`partitionForCycle`'s
+`inGrace`) get the readiness checks for their *existing* open entries only,
+so a fix clears them without the queue filling with outlets that lapsed
+unasked. Past expiry plus grace (`renewalWindowClosedBefore`), plan and PIC
+entries are retired as `dismissed` with a system note
+(`retireEntriesPastRenewalWindow`). Expired outlets are still never invoiced.
+
+**Setup checklist.** The Overview opens with the steps to a first invoice
+(`setup-checklist.ts`, pure): company details, an active plan, outlets on a
+plan, a renewal PIC, a reachable PIC, and a succeeded nightly check. The three
+queue-based steps read "not checked yet" until the nightly check has
+succeeded once. The card disappears when every step is done.
+
+**Prices and the clock, as staff see them.** An assignment-level price is
+called an **Agreed price** (applies every cycle, may need approval); a
+line-level price is a **One-off price** (this invoice line only). Both are
+measured against the catalog price and need approval past
+`override_variance_threshold_pct`. Renewal Settings draws the readiness
+window, the invoicing window (derived from the furthest reminder offset), the
+reminders and the grace window on one line (`settings-timeline.ts`, pure).
+
+**Lapse.** The nightly cycle (full runs only) moves open proformas to
+`lapsed` once due date plus grace is behind today (`lapse.ts`, cutoff from
+`lapsedIfDueBefore`, which agrees with the public page's `payabilityOf`),
+records `status_lapsed`, and marks the billed outlets `non_renewed` where
+their expiry has not moved. An invoice with an open payment session is
+skipped, so a late payment whose callback was lost is still found by the
+reconcile sweep. Migration 038 makes `open_guard` release on `cancelled`,
+`superseded` and `lapsed`, so a voided or lapsed proforma no longer blocks a
+fresh one for the same group; a paid one still does.
+
+**POS drift.** When the POS reports a later expiry than a SIMS-owned date,
+the subscription sync raises an informational `pos_valid_until_drift` entry
+per outlet, naming any open proforma, and resolves entries for outlets in the
+same batch that no longer drift (`pos-drift.ts`, `pos-drift-store.ts`).
+**Accept POS date** (subscriptions manage key) takes the POS value as the
+SIMS date, marked `manual`, forward only; the next cycle then reports the
+open proforma for the old date as `stale_proforma`.
+
+**Analytics.** Periods (`analytics-periods.ts`, pure) run from three months
+ahead to eleven back, plus the current and previous full years; the loader
+reads the selected period's year. Figures link to the Renewal List for the
+same window through `?month=` (`YYYY-MM` or `YYYY`, which replaces the
+90-day window with that expiry range), `?state=` and `?opened=`. PIC
+directories for the list are loaded in three queries for every franchise
+(`loadRenewalDirectories`) instead of three per franchise.
+
+## Renewal message dispatch (Respond.io)
+
+Reminders and receipts go to the renewal PIC and every CC, on each channel
+they have enabled with a usable address, through the Respond.io Developer API.
+It ships switched off (`dispatch_enabled`).
+
+- **Rows.** `renewal_dispatches` (migration 039): one row per invoice,
+  dispatch type (`reminder_first`, `reminder_second`, `reminder_final`,
+  `receipt`), channel and recipient, unique on those four, so re-queueing is
+  idempotent. The address is frozen at enqueue.
+- **Queueing.** `queueRenewalMessages` (`dispatch-enqueue.ts`) writes rows only
+  while dispatch is on (AC36) and wakes the job runner. The nightly cycle
+  queues `reminder_first` the night a proforma is raised, then one reminder
+  per offset night (`reminderTypeForNight`: furthest offset first, nearest
+  final). Post-payment queues the receipt (`queueReceiptForInvoice`).
+- **Fan-out and duplicates.** `planDispatches` (pure, tested): PIC first, then
+  CCs; the same contact twice is one person; a repeated address is recorded as
+  `suppressed`; on a receipt, an email to the address the payer documents went
+  to is suppressed, the WhatsApp receipt kept (AC23).
+- **Sending.** `renewal-dispatch` job → `sendDueDispatches`. At send time it
+  cancels a reminder whose invoice closed or whose licence expired, and a
+  receipt for an unpaid invoice. It holds reminders to the send window (Kuala
+  Lumpur time; receipts go immediately), stamps the attempt before the call,
+  and calls Respond.io once. Paced at 4 per second; a 429 refunds the attempt
+  and stops the pass until `Retry-After`. Failures retry after 5, 30 and 120
+  minutes; the third marks the row failed and raises informational
+  `dispatch_failed`, cleared when a resend succeeds. A send interrupted
+  mid-call is marked failed after 15 minutes, never resent automatically.
+- **Copy.** `message-templates.ts`; `dispatch-message.ts` fills it from the
+  public invoice view. WhatsApp body parameters follow the order of the
+  placeholders in the copy; the URL button's dynamic suffix is the renewal
+  token (receipts: `{token}/receipt`). The button parameter shape must be
+  confirmed against the approved template before switch-on.
+- **Surfaces.** Invoice timeline lists every row; **Resend dispatch** re-queues
+  the latest message for everyone it went to; the Renewal List derives
+  `reminder_sent`; Overview's funnel and Analytics' engagement tab count
+  reminded invoices and failed messages.
+- **Payer documents stay on SMTP** (`post-payment.ts`), not Respond.io: a
+  deliberate deviation from PRD 4.15 (AC22), held by the same kill switch.
 
 ## Milestones
 

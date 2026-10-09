@@ -27,7 +27,12 @@ export const config = {
   // Deliberately excludes /api/* — the cron-secret routes (merchants/import,
   // clickup/sync) and the Respond.io webhook must not be 302'd to /login;
   // API routes authenticate themselves via requireAuthenticatedUser.
+  //
+  // `renew/` carries its trailing slash on purpose. The alternatives are
+  // unanchored prefixes, so a bare `renew` would also match
+  // `/renewal-retention/...` and make the whole internal module public.
+  // src/lib/middleware-matcher.test.ts pins both behaviours.
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|login|activate|reset-password|supportform|demoform|csat|.*\\..*).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|login|activate|reset-password|supportform|demoform|csat|renew/|.*\\..*).*)",
   ],
 }
