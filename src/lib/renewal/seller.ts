@@ -56,6 +56,21 @@ export function buildSellerBlock(
 }
 
 /**
+ * The letterhead for company details still being edited, before they are
+ * saved. The browser cannot see the environment, so the server sends what
+ * would print with Settings empty (`fallback`, i.e. `buildSellerBlock` over
+ * empty settings), and this applies `buildSellerBlock`'s own rules over it:
+ * the name falls back on its own, the lines only as a whole.
+ */
+export function previewSellerBlock(settings: SellerSettings, fallback: SellerBlock): SellerBlock {
+  const fromSettings = buildSellerBlock(settings, {})
+  return {
+    name: clean(settings.sellerName) ? fromSettings.name : fallback.name,
+    lines: fromSettings.lines.length > 0 ? fromSettings.lines : [...fallback.lines],
+  }
+}
+
+/**
  * Whether anyone has set company details at all, in Settings or the
  * environment. The setup checklist uses it: a document printed with the bare
  * default name is a sign nobody has done this step.

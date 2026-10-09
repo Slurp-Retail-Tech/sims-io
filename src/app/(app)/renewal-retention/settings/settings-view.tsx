@@ -14,11 +14,13 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/toast-provider"
+import type { SellerBlock } from "@/lib/renewal/seller"
 import { buildSettingsTimeline } from "@/lib/renewal/settings-timeline"
 import type { SettingsTimeline } from "@/lib/renewal/settings-timeline"
 import { cn } from "@/lib/utils"
 
 import { PageHeader } from "../ui"
+import { DocumentPreview } from "./document-preview"
 
 type Settings = {
   reminderOffsets: number[]
@@ -92,6 +94,7 @@ function toDraft(settings: Settings): Draft {
 export function SettingsView({ canManage }: { canManage: boolean }) {
   const { showToast } = useToast()
   const [settings, setSettings] = React.useState<Settings | null>(null)
+  const [sellerFallback, setSellerFallback] = React.useState<SellerBlock>({ name: "Slurp", lines: [] })
   const [draft, setDraft] = React.useState<Draft | null>(null)
   const [offsets, setOffsets] = React.useState<number[]>([])
   const [newOffset, setNewOffset] = React.useState("")
@@ -109,8 +112,11 @@ export function SettingsView({ canManage }: { canManage: boolean }) {
       if (!response.ok) {
         throw new Error("Unable to load the settings.")
       }
-      const payload = (await response.json()) as { settings: Settings }
+      const payload = (await response.json()) as { settings: Settings; sellerFallback?: SellerBlock }
       setSettings(payload.settings)
+      if (payload.sellerFallback) {
+        setSellerFallback(payload.sellerFallback)
+      }
       setDraft(toDraft(payload.settings))
       setOffsets(payload.settings.reminderOffsets)
     } catch (loadError) {
@@ -473,9 +479,35 @@ export function SettingsView({ canManage }: { canManage: boolean }) {
               {saving ? "Saving…" : "Save settings"}
             </Button>
           ) : null}
+          <DocumentPreview
+            draft={{
+              sellerName: draft.sellerName,
+              sellerRegistrationNo: draft.sellerRegistrationNo,
+              sellerAddress: draft.sellerAddress,
+              sellerContact: draft.sellerContact,
+            }}
+            fallback={sellerFallback}
+            taxRatePercent={previewTaxRate(draft.taxRatePercent, settings.taxRatePercent)}
+            unsaved={documentDetailsChanged(draft, toDraft(settings))}
+          />
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+/** The form's tax rate when it is a usable number, otherwise the saved one. */
+function previewTaxRate(typed: string, saved: number): number {
+  const value = Number(typed.trim())
+  return typed.trim() !== "" && Number.isFinite(value) && value >= 0 && value <= 100 ? value : saved
+}
+
+/** Whether the form differs from what is saved in anything a document prints. */
+function documentDetailsChanged(draft: Draft, saved: Draft): boolean {
+  const fields = ["sellerName", "sellerRegistrationNo", "sellerAddress", "sellerContact"] as const
+  return (
+    fields.some((field) => draft[field].trim() !== saved[field].trim()) ||
+    previewTaxRate(draft.taxRatePercent, -1) !== Number(saved.taxRatePercent)
   )
 }
 

@@ -7,6 +7,7 @@ import { RENEWAL_POST_PAYMENT_JOB_TYPE } from "@/lib/job-types"
 import { driveJobType } from "@/lib/job-tick"
 import { enqueuePostPayment } from "@/lib/renewal/payment-confirmation"
 import { listInvoicesHeldByPause } from "@/lib/renewal/post-payment"
+import { buildSellerBlock } from "@/lib/renewal/seller"
 import { loadRenewalSettings, saveRenewalSettings } from "@/lib/renewal/settings"
 import { validateSettingsPatch } from "@/lib/renewal/settings-validation"
 import type { SettingsPatchInput } from "@/lib/renewal/settings-validation"
@@ -15,6 +16,19 @@ import { SETTINGS_MANAGE_PATH, SETTINGS_VIEW_PATH } from "./helpers"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
+
+/**
+ * What the letterhead prints with no company details in Settings: the
+ * deprecated `RENEWAL_SELLER_*` variables, or the bare default. The settings
+ * page previews unsaved details over it, since the browser cannot read the
+ * environment.
+ */
+function sellerFallback(): ReturnType<typeof buildSellerBlock> {
+  return buildSellerBlock(
+    { sellerName: null, sellerRegistrationNo: null, sellerAddress: null, sellerContact: null },
+    process.env
+  )
+}
 
 /** GET — the renewal settings as the module currently runs with. */
 export const GET = withRequestContext("/api/renewals/settings", handleGet)
@@ -27,7 +41,7 @@ async function handleGet(request: NextRequest): Promise<Response> {
     return auth.response
   }
   try {
-    return NextResponse.json({ settings: await loadRenewalSettings() })
+    return NextResponse.json({ settings: await loadRenewalSettings(), sellerFallback: sellerFallback() })
   } catch (error) {
     return serverError("renewals/settings", error, "Unable to load the settings.")
   }
