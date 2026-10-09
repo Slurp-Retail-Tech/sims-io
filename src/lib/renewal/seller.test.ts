@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { buildSellerBlock, DEFAULT_SELLER_NAME, isSellerConfigured } from "./seller.ts"
+import { buildSellerBlock, DEFAULT_SELLER_NAME, isSellerConfigured, previewSellerBlock } from "./seller.ts"
 import type { SellerSettings } from "./seller.ts"
 
 const empty: SellerSettings = {
@@ -64,4 +64,21 @@ test("any Settings line replaces the environment lines wholesale, never a mix", 
 test("the Settings name wins over the environment name on its own", () => {
   const block = buildSellerBlock({ ...empty, sellerName: "New Name" }, { RENEWAL_SELLER_NAME: "Old Name" })
   assert.equal(block.name, "New Name")
+})
+
+test("the preview of unsaved details follows the same rules as the printed letterhead", () => {
+  const env = {
+    RENEWAL_SELLER_NAME: "Env Name Sdn Bhd",
+    RENEWAL_SELLER_LINE_1: "Env line",
+  }
+  const fallback = buildSellerBlock(empty, env)
+  const cases: SellerSettings[] = [
+    empty,
+    { ...empty, sellerName: "Settings Name" },
+    { ...empty, sellerAddress: "Line one\n\nLine two" },
+    { sellerName: " ", sellerRegistrationNo: "123-X", sellerAddress: null, sellerContact: "hello@example.com" },
+  ]
+  for (const settings of cases) {
+    assert.deepEqual(previewSellerBlock(settings, fallback), buildSellerBlock(settings, env))
+  }
 })

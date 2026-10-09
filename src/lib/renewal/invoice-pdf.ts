@@ -21,6 +21,7 @@ import path from "node:path"
 import { renderRenewalDocument } from "../pdf/renewal-documents.ts"
 import type { RenewalDocument } from "../pdf/renewal-documents.ts"
 import { getObjectBuffer, uploadObject } from "../storage.ts"
+import { todayInAppZone } from "./app-date.ts"
 import { buildDocumentContent } from "./document-content.ts"
 import {
   findTaxInvoiceForProforma,
@@ -30,6 +31,7 @@ import {
 } from "./invoices.ts"
 import type { InvoiceItemRecord, InvoiceRecord } from "./invoices.ts"
 import { toObjectKeySafeNumber } from "./numbering.ts"
+import { buildSampleDocumentSource } from "./sample-document.ts"
 import { buildSellerBlock } from "./seller.ts"
 import type { SellerSettings } from "./seller.ts"
 import { loadRenewalSettings } from "./settings.ts"
@@ -142,12 +144,37 @@ export function buildProformaDocument(
     content,
     seller: options.seller,
     payLink: kind === "proforma" ? options.payLink : null,
-    closingNote:
-      kind === "tax_invoice" && options.proformaNumber
-        ? `Issued against the payment received for proforma ${options.proformaNumber}.`
-        : (CLOSING_NOTES[kind] ?? null),
+    closingNote: closingNoteFor(kind, options.proformaNumber ?? null),
     logo: options.logo ?? null,
   }
+}
+
+/** The line under the totals: what a paid document confirms. */
+export function closingNoteFor(kind: RenewalDocument["kind"], proformaNumber: string | null): string | null {
+  return kind === "tax_invoice" && proformaNumber
+    ? `Issued against the payment received for proforma ${proformaNumber}.`
+    : (CLOSING_NOTES[kind] ?? null)
+}
+
+/**
+ * The sample renewal printed with the saved company details and tax rate,
+ * for the preview in Renewal Settings. Never stored: it is not an invoice.
+ */
+export async function renderSampleDocumentPdf(kind: RenewalDocument["kind"]): Promise<Uint8Array> {
+  const settings = await loadRenewalSettings()
+  const source = buildSampleDocumentSource(kind, {
+    taxRatePercent: settings.taxRatePercent,
+    today: todayInAppZone(),
+  })
+  return renderRenewalDocument({
+    kind,
+    invoiceNumber: source.invoiceNumber,
+    content: buildDocumentContent(source),
+    seller: sellerBlockFor(settings),
+    payLink: kind === "proforma" ? buildRenewalLink("SAMPLE") : null,
+    closingNote: closingNoteFor(kind, source.proformaNumber ?? null),
+    logo: await loadDocumentLogo(),
+  })
 }
 
 let logoCache: Promise<Uint8Array | null> | null = null

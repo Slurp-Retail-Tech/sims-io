@@ -1587,6 +1587,17 @@ were rendered with. An open proforma can be re-rendered with **Re-print
 proforma** (`reprint_proforma` action, recorded in the timeline); issued tax
 invoices and receipts are never re-rendered.
 
+**Document preview.** The Company details card on Renewal Settings shows a
+sample proforma, tax invoice and receipt (`sample-document.ts`: a made-up
+two-outlet renewal whose every name and number says SAMPLE) drawn by the
+merchant page's `RenewalDocumentCard`. The on-screen preview follows the form
+as it is typed, through `previewSellerBlock`, which applies `buildSellerBlock`'s
+rules over the environment-only letterhead the settings GET returns as
+`sellerFallback`. **Open PDF** calls
+`GET /api/renewals/settings/document-preview?kind=` (settings view key), which
+renders the sample with the saved details through the real PDF renderer. It
+is never stored or numbered.
+
 **Setting a PIC from Actions Required.** `GET /api/renewals/pic-candidates`
 lists the contacts mapped to the outlet or franchise with reachability;
 `POST` on the same route makes someone PIC who is not mapped yet: a new
