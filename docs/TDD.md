@@ -1587,8 +1587,9 @@ were rendered with. An open proforma can be re-rendered with **Re-print
 proforma** (`reprint_proforma` action, recorded in the timeline); issued tax
 invoices and receipts are never re-rendered.
 
-**Document preview.** The Company details card on Renewal Settings shows a
-sample proforma, tax invoice and receipt (`sample-document.ts`: a made-up
+**Document preview.** **Preview documents** on the Company details card in
+Renewal Settings opens a dialog with a toggle between a sample proforma, tax
+invoice and receipt (`sample-document.ts`: a made-up
 two-outlet renewal whose every name and number says SAMPLE) drawn by the
 merchant page's `RenewalDocumentCard`. The on-screen preview follows the form
 as it is typed, through `previewSellerBlock`, which applies `buildSellerBlock`'s

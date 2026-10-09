@@ -474,22 +474,24 @@ export function SettingsView({ canManage }: { canManage: boolean }) {
               </SellerField>
             </div>
           </div>
-          {canManage ? (
-            <Button size="sm" className="mt-4" disabled={saving} onClick={() => void save()}>
-              {saving ? "Saving…" : "Save settings"}
-            </Button>
-          ) : null}
-          <DocumentPreview
-            draft={{
-              sellerName: draft.sellerName,
-              sellerRegistrationNo: draft.sellerRegistrationNo,
-              sellerAddress: draft.sellerAddress,
-              sellerContact: draft.sellerContact,
-            }}
-            fallback={sellerFallback}
-            taxRatePercent={previewTaxRate(draft.taxRatePercent, settings.taxRatePercent)}
-            unsaved={documentDetailsChanged(draft, toDraft(settings))}
-          />
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {canManage ? (
+              <Button size="sm" disabled={saving} onClick={() => void save()}>
+                {saving ? "Saving…" : "Save settings"}
+              </Button>
+            ) : null}
+            <DocumentPreview
+              draft={{
+                sellerName: draft.sellerName,
+                sellerRegistrationNo: draft.sellerRegistrationNo,
+                sellerAddress: draft.sellerAddress,
+                sellerContact: draft.sellerContact,
+              }}
+              fallback={sellerFallback}
+              taxRatePercent={previewTaxRate(draft.taxRatePercent, settings.taxRatePercent)}
+              unsaved={documentDetailsChanged(draft, toDraft(settings))}
+            />
+          </div>
         </CardContent>
       </Card>
     </div>
