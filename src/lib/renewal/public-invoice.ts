@@ -17,7 +17,7 @@ import { createHash } from "node:crypto"
 
 import { createLogger } from "../logger.ts"
 import { detailsOf } from "./bill-to.ts"
-import type { BillToDetails } from "./document-content.ts"
+import type { BillToDetails, IssuedAs } from "./document-content.ts"
 import { addDays } from "./invoice-build.ts"
 import type { InvoiceTotals } from "./invoice-build.ts"
 import { ensureInvoicePdf, sellerBlockFor } from "./invoice-pdf.ts"
@@ -98,6 +98,9 @@ export type PublicInvoiceView = {
   paymentReference: string | null
   /** How long the receipt page waits on a confirmation, from Renewal Settings. */
   receiptPollCeilingSeconds: number
+  /** What the document is called and numbered as. */
+  issuedAs: IssuedAs
+  poNumber: string | null
   companyName: string | null
   /** Bill To details from the billing profile; see `bill-to.ts`. */
   billTo: BillToDetails | null
@@ -265,6 +268,8 @@ export function buildPublicView(
     paidVia: invoice.paidVia,
     paymentReference: invoice.status === "paid" ? invoice.capTransactionNumber ?? invoice.paidReference : null,
     receiptPollCeilingSeconds: settings.receiptPollCeilingSeconds,
+    issuedAs: invoice.issuedAs,
+    poNumber: invoice.poNumber,
     companyName: invoice.companyName,
     billTo: detailsOf(invoice.billTo),
     franchiseId: invoice.franchiseId,

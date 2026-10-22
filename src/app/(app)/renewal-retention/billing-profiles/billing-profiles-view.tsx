@@ -23,6 +23,7 @@ type Row = {
   franchiseId: string
   companyName: string | null
   outletCount: number
+  defaultDocument: "proforma" | "quotation"
   profile: Profile | null
   candidates: Candidate[]
 }
@@ -258,6 +259,7 @@ export function BillingProfilesView({ canManage, initialSearch }: { canManage: b
                         <span className="truncate font-medium">{row.companyName ?? `Franchise ${row.franchiseId}`}</span>
                         <span className="text-muted-foreground text-xs">
                           FID {row.franchiseId} · {plural(row.outletCount, "outlet")}
+                          {row.defaultDocument === "quotation" ? " · issued quotations" : ""}
                         </span>
                       </div>
                       <div className="flex min-w-0 flex-col">
@@ -312,6 +314,12 @@ export function BillingProfilesView({ canManage, initialSearch }: { canManage: b
           companyName={editing.companyName}
           profile={editing.profile}
           candidates={editing.candidates}
+          defaultDocument={editing.defaultDocument}
+          onDefaultDocumentChanged={(value) =>
+            setRows((current) =>
+              current.map((row) => (row.franchiseId === editing.franchiseId ? { ...row, defaultDocument: value } : row))
+            )
+          }
           onSaved={(message) => {
             showToast(message, "success")
             setEditing(null)

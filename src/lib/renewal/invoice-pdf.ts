@@ -22,7 +22,8 @@ import { renderRenewalDocument } from "../pdf/renewal-documents.ts"
 import type { RenewalDocument } from "../pdf/renewal-documents.ts"
 import { getObjectBuffer, uploadObject } from "../storage.ts"
 import { todayInAppZone } from "./app-date.ts"
-import { buildDocumentContent } from "./document-content.ts"
+import { buildDocumentContent, documentLabel } from "./document-content.ts"
+import type { IssuedAs } from "./document-content.ts"
 import {
   findTaxInvoiceForProforma,
   getInvoiceById,
@@ -32,6 +33,7 @@ import {
 import type { InvoiceItemRecord, InvoiceRecord } from "./invoices.ts"
 import { toObjectKeySafeNumber } from "./numbering.ts"
 import { buildSampleDocumentSource } from "./sample-document.ts"
+import type { SampleDocumentKind } from "./sample-document.ts"
 import { buildSellerBlock } from "./seller.ts"
 import type { SellerSettings } from "./seller.ts"
 import { loadRenewalSettings } from "./settings.ts"
@@ -76,6 +78,8 @@ export type DocumentOptions = {
   kind?: RenewalDocument["kind"]
   /** On a tax invoice: the proforma it settles. */
   proformaNumber?: string | null
+  /** On a tax invoice: what that proforma was issued as, proforma or quotation. */
+  parentIssuedAs?: IssuedAs | null
   /** On a receipt: the tax invoice issued against the payment. */
   taxInvoiceNumber?: string | null
   /** Gateway transaction number or the bank reference of an offline payment. */
@@ -105,6 +109,8 @@ export function buildProformaDocument(
   const content = buildDocumentContent({
     kind,
     invoiceNumber: invoice.invoiceNumber,
+    issuedAs: invoice.documentType === "tax_invoice" ? (options.parentIssuedAs ?? "proforma") : invoice.issuedAs,
+    poNumber: invoice.poNumber,
     proformaNumber: options.proformaNumber ?? null,
     taxInvoiceNumber: options.taxInvoiceNumber ?? null,
     issueDate: invoice.issueDate,
@@ -145,15 +151,19 @@ export function buildProformaDocument(
     content,
     seller: options.seller,
     payLink: kind === "proforma" ? options.payLink : null,
-    closingNote: closingNoteFor(kind, options.proformaNumber ?? null),
+    closingNote: closingNoteFor(kind, options.proformaNumber ?? null, options.parentIssuedAs ?? null),
     logo: options.logo ?? null,
   }
 }
 
 /** The line under the totals: what a paid document confirms. */
-export function closingNoteFor(kind: RenewalDocument["kind"], proformaNumber: string | null): string | null {
+export function closingNoteFor(
+  kind: RenewalDocument["kind"],
+  proformaNumber: string | null,
+  issuedAs: IssuedAs | null = null
+): string | null {
   return kind === "tax_invoice" && proformaNumber
-    ? `Issued against the payment received for proforma ${proformaNumber}.`
+    ? `Issued against the payment received for ${documentLabel(issuedAs)} ${proformaNumber}.`
     : (CLOSING_NOTES[kind] ?? null)
 }
 
@@ -161,19 +171,20 @@ export function closingNoteFor(kind: RenewalDocument["kind"], proformaNumber: st
  * The sample renewal printed with the saved company details and tax rate,
  * for the preview in Renewal Settings. Never stored: it is not an invoice.
  */
-export async function renderSampleDocumentPdf(kind: RenewalDocument["kind"]): Promise<Uint8Array> {
+export async function renderSampleDocumentPdf(sample: SampleDocumentKind): Promise<Uint8Array> {
   const settings = await loadRenewalSettings()
-  const source = buildSampleDocumentSource(kind, {
+  const source = buildSampleDocumentSource(sample, {
     taxRatePercent: settings.taxRatePercent,
     today: todayInAppZone(),
   })
+  const kind = source.kind
   return renderRenewalDocument({
     kind,
     invoiceNumber: source.invoiceNumber,
     content: buildDocumentContent(source),
     seller: sellerBlockFor(settings),
     payLink: kind === "proforma" ? buildRenewalLink("SAMPLE") : null,
-    closingNote: closingNoteFor(kind, source.proformaNumber ?? null),
+    closingNote: closingNoteFor(kind, source.proformaNumber ?? null, source.issuedAs ?? null),
     logo: await loadDocumentLogo(),
   })
 }
@@ -245,6 +256,7 @@ export async function ensureInvoicePdf(
     payLink: invoice.renewalToken ? buildRenewalLink(invoice.renewalToken) : null,
     seller: sellerBlockFor(settings),
     proformaNumber: parent?.invoiceNumber ?? null,
+    parentIssuedAs: parent?.issuedAs ?? null,
     paymentReference: invoice.documentType === "tax_invoice" ? paymentReferenceOf(invoice) : null,
     logo: await loadDocumentLogo(),
   })

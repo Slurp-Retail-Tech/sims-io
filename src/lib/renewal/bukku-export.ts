@@ -21,8 +21,12 @@ import { formatMinorAsDecimalString } from "./money.ts"
 export type ExportableLine = {
   /** The INV- tax invoice number: the document finance books in Bukku. */
   invoiceNumber: string
-  /** The PI- proforma it settles, for tracing back to SIMS. */
+  /** The PI- proforma (or QT- quotation) it settles, for tracing back to SIMS. */
   proformaNumber: string
+  /** Whether that document was a proforma or a quotation. */
+  issuedAs?: "proforma" | "quotation"
+  /** The merchant's purchase order number, if they gave one. */
+  poNumber?: string | null
   centralId: string | null
   paidAt: string | null
   companyName: string | null
@@ -111,7 +115,8 @@ export function bukkuDate(value: string | null | undefined): string {
 function paymentNote(line: ExportableLine): string {
   const method = line.paidVia === "manual" ? "bank transfer" : "CommercePay"
   const reference = line.capTransactionNumber ?? line.paidReference
-  return `Paid by ${method}${reference ? `, ref ${reference}` : ""}. Proforma ${line.proformaNumber}.`
+  const document = line.issuedAs === "quotation" ? "Quotation" : "Proforma"
+  return `Paid by ${method}${reference ? `, ref ${reference}` : ""}. ${document} ${line.proformaNumber}.`
 }
 
 export function buildBukkuRows(
@@ -132,7 +137,9 @@ export function buildBukkuRows(
       "Contact Code (1)": line.bukkuContactCode ?? "",
       "Legal Name (2)": name,
       "No. (3)": line.invoiceNumber,
-      "Reference No.": line.proformaNumber,
+      // The merchant's PO is what their finance team will quote back; without
+      // one, the proforma number traces the invoice to SIMS.
+      "Reference No.": line.poNumber?.trim() || line.proformaNumber,
       "Date (D) *": date,
       "Payment Term (4)": "",
       // Already paid, so due on the day it was issued.

@@ -59,3 +59,13 @@ test("the sample prints made-up SSM and TIN under Bill To, so the preview shows 
   assert.ok(content.billTo.lines.includes("SSM 202001000001 (1234567-A)"))
   assert.ok(content.billTo.lines.includes("TIN C00000000000"))
 })
+
+test("the quotation sample is a QT- numbered proforma with a PO number", () => {
+  const source = buildSampleDocumentSource("quotation", { taxRatePercent: 0, today: "2026-10-22" })
+  assert.equal(source.kind, "proforma")
+  const content = buildDocumentContent(source)
+  assert.equal(content.docTypeTitle, "QUOTATION")
+  assert.equal(content.docMeta[0].value, "QT-SAMPLE-0001")
+  assert.ok(content.docMeta.some((row) => row.label === "PO No."))
+  assert.equal(isSampleDocumentKind("quotation"), true)
+})

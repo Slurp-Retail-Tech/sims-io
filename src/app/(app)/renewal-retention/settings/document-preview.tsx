@@ -16,14 +16,15 @@ import {
 } from "@/components/ui/dialog"
 import { todayInAppZone } from "@/lib/renewal/app-date"
 import { buildDocumentContent } from "@/lib/renewal/document-content"
-import type { DocumentKind } from "@/lib/renewal/document-content"
 import { buildSampleDocumentSource, SAMPLE_DOCUMENT_KINDS } from "@/lib/renewal/sample-document"
+import type { SampleDocumentKind } from "@/lib/renewal/sample-document"
 import { previewSellerBlock } from "@/lib/renewal/seller"
 import type { SellerBlock, SellerSettings } from "@/lib/renewal/seller"
 import { cn } from "@/lib/utils"
 
-const KIND_LABELS: Record<DocumentKind, string> = {
+const KIND_LABELS: Record<SampleDocumentKind, string> = {
   proforma: "Proforma",
+  quotation: "Quotation",
   tax_invoice: "Tax invoice",
   receipt: "Receipt",
 }
@@ -52,7 +53,7 @@ export function DocumentPreview({
   unsaved: boolean
 }) {
   const [open, setOpen] = React.useState(false)
-  const [kind, setKind] = React.useState<DocumentKind>("proforma")
+  const [kind, setKind] = React.useState<SampleDocumentKind>("proforma")
   const [today] = React.useState(() => todayInAppZone())
 
   const seller = previewSellerBlock(draft, fallback)

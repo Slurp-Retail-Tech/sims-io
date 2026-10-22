@@ -428,18 +428,20 @@ export async function ensureTaxInvoice(invoice: InvoiceRecord): Promise<InvoiceR
       const invoiceNumber = await allocateInvoiceNumber(connection, "INV", issueDate)
       const [result] = await connection.query<ResultSetHeader>(
         `INSERT INTO renewal_invoices
-           (invoice_number, document_type, parent_invoice_id, franchise_id, company_name,
+           (invoice_number, document_type, po_number, parent_invoice_id, franchise_id, company_name,
             bill_to_json, group_key, is_grouped, contact_id, billing_plan_selected, term_months,
             period_start, period_end, issue_date, due_date, currency_code,
             subtotal_amount, adjustment_amount, tax_rate, tax_amount, total_amount,
             payment_email, status, renewal_token, term_locked_at, paid_at, paid_via,
             cap_transaction_number, paid_session_id, paid_reference,
             extension_status, pos_push_status, payer_email_status)
-         VALUES (?, 'tax_invoice', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?,
+         VALUES (?, 'tax_invoice', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?,
                  ?, ?, ?, ?, ?, ?, 'paid', NULL, NOW(3), ?, ?, ?, ?, ?,
                  'not_applicable', 'not_applicable', 'not_applicable')`,
         [
           invoiceNumber,
+          // The merchant's PO stays on every document of the renewal.
+          invoice.poNumber,
           invoice.id,
           invoice.franchiseId,
           invoice.companyName,

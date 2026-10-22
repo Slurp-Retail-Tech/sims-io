@@ -22,7 +22,7 @@ import { matchContactsToFranchises, parseBukkuContactRows } from "./bukku-contac
 import type { BukkuContact, ContactMatch, FranchiseIdentity } from "./bukku-contacts.ts"
 import { snapshotOf } from "./bill-to.ts"
 import type { BillToSnapshot } from "./bill-to.ts"
-import type { BillToDetails } from "./document-content.ts"
+import type { BillToDetails, IssuedAs } from "./document-content.ts"
 
 export type BillingProfile = BillToSnapshot & {
   franchiseId: string
@@ -38,6 +38,8 @@ export type BillingProfileRow = {
   franchiseId: string
   companyName: string | null
   outletCount: number
+  /** What the nightly cycle issues for this franchise. */
+  defaultDocument: IssuedAs
   profile: BillingProfile | null
   /** For a franchise with no profile: the contacts the matcher could not choose between. */
   candidates: Array<{ contactCode: string; legalName: string; registrationNo: string | null; tin: string | null }>
@@ -454,8 +456,10 @@ export async function listBillingProfiles(db: Queryable = getPool()): Promise<{
   lastImportedAt: string | null
 }> {
   const [franchiseRows] = await db.query<RowDataPacket[]>(
-    `SELECT s.franchise_id, MAX(s.company_name) AS company_name, COUNT(*) AS outlet_count
+    `SELECT s.franchise_id, MAX(s.company_name) AS company_name, COUNT(*) AS outlet_count,
+            MAX(f.default_document) AS default_document
        FROM outlet_subscriptions s
+       LEFT JOIN renewal_franchise_settings f ON f.franchise_id = s.franchise_id
       WHERE s.deleted_at IS NULL
       GROUP BY s.franchise_id
       ORDER BY company_name ASC, s.franchise_id ASC`
@@ -487,6 +491,7 @@ export async function listBillingProfiles(db: Queryable = getPool()): Promise<{
       franchiseId,
       companyName: row.company_name === null ? null : String(row.company_name),
       outletCount: Number(row.outlet_count),
+      defaultDocument: (row.default_document === "quotation" ? "quotation" : "proforma") as IssuedAs,
       profile: profiles.get(franchiseId) ?? null,
       candidates: codes
         .map((code) => contacts.get(code))
@@ -593,4 +598,23 @@ async function saveAndRefresh(
     return { ok: false, status: 500, message: "The profile was not saved." }
   }
   return { ok: true, profile, documentsRefreshed }
+}
+
+/**
+ * What the nightly cycle issues for this franchise from now on. Documents
+ * already open keep their type; staff switch those one by one.
+ */
+export async function setDefaultDocument(
+  franchiseId: string,
+  defaultDocument: IssuedAs,
+  userId: string | null,
+  db: Queryable = getPool()
+): Promise<void> {
+  await db.query<ResultSetHeader>(
+    `INSERT INTO renewal_franchise_settings (franchise_id, default_document, updated_by_user_id)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE default_document = VALUES(default_document),
+                             updated_by_user_id = VALUES(updated_by_user_id)`,
+    [franchiseId, defaultDocument, userId]
+  )
 }

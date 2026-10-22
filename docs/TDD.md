@@ -1574,6 +1574,24 @@ Paid invoices whose tax invoice is not issued yet are left out and join a
 later batch. Batches generated before the change are CSV and still download as
 CSV.
 
+**Quotations and PO numbers.** A quotation is a proforma in every respect
+but its name: `renewal_invoices.issued_as` (`proforma` | `quotation`,
+migration 042) changes only the title (`docTypeTitle`), the "Due date" label
+("Valid until") and the number series (`QT-{YYYY}/{MM}-{NNN}`, its own row in
+`renewal_invoice_sequences`). `document_type` stays `proforma`, so the open
+guard, lapse sweep, payment reconcile and every aggregate are untouched.
+`createProformaForGroup` issues the franchise's
+`renewal_franchise_settings.default_document` unless the caller says
+otherwise (set on Billing Profiles). The `switch_document_type` action
+re-numbers an open document from the other series, records both numbers in
+`document_type_switched`, supersedes any open payment session (its
+description named the old number), returns `payment_pending` to `issued`, and
+re-renders the PDF under the new number; the renewal token is unchanged.
+`renewal_invoices.po_number` is set with `set_po_number` while the document
+is open (`po_number_set` event, forced re-render), copied to the tax invoice,
+printed as "PO No." on all three documents, and exported as Bukku's
+`Reference No.` in place of the proforma number.
+
 **Billing profiles.** `renewal_billing_profiles` (migrations 040, 041) holds
 one row per franchise: legal name, registration number and type (BRN for SSM,
 NRIC, PASSPORT), old registration number, TIN, SST number and billing address,

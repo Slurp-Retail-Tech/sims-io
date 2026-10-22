@@ -47,6 +47,8 @@ export type ExportBatch = {
 type LineRow = RowDataPacket & {
   invoice_id: string
   invoice_number: string
+  issued_as: "proforma" | "quotation"
+  po_number: string | null
   /** The INV- tax invoice, or null while post-payment has not issued it. */
   tax_invoice_number: string | null
   central_id: string | null
@@ -74,7 +76,7 @@ async function loadLines(
   db: Queryable
 ): Promise<LineRow[]> {
   const [rows] = await db.query<LineRow[]>(
-    `SELECT i.id AS invoice_id, i.invoice_number, ti.invoice_number AS tax_invoice_number,
+    `SELECT i.id AS invoice_id, i.invoice_number, i.issued_as, i.po_number, ti.invoice_number AS tax_invoice_number,
             i.paid_at, i.company_name, i.bill_to_json, i.franchise_id,
             t.outlet_name, t.outlet_id, t.central_id, p.plan_name, t.billing_plan, t.previous_valid_until,
             t.effective_amount, i.tax_rate, i.paid_via, i.cap_transaction_number, i.paid_reference, i.bukku_export_id
@@ -108,6 +110,8 @@ function toExportable(row: LineRow): ExportableLine {
   return {
     invoiceNumber: row.tax_invoice_number ?? row.invoice_number,
     proformaNumber: row.invoice_number,
+    issuedAs: row.issued_as,
+    poNumber: row.po_number,
     centralId: row.central_id,
     paidAt: row.paid_at,
     companyName: row.company_name,

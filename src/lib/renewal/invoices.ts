@@ -15,6 +15,7 @@ import getPool, { withTransaction, type Queryable } from "../db.ts"
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise"
 
 import { parseBillToSnapshot } from "./bill-to.ts"
+import type { IssuedAs } from "./document-content.ts"
 import type { BillToSnapshot } from "./bill-to.ts"
 import { billToSnapshotFor } from "./billing-profiles.ts"
 import { parseAmountToMinor } from "./money.ts"
@@ -33,10 +34,20 @@ export type InvoiceStatus =
   | "cancelled"
   | "superseded"
 
+/**
+ * What a pre-payment document is called: a proforma invoice, or a quotation
+ * for companies that will only pay against one. Both are `document_type =
+ * 'proforma'` rows; only the title and the number series differ.
+ */
+export type { IssuedAs }
+
 export type InvoiceRecord = {
   id: string
   invoiceNumber: string
   documentType: "proforma" | "tax_invoice"
+  issuedAs: IssuedAs
+  /** The merchant's purchase order number, printed on every document. */
+  poNumber: string | null
   parentInvoiceId: string | null
   franchiseId: string
   companyName: string | null
@@ -87,6 +98,8 @@ type InvoiceRow = RowDataPacket & {
   id: string
   invoice_number: string
   document_type: "proforma" | "tax_invoice"
+  issued_as: IssuedAs
+  po_number: string | null
   parent_invoice_id: string | null
   franchise_id: string
   company_name: string | null
@@ -128,7 +141,7 @@ type InvoiceRow = RowDataPacket & {
 }
 
 const INVOICE_SELECT = `
-  SELECT i.id, i.invoice_number, i.document_type, i.parent_invoice_id, i.franchise_id,
+  SELECT i.id, i.invoice_number, i.document_type, i.issued_as, i.po_number, i.parent_invoice_id, i.franchise_id,
          i.company_name, i.bill_to_json, i.group_key, i.is_grouped, i.contact_id, i.billing_plan_selected,
          i.term_months, i.period_start, i.period_end, i.issue_date, i.due_date,
          i.currency_code, i.subtotal_amount, i.adjustment_amount, i.tax_rate, i.tax_amount,
@@ -164,14 +177,18 @@ export async function createProformaForGroup(input: {
   taxRatePercent: number
   issueDate: string
   excludedOutlets: ReadonlyArray<{ outletId: string; reason: string }>
+  /** Omitted by the nightly cycle: the franchise's default document applies. */
+  issuedAs?: IssuedAs
+  poNumber?: string | null
 }): Promise<CreateInvoiceResult> {
   const { draft, companyName, contactId, taxRatePercent, issueDate } = input
 
   try {
     return await withTransaction(async (connection) => {
+      const issuedAs = input.issuedAs ?? (await defaultDocumentFor(draft.franchiseId, connection))
       const invoiceNumber = await allocateInvoiceNumber(
         connection,
-        "PI",
+        issuedAs === "quotation" ? "QT" : "PI",
         issueDate
       )
       const renewalToken = mintRenewalToken()
@@ -181,15 +198,17 @@ export async function createProformaForGroup(input: {
 
       const [result] = await connection.query<ResultSetHeader>(
         `INSERT INTO renewal_invoices
-           (invoice_number, document_type, franchise_id, company_name, bill_to_json, group_key,
+           (invoice_number, document_type, issued_as, po_number, franchise_id, company_name, bill_to_json, group_key,
             is_grouped, contact_id, billing_plan_selected, term_months,
             period_start, period_end, issue_date, due_date, currency_code,
             subtotal_amount, adjustment_amount, tax_rate, tax_amount,
             total_amount, status, renewal_token, excluded_outlets_json)
-         VALUES (?, 'proforma', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MYR',
+         VALUES (?, 'proforma', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MYR',
                  ?, ?, ?, ?, ?, 'draft', ?, ?)`,
         [
           invoiceNumber,
+          issuedAs,
+          input.poNumber?.trim() || null,
           draft.franchiseId,
           companyName,
           billTo ? JSON.stringify(billTo) : null,
@@ -241,6 +260,15 @@ export async function createProformaForGroup(input: {
       created: false,
     }
   }
+}
+
+/** What the cycle issues for a franchise: Proforma unless it asked for quotations. */
+export async function defaultDocumentFor(franchiseId: string, db: Queryable = getPool()): Promise<IssuedAs> {
+  const [rows] = await db.query<RowDataPacket[]>(
+    `SELECT default_document FROM renewal_franchise_settings WHERE franchise_id = ?`,
+    [franchiseId]
+  )
+  return (rows[0] as { default_document?: IssuedAs } | undefined)?.default_document === "quotation" ? "quotation" : "proforma"
 }
 
 async function insertItems(
@@ -605,6 +633,8 @@ function mapInvoice(row: InvoiceRow): InvoiceRecord {
     id: String(row.id),
     invoiceNumber: row.invoice_number,
     documentType: row.document_type,
+    issuedAs: row.issued_as ?? "proforma",
+    poNumber: row.po_number,
     parentInvoiceId: row.parent_invoice_id ? String(row.parent_invoice_id) : null,
     franchiseId: row.franchise_id,
     companyName: row.company_name,

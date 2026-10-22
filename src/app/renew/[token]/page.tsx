@@ -16,7 +16,15 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 
 import { RenewalDocumentCard, RENEWAL_TERMS_LINES } from "./document-card"
-import { buildBillTo, buildDocLines, buildDocTitle, buildProformaDocMeta, buildShipTo } from "./document-data"
+import {
+  buildBillTo,
+  buildDocLines,
+  buildDocTitle,
+  buildDocTypeTitle,
+  buildProformaDocMeta,
+  buildShipTo,
+  documentWord,
+} from "./document-data"
 import { longDate, money, plural, TERM_LABELS } from "./format"
 import { InvalidLink, LoadingCard, PublicShell } from "./public-shell"
 import { fetchPublicInvoice } from "./types"
@@ -190,7 +198,7 @@ export default function RenewalProformaPage() {
 
       <RenewalDocumentCard
         seller={view.seller}
-        docTypeTitle="PROFORMA INVOICE"
+        docTypeTitle={buildDocTypeTitle(view)}
         docMeta={buildProformaDocMeta(view)}
         billTo={buildBillTo(view)}
         shipTo={buildShipTo(view)}
@@ -291,7 +299,7 @@ export default function RenewalProformaPage() {
             <Button variant="outline" className="h-10" asChild>
               <a href={pdfHref} target="_blank" rel="noreferrer">
                 <Printer className="size-4" />
-                Print proforma
+                Print {documentWord(view)}
               </a>
             </Button>
             <Button className="h-10 flex-1" onClick={() => void pay()} disabled={!canPay || paying}>

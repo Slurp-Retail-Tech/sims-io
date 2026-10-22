@@ -55,6 +55,8 @@ type Invoice = {
   id: string
   invoiceNumber: string
   documentType: "proforma" | "tax_invoice"
+  issuedAs: "proforma" | "quotation"
+  poNumber: string | null
   franchiseId: string
   companyName: string | null
   billTo: (BillToDetails & { bukkuContactCode: string | null }) | null
@@ -222,7 +224,7 @@ function describeEvent(event: Event, invoice: Invoice): TimelineEntry {
   const base = { key: `e-${event.id}`, when: shortDateTime(event.createdAt), actor }
   switch (event.eventType) {
     case "invoice_created":
-      return { ...base, title: "Invoice created", tone: "blue", detail: `Proforma ${invoice.invoiceNumber} · ${plural(Number(payload.outlets ?? invoice.itemCount), "outlet")} · group ${String(payload.groupKey ?? invoice.groupKey)}` }
+      return { ...base, title: "Invoice created", tone: "blue", detail: `${invoice.issuedAs === "quotation" ? "Quotation" : "Proforma"} ${invoice.invoiceNumber} · ${plural(Number(payload.outlets ?? invoice.itemCount), "outlet")} · group ${String(payload.groupKey ?? invoice.groupKey)}` }
     case "pdf_rendered":
       return {
         ...base,
@@ -230,6 +232,13 @@ function describeEvent(event: Event, invoice: Invoice): TimelineEntry {
         tone: "gray",
         detail: String(payload.objectKey ?? ""),
       }
+    case "po_number_set":
+      return { ...base, title: payload.to ? "PO number set" : "PO number removed", tone: "gray", detail: payload.to ? `PO ${String(payload.to)}${payload.from ? ` (was ${String(payload.from)})` : ""}` : `Was ${String(payload.from ?? "")}` }
+    case "document_type_switched": {
+      const from = (payload.from ?? {}) as Record<string, unknown>
+      const to = (payload.to ?? {}) as Record<string, unknown>
+      return { ...base, title: to.issuedAs === "quotation" ? "Re-issued as a quotation" : "Re-issued as a proforma", tone: "amber", detail: `${String(from.invoiceNumber ?? "")} → ${String(to.invoiceNumber ?? "")}` }
+    }
     case "cycle_reused":
       return { ...base, title: "Reminder run reused this invoice", tone: "blue", detail: payload.daysToExpiry !== undefined && payload.daysToExpiry !== null ? `T-${String(payload.daysToExpiry)} run` : "" }
     case "term_changed":
@@ -336,7 +345,7 @@ export function InvoiceDetailView({
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [copied, setCopied] = React.useState(false)
-  const [dialog, setDialog] = React.useState<"override" | "term" | "void" | "markPaid" | "resendEmail" | null>(null)
+  const [dialog, setDialog] = React.useState<"override" | "term" | "void" | "markPaid" | "resendEmail" | "po" | null>(null)
   const [busy, setBusy] = React.useState(false)
 
   const load = React.useCallback(async () => {
@@ -440,6 +449,7 @@ export function InvoiceDetailView({
   const termLocked = Boolean(liveSession) || !isOpen
   const renewalLink = invoice.renewalToken ? `/renew/${invoice.renewalToken}` : null
   const isPaid = invoice.status === "paid"
+  const documentName = invoice.issuedAs === "quotation" ? "Quotation" : "Proforma"
   const canMarkPaid = canManage && invoice.documentType === "proforma" && !["paid", "cancelled", "superseded"].includes(invoice.status)
   const postPaymentIncomplete =
     isPaid &&
@@ -539,6 +549,9 @@ export function InvoiceDetailView({
           <Pill tone={INVOICE_STATUS_TONE[invoice.status] ?? "gray"}>
             {INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status}
           </Pill>
+          {invoice.documentType === "proforma" ? (
+            <OutlinePill>{invoice.issuedAs === "quotation" ? "Quotation" : "Proforma invoice"}</OutlinePill>
+          ) : null}
           {invoice.isGrouped ? (
             <Pill tone="blue" className="font-medium">
               Grouped · {plural(invoice.itemCount, "outlet")}
@@ -547,7 +560,13 @@ export function InvoiceDetailView({
           <OutlinePill>{termLocked ? "Term locked" : "Term unlocked"}</OutlinePill>
         </div>
         <p className="text-muted-foreground mt-1.5 text-sm">
-          {invoice.companyName ?? `Franchise ${invoice.franchiseId}`} · FID {invoice.franchiseId} · group key{" "}
+          {invoice.companyName ?? `Franchise ${invoice.franchiseId}`} · FID {invoice.franchiseId}
+          {invoice.poNumber ? (
+            <>
+              {" "}· PO <span className="font-mono text-xs">{invoice.poNumber}</span>
+            </>
+          ) : null}{" "}
+          · group key{" "}
           <span className="font-mono text-xs">{invoice.groupKey}</span> · issued {longDate(invoice.issueDate)} · due{" "}
           {longDate(invoice.dueDate)}
         </p>
@@ -766,9 +785,41 @@ export function InvoiceDetailView({
                       size="sm"
                       disabled={busy}
                       title="Re-print with the current company details. Issued tax invoices and receipts keep theirs."
-                      onClick={() => void runAction({ action: "reprint_proforma" }, "Proforma re-printed with the current details.")}
+                      onClick={() => void runAction({ action: "reprint_proforma" }, `${documentName} re-printed with the current details.`)}
                     >
-                      Re-print proforma
+                      Re-print {documentName.toLowerCase()}
+                    </Button>
+                  ) : null}
+                  {invoice.documentType === "proforma" ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!isOpen || busy}
+                      title={isOpen ? "The merchant's purchase order number, printed on every document" : "Fixed once the invoice is paid or closed"}
+                      onClick={() => setDialog("po")}
+                    >
+                      {invoice.poNumber ? "Change PO number" : "Add PO number"}
+                    </Button>
+                  ) : null}
+                  {invoice.documentType === "proforma" ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!isOpen || busy}
+                      title={
+                        isOpen
+                          ? "Takes a new number from the other series. The merchant's link keeps working; an open payment session is reset."
+                          : "Only an open document can change type"
+                      }
+                      onClick={() => {
+                        const next = invoice.issuedAs === "quotation" ? "proforma" : "quotation"
+                        void runAction(
+                          { action: "switch_document_type", issuedAs: next },
+                          next === "quotation" ? "Re-issued as a quotation." : "Re-issued as a proforma invoice."
+                        )
+                      }}
+                    >
+                      {invoice.issuedAs === "quotation" ? "Re-issue as proforma" : "Re-issue as quotation"}
                     </Button>
                   ) : null}
                   <Button variant="outline" size="sm" className="text-destructive" disabled={!isOpen || busy} onClick={() => setDialog("void")}>
@@ -853,6 +904,16 @@ export function InvoiceDetailView({
         currentEmail={invoice.paymentEmail}
         busy={busy}
         onConfirm={(email) => void runAction({ action: "resend_payer_email", ...(email ? { payerEmail: email } : {}) }, "Documents sent.")}
+      />
+
+      <PoNumberDialog
+        open={dialog === "po"}
+        onOpenChange={(open) => setDialog(open ? "po" : null)}
+        current={invoice.poNumber}
+        busy={busy}
+        onConfirm={(poNumber) =>
+          void runAction({ action: "set_po_number", poNumber }, poNumber ? `PO ${poNumber} added. The document is re-printed.` : "PO number removed.")
+        }
       />
 
       <VoidDialog
@@ -1190,6 +1251,55 @@ function MarkPaidDialog({
             }
           >
             {busy ? "Recording…" : "Record payment"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PoNumberDialog({
+  open,
+  onOpenChange,
+  current,
+  busy,
+  onConfirm,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  current: string | null
+  busy: boolean
+  onConfirm: (poNumber: string | null) => void
+}) {
+  const [value, setValue] = React.useState(current ?? "")
+  React.useEffect(() => {
+    if (open) setValue(current ?? "")
+  }, [open, current])
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Purchase order number</DialogTitle>
+          <DialogDescription>
+            The merchant&rsquo;s own PO number, printed on this document and copied to the tax invoice and receipt.
+            Saving re-prints the document; the merchant&rsquo;s link shows it straight away.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2 py-2">
+          <Label htmlFor="poNumber">PO number</Label>
+          <Input id="poNumber" value={value} onChange={(event) => setValue(event.target.value)} placeholder="e.g. PO-2026-0142" maxLength={64} />
+        </div>
+        <DialogFooter>
+          {current ? (
+            <Button variant="ghost" size="sm" className="mr-auto" disabled={busy} onClick={() => onConfirm(null)}>
+              Remove
+            </Button>
+          ) : null}
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={busy || !value.trim() || value.trim() === current} onClick={() => onConfirm(value.trim())}>
+            {busy ? "Saving…" : "Save PO number"}
           </Button>
         </DialogFooter>
       </DialogContent>

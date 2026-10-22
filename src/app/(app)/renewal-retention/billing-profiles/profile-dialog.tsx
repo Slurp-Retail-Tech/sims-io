@@ -95,7 +95,9 @@ export function ProfileDialog({
   companyName,
   profile,
   candidates,
+  defaultDocument,
   onSaved,
+  onDefaultDocumentChanged,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -103,9 +105,13 @@ export function ProfileDialog({
   companyName: string | null
   profile: Profile | null
   candidates: Candidate[]
+  defaultDocument: "proforma" | "quotation"
   onSaved: (message: string) => void
+  /** Saved on its own click, without closing the dialog. */
+  onDefaultDocumentChanged: (value: "proforma" | "quotation") => void
 }) {
   const { showToast } = useToast()
+  const [documentType, setDocumentType] = React.useState(defaultDocument)
   const [mode, setMode] = React.useState<Mode>(profile?.source === "manual" ? "manual" : "bukku")
   const [draft, setDraft] = React.useState<ManualDraft>(() => toDraft(profile, companyName))
   const [query, setQuery] = React.useState("")
@@ -181,6 +187,19 @@ export function ProfileDialog({
     if (result) onSaved(savedMessage("Billing profile saved.", result.documentsRefreshed))
   }
 
+  async function changeDefaultDocument(value: "proforma" | "quotation") {
+    if (value === documentType) return
+    const previous = documentType
+    setDocumentType(value)
+    const result = await send("PUT", { action: "set_default_document", defaultDocument: value })
+    if (result) {
+      onDefaultDocumentChanged(value)
+      showToast(value === "quotation" ? "New renewals will be issued as quotations." : "New renewals will be issued as proformas.", "success")
+    } else {
+      setDocumentType(previous)
+    }
+  }
+
   async function remove() {
     const result = await send("DELETE")
     if (result) onSaved(savedMessage("Billing profile removed.", result.documentsRefreshed))
@@ -237,6 +256,24 @@ export function ProfileDialog({
             paid ones keep the details they were paid against.
           </DialogDescription>
         </DialogHeader>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border px-3 py-2.5">
+          <div className="flex min-w-0 flex-col">
+            <span className="text-sm">Issue renewals as</span>
+            <span className="text-muted-foreground text-xs">
+              For companies that only pay against a quotation. Open documents are switched on their invoice page.
+            </span>
+          </div>
+          <PillTabs<"proforma" | "quotation">
+            size="sm"
+            value={documentType}
+            onChange={(value) => void changeDefaultDocument(value)}
+            tabs={[
+              { key: "proforma", label: "Proforma" },
+              { key: "quotation", label: "Quotation" },
+            ]}
+          />
+        </div>
 
         <PillTabs<Mode>
           size="sm"

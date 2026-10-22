@@ -15,6 +15,13 @@
 export type DocumentKind = "proforma" | "tax_invoice" | "receipt"
 
 /**
+ * What the pre-payment document is called. A quotation is a proforma in
+ * every respect but its title and number, for companies that will only pay
+ * against one.
+ */
+export type IssuedAs = "proforma" | "quotation"
+
+/**
  * The registered customer printed under Bill To: the franchise's billing
  * profile, matched from Bukku or entered by staff. Every field is optional;
  * a franchise with no profile prints its company name alone.
@@ -50,9 +57,16 @@ export type DocumentSourceLine = {
 /** Everything a document needs, from either the public view or the database. */
 export type DocumentSource = {
   kind: DocumentKind
-  /** The number this document carries: PI- for a proforma or receipt, INV- for a tax invoice. */
+  /** The number this document carries: PI- or QT- for a proforma or receipt, INV- for a tax invoice. */
   invoiceNumber: string
-  /** On a tax invoice: the proforma it settles. */
+  /**
+   * What the pre-payment document was issued as. On a proforma or receipt,
+   * this document; on a tax invoice, the one it settles. Defaults to proforma.
+   */
+  issuedAs?: IssuedAs
+  /** The merchant's purchase order number, printed on every document of the renewal. */
+  poNumber?: string | null
+  /** On a tax invoice: the proforma (or quotation) it settles. */
   proformaNumber?: string | null
   /** On a receipt: the tax invoice issued against the payment. */
   taxInvoiceNumber?: string | null
@@ -117,6 +131,16 @@ export const DOC_TYPE_TITLES: Record<DocumentKind, string> = {
   proforma: "PROFORMA INVOICE",
   tax_invoice: "TAX INVOICE",
   receipt: "OFFICIAL RECEIPT",
+}
+
+/** The document's title: QUOTATION for a proforma issued as one. */
+export function docTypeTitle(source: Pick<DocumentSource, "kind" | "issuedAs">): string {
+  return source.kind === "proforma" && source.issuedAs === "quotation" ? "QUOTATION" : DOC_TYPE_TITLES[source.kind]
+}
+
+/** `proforma` or `quotation`, as running text calls it. */
+export function documentLabel(issuedAs: IssuedAs | null | undefined): string {
+  return issuedAs === "quotation" ? "quotation" : "proforma"
 }
 
 const TERM_LABELS: Record<string, string> = { annually: "1 year", bi_annually: "6 months" }
@@ -280,17 +304,22 @@ function paymentMethod(source: DocumentSource): string {
 
 export function buildDocMeta(source: DocumentSource): DocMetaRow[] {
   const reference = source.paymentReference ? [{ label: "Reference", value: source.paymentReference, mono: true }] : []
+  const po = source.poNumber?.trim() ? [{ label: "PO No.", value: source.poNumber.trim(), mono: true }] : []
+  const quotation = source.issuedAs === "quotation"
   switch (source.kind) {
     case "proforma":
       return [
         { label: "No.", value: source.invoiceNumber, mono: true },
+        ...po,
         { label: "Date", value: docLongDate(source.issueDate) },
-        { label: "Due date", value: docLongDate(source.dueDate) },
+        // A quotation is an offer: its due date is how long the price holds.
+        { label: quotation ? "Valid until" : "Due date", value: docLongDate(source.dueDate) },
         { label: "Term", value: TERM_LABELS[source.term] ?? source.term },
       ]
     case "receipt":
       return [
         { label: "No.", value: source.invoiceNumber, mono: true },
+        ...po,
         { label: "Tax invoice", value: source.taxInvoiceNumber ?? "Pending", mono: Boolean(source.taxInvoiceNumber) },
         { label: "Date", value: docLongDate(source.paidAt) },
         { label: "Method", value: paymentMethod(source) },
@@ -299,7 +328,10 @@ export function buildDocMeta(source: DocumentSource): DocMetaRow[] {
     case "tax_invoice":
       return [
         { label: "No.", value: source.invoiceNumber, mono: true },
-        ...(source.proformaNumber ? [{ label: "Proforma", value: source.proformaNumber, mono: true }] : []),
+        ...(source.proformaNumber
+          ? [{ label: quotation ? "Quotation" : "Proforma", value: source.proformaNumber, mono: true }]
+          : []),
+        ...po,
         { label: "Date", value: docLongDate(source.issueDate) },
         { label: "Method", value: paymentMethod(source) },
         ...reference,
@@ -311,7 +343,7 @@ export function buildDocMeta(source: DocumentSource): DocMetaRow[] {
 export function buildDocumentContent(source: DocumentSource): DocumentContent {
   const currency = source.currencyCode
   return {
-    docTypeTitle: DOC_TYPE_TITLES[source.kind],
+    docTypeTitle: docTypeTitle(source),
     docMeta: buildDocMeta(source),
     billTo: buildBillTo(source),
     shipTo: buildShipTo(source),

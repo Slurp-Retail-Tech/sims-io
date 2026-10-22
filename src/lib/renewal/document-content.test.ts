@@ -154,3 +154,40 @@ test("an NRIC registration is labelled as one, and a street that names its town 
   })
   assert.deepEqual(content.billTo.lines, ["NRIC 800101-14-5555", "85, JALAN SELASIH", "TAMAN GEMBIRA", "41100 KLANG", "SELANGOR"])
 })
+
+test("a proforma issued as a quotation is titled QUOTATION, with its PO number and a validity date", () => {
+  const content = buildDocumentContent({ ...base, invoiceNumber: "QT-2026/09-001", issuedAs: "quotation", poNumber: "PO-4471" })
+  assert.equal(content.docTypeTitle, "QUOTATION")
+  assert.deepEqual(
+    content.docMeta.map((row) => [row.label, row.value]),
+    [
+      ["No.", "QT-2026/09-001"],
+      ["PO No.", "PO-4471"],
+      ["Date", "23 Sep 2026"],
+      ["Valid until", "8 Oct 2026"],
+      ["Term", "1 year"],
+    ]
+  )
+})
+
+test("the tax invoice names the quotation it settles and carries the PO number", () => {
+  const content = buildDocumentContent({
+    ...base,
+    kind: "tax_invoice",
+    invoiceNumber: "INV-2026/09-010",
+    proformaNumber: "QT-2026/09-001",
+    issuedAs: "quotation",
+    poNumber: "PO-4471",
+    paidAt: "2026-09-25 10:00:00",
+    paidVia: "manual",
+  })
+  assert.equal(content.docTypeTitle, "TAX INVOICE")
+  const meta = Object.fromEntries(content.docMeta.map((row) => [row.label, row.value]))
+  assert.equal(meta.Quotation, "QT-2026/09-001")
+  assert.equal(meta["PO No."], "PO-4471")
+})
+
+test("without a PO number no PO row is printed", () => {
+  const content = buildDocumentContent(base)
+  assert.ok(!content.docMeta.some((row) => row.label === "PO No."))
+})

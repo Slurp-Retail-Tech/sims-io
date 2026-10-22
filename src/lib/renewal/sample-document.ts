@@ -10,18 +10,23 @@
  * the preview PDF route renders the same thing on the server.
  */
 
-import type { DocumentKind, DocumentSource } from "./document-content.ts"
+import type { DocumentSource } from "./document-content.ts"
 
-export const SAMPLE_DOCUMENT_KINDS: readonly DocumentKind[] = ["proforma", "tax_invoice", "receipt"]
+/** The documents the preview shows: the three kinds, and a proforma issued as a quotation. */
+export type SampleDocumentKind = "proforma" | "quotation" | "tax_invoice" | "receipt"
+
+export const SAMPLE_DOCUMENT_KINDS: readonly SampleDocumentKind[] = ["proforma", "quotation", "tax_invoice", "receipt"]
 
 export const SAMPLE_PROFORMA_NUMBER = "PI-SAMPLE-0001"
+export const SAMPLE_QUOTATION_NUMBER = "QT-SAMPLE-0001"
 export const SAMPLE_TAX_INVOICE_NUMBER = "INV-SAMPLE-0001"
+export const SAMPLE_PO_NUMBER = "PO-SAMPLE-001"
 
 /** One 1-year licence, as the catalog prices it, in sen. */
 const SAMPLE_LINE_MINOR = 120_000
 
-export function isSampleDocumentKind(value: string | null | undefined): value is DocumentKind {
-  return SAMPLE_DOCUMENT_KINDS.includes(value as DocumentKind)
+export function isSampleDocumentKind(value: string | null | undefined): value is SampleDocumentKind {
+  return SAMPLE_DOCUMENT_KINDS.includes(value as SampleDocumentKind)
 }
 
 /**
@@ -33,9 +38,11 @@ export function isSampleDocumentKind(value: string | null | undefined): value is
  * when it would on a real document.
  */
 export function buildSampleDocumentSource(
-  kind: DocumentKind,
+  sample: SampleDocumentKind,
   options: { taxRatePercent: number; today: string }
 ): DocumentSource {
+  const kind = sample === "quotation" ? "proforma" : sample
+  const quotation = sample === "quotation"
   const expiry = addDays(options.today, 15)
   const periodEnd = addYears(expiry, 1)
   const paid = kind !== "proforma"
@@ -56,7 +63,11 @@ export function buildSampleDocumentSource(
 
   return {
     kind,
-    invoiceNumber: kind === "tax_invoice" ? SAMPLE_TAX_INVOICE_NUMBER : SAMPLE_PROFORMA_NUMBER,
+    invoiceNumber:
+      kind === "tax_invoice" ? SAMPLE_TAX_INVOICE_NUMBER : quotation ? SAMPLE_QUOTATION_NUMBER : SAMPLE_PROFORMA_NUMBER,
+    issuedAs: quotation ? "quotation" : "proforma",
+    // A quotation is what companies that raise purchase orders ask for.
+    poNumber: quotation ? SAMPLE_PO_NUMBER : null,
     proformaNumber: kind === "tax_invoice" ? SAMPLE_PROFORMA_NUMBER : null,
     taxInvoiceNumber: kind === "receipt" ? SAMPLE_TAX_INVOICE_NUMBER : null,
     issueDate: options.today,

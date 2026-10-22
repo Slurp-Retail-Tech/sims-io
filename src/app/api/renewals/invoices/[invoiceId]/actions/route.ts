@@ -13,6 +13,8 @@ import {
   resetPaymentSession,
   retryPostPayment,
   setInvoiceTerm,
+  setPoNumber,
+  switchDocumentType,
   voidInvoice,
 } from "@/lib/renewal/invoice-actions"
 import { RENEWAL_POST_PAYMENT_JOB_TYPE } from "@/lib/job-types"
@@ -43,6 +45,11 @@ const bodySchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("retry_post_payment") }),
   z.object({ action: z.literal("reprint_proforma") }),
   z.object({ action: z.literal("resend_dispatch") }),
+  z.object({
+    action: z.literal("set_po_number"),
+    poNumber: z.string().trim().max(64, "A PO number is at most 64 characters.").nullable(),
+  }),
+  z.object({ action: z.literal("switch_document_type"), issuedAs: z.enum(["proforma", "quotation"]) }),
 ])
 
 /**
@@ -104,6 +111,10 @@ async function handlePost(request: NextRequest, context: RouteContext): Promise<
           return reprintProforma(invoiceId, auth.user.id)
         case "resend_dispatch":
           return resendDispatch(invoiceId, auth.user.id)
+        case "set_po_number":
+          return setPoNumber(invoiceId, body.poNumber, auth.user.id)
+        case "switch_document_type":
+          return switchDocumentType(invoiceId, body.issuedAs, auth.user.id)
       }
     })()
 

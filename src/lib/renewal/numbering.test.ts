@@ -15,6 +15,10 @@ test("formats a tax invoice number in its own series", () => {
   assert.equal(formatInvoiceNumber("INV", 2026, 9, 1), "INV-2026/09-001")
 })
 
+test("formats a quotation number in its own series", () => {
+  assert.equal(formatInvoiceNumber("QT", 2026, 10, 3), "QT-2026/10-003")
+})
+
 test("zero-pads the month and the counter", () => {
   assert.equal(formatInvoiceNumber("PI", 2026, 1, 7), "PI-2026/01-007")
   assert.equal(formatInvoiceNumber("PI", 2026, 12, 99), "PI-2026/12-099")

@@ -9,6 +9,7 @@ import {
   deleteBillingProfile,
   linkBukkuContact,
   saveManualProfile,
+  setDefaultDocument,
 } from "@/lib/renewal/billing-profiles"
 
 import { BILLING_PROFILES_MANAGE_PATH } from "../helpers"
@@ -31,6 +32,7 @@ const optional = (max: number) =>
 const bodySchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("link"), contactCode: z.string().trim().min(1).max(64) }),
   z.object({ action: z.literal("confirm") }),
+  z.object({ action: z.literal("set_default_document"), defaultDocument: z.enum(["proforma", "quotation"]) }),
   z.object({
     action: z.literal("manual"),
     bukkuContactCode: optional(64),
@@ -51,7 +53,8 @@ const bodySchema = z.discriminatedUnion("action", [
 /**
  * PUT — set a franchise's billing profile: link it to an imported Bukku
  * contact, confirm the importer's match, or save details typed in by hand.
- * Open proformas pick up the change. Needs the manage key.
+ * Open proformas pick up the change. Also sets whether the franchise is
+ * issued proformas or quotations. Needs the manage key.
  */
 export const PUT = withRequestContext("/api/renewals/billing-profiles/[franchiseId]", handlePut as never)
 
@@ -78,6 +81,10 @@ async function handlePut(request: NextRequest, context: RouteContext): Promise<R
 
   try {
     const body = parsed.data
+    if (body.action === "set_default_document") {
+      await setDefaultDocument(franchiseId, body.defaultDocument, auth.user.id)
+      return NextResponse.json({ defaultDocument: body.defaultDocument })
+    }
     const outcome =
       body.action === "link"
         ? await linkBukkuContact(franchiseId, body.contactCode, auth.user.id)

@@ -82,6 +82,12 @@ test("the sheet is framed as Bukku reads it: comments, the $ column line, data f
   assert.equal(sheet[header + 1].length, BUKKU_INVOICE_COLUMNS.length + 1)
 })
 
+test("the merchant's PO number is the reference when they gave one, and a quotation is named as one", () => {
+  const [row] = buildBukkuRows([{ ...line, poNumber: "PO-88812", issuedAs: "quotation", proformaNumber: "QT-2026/09-004" }], null, codes)
+  assert.equal(row["Reference No."], "PO-88812")
+  assert.match(row.Description, /Quotation QT-2026\/09-004\.$/)
+})
+
 test("bukkuDate reads the date literally", () => {
   assert.equal(bukkuDate("2026-01-05 23:59:59.000"), "05/01/2026")
   assert.equal(bukkuDate(null), "")
