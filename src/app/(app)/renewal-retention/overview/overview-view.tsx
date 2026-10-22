@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
+import { METRIC_HELP } from "@/lib/renewal/help-text"
+
 import { daysLabel, KpiTile, longDate, money, PageHeader, Pill, plural, shortDateTime, TONE_DOT, TONE_TEXT } from "../ui"
 import type { Tone } from "../ui"
 
@@ -152,12 +154,14 @@ export function OverviewView() {
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))]">
         <KpiTile
           label="Expiring in 30 days"
+          hint={METRIC_HELP.expiringIn30}
           value={String(kpis.expiringIn30.count)}
           meta={`${money(kpis.expiringIn30.potentialMinor)} at the default term`}
           onClick={() => router.push("/renewal-retention/renewal-due")}
         />
         <KpiTile
           label={`Collected in ${monthName}`}
+          hint={METRIC_HELP.collected}
           value={money(kpis.collectedThisMonth.amountMinor)}
           meta={`${pct(kpis.collectedThisMonth.amountMinor, kpis.collectedThisMonth.potentialMinor)} of ${money(kpis.collectedThisMonth.potentialMinor)} potential`}
           metaTone={kpis.collectedThisMonth.amountMinor > 0 ? "green" : "gray"}
@@ -165,12 +169,14 @@ export function OverviewView() {
         />
         <KpiTile
           label={`Retention · ${monthName} cohort`}
+          hint={METRIC_HELP.retention}
           value={pct(kpis.retention.renewed, kpis.retention.renewable)}
           meta={`${kpis.retention.renewed} renewed of ${kpis.retention.renewable} renewable`}
           onClick={() => router.push("/renewal-retention/analytics")}
         />
         <KpiTile
           label="Actions Required"
+          hint={METRIC_HELP.actions}
           value={String(kpis.actions.open)}
           meta={kpis.actions.blocking > 0 ? `${kpis.actions.blocking} block an invoice being raised` : "Nothing is blocked"}
           metaTone={kpis.actions.blocking > 0 ? "red" : "green"}

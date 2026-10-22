@@ -641,6 +641,7 @@ export async function sendPayerDocuments(
       .sort()[0]
     const variables = {
       picName: "",
+      documentLabel: invoice.issuedAs === "quotation" ? "quotation" : "proforma",
       companyName: invoice.companyName ?? `franchise ${invoice.franchiseId}`,
       outletCount: items.length,
       expiryDate: formatDocumentDate(invoice.dueDate),

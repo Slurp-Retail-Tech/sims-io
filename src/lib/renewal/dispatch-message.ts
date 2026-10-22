@@ -22,6 +22,8 @@ import type { DispatchType } from "./dispatch-plan.ts"
 /** The facts about an invoice a message needs; a subset of the public view. */
 export type MessageFacts = {
   invoiceNumber: string
+  /** Proforma or quotation, so the copy names what the merchant was sent. */
+  issuedAs?: "proforma" | "quotation"
   companyName: string | null
   franchiseId: string
   outletCount: number
@@ -65,6 +67,7 @@ export function buildTemplateVariables(
 
   return {
     picName: context.recipientName,
+    documentLabel: facts.issuedAs === "quotation" ? "quotation" : "proforma",
     companyName: facts.companyName ?? `Franchise ${facts.franchiseId}`,
     outletCount: facts.outletCount,
     expiryDate: messageDate(facts.dueDate),

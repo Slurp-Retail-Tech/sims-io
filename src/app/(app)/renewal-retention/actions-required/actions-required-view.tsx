@@ -9,7 +9,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { useToast } from "@/components/toast-provider"
 import { cn } from "@/lib/utils"
 
-import { daysLabel, PageHeader, Pill, PillTabs, RunStatusLine, TONE_TEXT } from "../ui"
+import { daysLabel, Hint, PageHeader, Pill, PillTabs, RunStatusLine, TONE_TEXT } from "../ui"
 import type { RunStatus, Tone } from "../ui"
 import { AssignmentDialog } from "../plans/assignment-dialog"
 import type { Plan } from "../plans/types"
@@ -298,16 +298,12 @@ export function ActionsRequiredView({
         meta={<RunStatusLine status={runStatus} />}
       >
         {canCheckNow ? (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={checking}
-            onClick={() => void checkNow()}
-            title="Re-runs the plan, price and PIC checks now. Never raises an invoice."
-          >
-            <RefreshCw className={cn("size-3.5", checking && "animate-spin")} />
-            {checking ? "Checking…" : "Check now"}
-          </Button>
+          <Hint content="Re-runs the plan, price and PIC checks now. Never raises an invoice.">
+            <Button variant="outline" size="sm" disabled={checking} onClick={() => void checkNow()}>
+              <RefreshCw className={cn("size-3.5", checking && "animate-spin")} />
+              {checking ? "Checking…" : "Check now"}
+            </Button>
+          </Hint>
         ) : null}
         <PillTabs
           size="sm"
@@ -374,9 +370,11 @@ export function ActionsRequiredView({
               >
                 <div className="flex min-w-0 flex-1 basis-[22rem] flex-col gap-1.5">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={cn("text-sm font-semibold", TONE_TEXT[accent])} title={action.reason}>
-                      {REASON_LABELS[action.reason] ?? action.reason}
-                    </span>
+                    <Hint content={REASON_FIXES[action.reason] ?? action.reason}>
+                      <span className={cn("text-sm font-semibold", TONE_TEXT[accent])}>
+                        {REASON_LABELS[action.reason] ?? action.reason}
+                      </span>
+                    </Hint>
                     <Pill tone={isBlocking ? "red" : "gray"} className="font-medium">
                       {isBlocking ? "Blocks invoicing" : "Informational"}
                     </Pill>

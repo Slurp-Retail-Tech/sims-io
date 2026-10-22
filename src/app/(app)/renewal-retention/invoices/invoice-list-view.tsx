@@ -13,11 +13,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { INVOICE_STATUS_HELP } from "@/lib/renewal/help-text"
 import { cn } from "@/lib/utils"
 
 import {
   ColumnHeadings,
   daysUntil,
+  Hint,
   INVOICE_STATUS_LABEL,
   INVOICE_STATUS_TONE,
   longDate,
@@ -192,9 +194,9 @@ export function InvoiceListView({ canCreate }: { canCreate: boolean }) {
                       <span className="flex flex-wrap items-baseline gap-x-2 font-mono text-[0.8125rem] whitespace-nowrap">
                         <span>{invoice.invoiceNumber}</span>
                         {invoice.taxInvoiceNumber ? (
-                          <span className="text-muted-foreground" title="Tax invoice issued against this proforma">
-                            → {invoice.taxInvoiceNumber}
-                          </span>
+                          <Hint content="Tax invoice issued against this proforma">
+                            <span className="text-muted-foreground">→ {invoice.taxInvoiceNumber}</span>
+                          </Hint>
                         ) : null}
                       </span>
                       <span className="text-sm">{invoice.companyName ?? `Franchise ${invoice.franchiseId}`}</span>
@@ -211,16 +213,20 @@ export function InvoiceListView({ canCreate }: { canCreate: boolean }) {
                       {money(invoice.totalMinor, invoice.currencyCode)}
                     </span>
                     <span className="flex flex-col items-start gap-1">
-                      <Pill tone={INVOICE_STATUS_TONE[invoice.status] ?? "gray"}>
-                        {INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status}
-                      </Pill>
+                      <Hint content={INVOICE_STATUS_HELP[invoice.status]}>
+                        <Pill tone={INVOICE_STATUS_TONE[invoice.status] ?? "gray"}>
+                          {INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status}
+                        </Pill>
+                      </Hint>
                       <span className={cn("text-xs", line.warn ? TONE_TEXT.amber : "text-muted-foreground")}>
                         {line.label}
                       </span>
                       {invoice.status === "paid" && invoice.paidVia === "manual" && invoice.proofCount === 0 ? (
-                        <Pill tone="amber" className="font-medium">
-                          No proof
-                        </Pill>
+                        <Hint content="Paid offline with no bank slip or screenshot attached. Attach it on the invoice page.">
+                          <Pill tone="amber" className="font-medium">
+                            No proof
+                          </Pill>
+                        </Hint>
                       ) : null}
                     </span>
                   </Link>

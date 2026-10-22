@@ -19,6 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
+import { METRIC_HELP } from "@/lib/renewal/help-text"
+
 import { KpiTile, money, PageHeader, PillTabs } from "../ui"
 
 type Analytics = {
@@ -210,12 +212,12 @@ export function AnalyticsView() {
       </PageHeader>
 
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr))]">
-        <KpiTile label="Renewable subscriptions" value={String(renewal.renewable)} meta={`${renewal.due} due, less ${renewal.due - renewal.renewable} excluded`} href={list()} />
-        <KpiTile label="Renewed" value={String(renewal.renewed)} meta={`${renewal.nonRenewed} non-renewed`} href={list({ state: "renewed" })} />
-        <KpiTile label="Retention rate" value={pct(renewal.retentionRate)} meta={`Within ${data.period.label}`} metaTone={renewal.retentionRate !== null && renewal.retentionRate >= 80 ? "green" : "gray"} />
-        <KpiTile label="Collected revenue" value={money(renewal.collectedMinor)} meta={`of ${money(renewal.potentialMinor)} potential`} />
-        <KpiTile label="Collection rate" value={pct(renewal.collectionRate)} meta="Paid invoices ÷ potential" metaTone={renewal.collectionRate !== null && renewal.collectionRate >= 80 ? "green" : "gray"} />
-        <KpiTile label="Link open rate" value={pct(engagement.openRate)} meta={`${engagement.neverOpened} never opened`} metaTone={engagement.neverOpened > 0 ? "amber" : "gray"} href={list({ opened: "never" })} />
+        <KpiTile label="Renewable subscriptions" hint={METRIC_HELP.renewable} value={String(renewal.renewable)} meta={`${renewal.due} due, less ${renewal.due - renewal.renewable} excluded`} href={list()} />
+        <KpiTile label="Renewed" hint={METRIC_HELP.renewed} value={String(renewal.renewed)} meta={`${renewal.nonRenewed} non-renewed`} href={list({ state: "renewed" })} />
+        <KpiTile label="Retention rate" hint={METRIC_HELP.retention} value={pct(renewal.retentionRate)} meta={`Within ${data.period.label}`} metaTone={renewal.retentionRate !== null && renewal.retentionRate >= 80 ? "green" : "gray"} />
+        <KpiTile label="Collected revenue" hint={METRIC_HELP.collected} value={money(renewal.collectedMinor)} meta={`of ${money(renewal.potentialMinor)} potential`} />
+        <KpiTile label="Collection rate" hint={METRIC_HELP.collectionRate} value={pct(renewal.collectionRate)} meta="Paid invoices ÷ potential" metaTone={renewal.collectionRate !== null && renewal.collectionRate >= 80 ? "green" : "gray"} />
+        <KpiTile label="Link open rate" hint={METRIC_HELP.openRate} value={pct(engagement.openRate)} meta={`${engagement.neverOpened} never opened`} metaTone={engagement.neverOpened > 0 ? "amber" : "gray"} href={list({ opened: "never" })} />
       </div>
 
       <PillTabs

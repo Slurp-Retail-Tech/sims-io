@@ -55,6 +55,12 @@ export function TemplatesView({
         description="Both channels dispatch through Respond.io. WhatsApp templates need Meta approval before release; the URL button takes a fixed base plus the renewal token as its suffix."
       />
 
+      <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-pretty">
+        Every message now opens with &ldquo;Dear Valued Merchant,&rdquo; and names the document as a proforma or a
+        quotation. That changed each WhatsApp body, so the templates carry new <span className="font-mono">_v2</span>{" "}
+        names: submit them to Meta through Respond.io and wait for approval before switching dispatch on.
+      </p>
+
       <PillTabs
         value={active}
         onChange={setActive}

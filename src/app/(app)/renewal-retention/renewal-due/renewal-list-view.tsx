@@ -20,7 +20,8 @@ import { cn } from "@/lib/utils"
 import { NewRenewalDialog } from "../invoices/new-renewal-dialog"
 import { NonRenewalDialog } from "../non-renewal-dialog"
 import type { NonRenewalTarget } from "../non-renewal-dialog"
-import { daysLabel, longDate, money, PageHeader, Pill, plural, TERM_LABEL, TONE_TEXT } from "../ui"
+import { RENEWAL_STATE_HELP } from "@/lib/renewal/help-text"
+import { daysLabel, Hint, longDate, money, PageHeader, Pill, plural, TERM_LABEL, TONE_TEXT } from "../ui"
 import type { Tone } from "../ui"
 
 type ListOutlet = {
@@ -329,9 +330,11 @@ export function RenewalListView({ actionCount, canCreate }: { actionCount: numbe
                   <span className="min-w-[7rem] shrink-0 text-right text-[0.9375rem] font-semibold tabular-nums">
                     {franchise.totalMinor === null ? "—" : money(franchise.totalMinor)}
                   </span>
-                  <Pill tone={STATE_TONE[franchise.state] ?? "gray"} className="shrink-0 px-2.5 py-[0.1875rem]">
-                    {franchise.stateLabel}
-                  </Pill>
+                  <Hint content={RENEWAL_STATE_HELP[franchise.state]} className="shrink-0">
+                    <Pill tone={STATE_TONE[franchise.state] ?? "gray"} className="px-2.5 py-[0.1875rem]">
+                      {franchise.stateLabel}
+                    </Pill>
+                  </Hint>
                 </button>
 
                 {isOpen ? (

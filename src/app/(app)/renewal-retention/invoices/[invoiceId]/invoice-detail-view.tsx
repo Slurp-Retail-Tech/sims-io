@@ -33,6 +33,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/toast-provider"
 import { addressLines, registrationLine } from "@/lib/renewal/document-content"
+import { INVOICE_STATUS_HELP } from "@/lib/renewal/help-text"
 import { nonRenewalLabel } from "@/lib/renewal/non-renewal"
 import type { BillToDetails } from "@/lib/renewal/document-content"
 import { cn } from "@/lib/utils"
@@ -49,6 +50,7 @@ import {
   plural,
   shortDateTime,
   signedMoney,
+  Hint,
   TERM_LABEL,
   TONE_DOT,
 } from "../../ui"
@@ -616,14 +618,18 @@ export function InvoiceDetailView({
           <h1 className="font-mono text-[1.375rem] font-semibold">
             {invoice.invoiceNumber}
             {taxInvoice ? (
-              <span className="text-muted-foreground font-normal" title="Tax invoice issued against this proforma">
-                {" "}→ {taxInvoice.invoiceNumber}
-              </span>
+              <Hint content="Tax invoice issued against this proforma">
+                <span className="text-muted-foreground font-normal">
+                  {" "}→ {taxInvoice.invoiceNumber}
+                </span>
+              </Hint>
             ) : null}
           </h1>
-          <Pill tone={INVOICE_STATUS_TONE[invoice.status] ?? "gray"}>
-            {INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status}
-          </Pill>
+          <Hint content={INVOICE_STATUS_HELP[invoice.status]}>
+            <Pill tone={INVOICE_STATUS_TONE[invoice.status] ?? "gray"}>
+              {INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status}
+            </Pill>
+          </Hint>
           {invoice.documentType === "proforma" ? (
             <OutlinePill>{invoice.issuedAs === "quotation" ? "Quotation" : "Proforma invoice"}</OutlinePill>
           ) : null}
@@ -823,46 +829,55 @@ export function InvoiceDetailView({
               <CardContent>
                 <div className="flex flex-wrap gap-2">
                   {invoice.status === "draft" ? (
-                    <Button variant="outline" size="sm" disabled={busy} onClick={() => void runAction({ action: "issue" }, "Invoice issued.")}>
-                      Issue invoice
-                    </Button>
+                    <Hint content="Make the draft a live document. Reminders go out on the next offset night.">
+                      <Button variant="outline" size="sm" disabled={busy} onClick={() => void runAction({ action: "issue" }, "Invoice issued.")}>
+                        Issue invoice
+                      </Button>
+                    </Hint>
                   ) : null}
-                  <Button variant="outline" size="sm" disabled={!isOpen || busy} onClick={() => setDialog("term")}>
-                    Override term
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!liveSession || busy}
-                    title={liveSession ? "Supersede the open gateway session so the merchant starts a fresh one" : "No open payment session"}
-                    onClick={() => void runAction({ action: "reset_session" }, "Payment session reset. The merchant's next Renew now opens a fresh one.")}
-                  >
-                    Reset payment session
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || !dispatchEnabled || !dispatches.some((dispatch) => dispatch.status !== "suppressed")}
-                    title={
+                  <Hint content={isOpen ? "Switch between the 1-year and 6-month term on the merchant's behalf; the lines are repriced" : "Only an open document can change term"}>
+                    <Button variant="outline" size="sm" disabled={!isOpen || busy} onClick={() => setDialog("term")}>
+                      Override term
+                    </Button>
+                  </Hint>
+                  <Hint content={liveSession ? "Supersede the open gateway session so the merchant starts a fresh one" : "No open payment session"}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!liveSession || busy}
+                      onClick={() => void runAction({ action: "reset_session" }, "Payment session reset. The merchant's next Renew now opens a fresh one.")}
+                    >
+                      Reset payment session
+                    </Button>
+                  </Hint>
+                  <Hint
+                    content={
                       dispatches.length === 0
                         ? "Nothing has been sent on this invoice yet"
                         : !dispatchEnabled
                           ? "Outbound dispatch is paused in Renewal Settings"
                           : "Send the latest message again to everyone it went to"
                     }
-                    onClick={() => void runAction({ action: "resend_dispatch" }, "Queued to send again.")}
                   >
-                    Resend dispatch
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!isPaid || busy}
-                    title={isPaid ? "Email the receipt and tax invoice again" : "Available once the invoice is paid"}
-                    onClick={() => setDialog("resendEmail")}
-                  >
-                    Re-send payer email
-                  </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy || !dispatchEnabled || !dispatches.some((dispatch) => dispatch.status !== "suppressed")}
+                      onClick={() => void runAction({ action: "resend_dispatch" }, "Queued to send again.")}
+                    >
+                      Resend dispatch
+                    </Button>
+                  </Hint>
+                  <Hint content={isPaid ? "Email the receipt and tax invoice again" : "Available once the invoice is paid"}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!isPaid || busy}
+                      onClick={() => setDialog("resendEmail")}
+                    >
+                      Re-send payer email
+                    </Button>
+                  </Hint>
                   {postPaymentIncomplete ? (
                     <Button
                       variant="outline"
@@ -874,68 +889,76 @@ export function InvoiceDetailView({
                     </Button>
                   ) : null}
                   {invoice.documentType === "proforma" && isOpen ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy}
-                      title="Re-print with the current company details. Issued tax invoices and receipts keep theirs."
-                      onClick={() => void runAction({ action: "reprint_proforma" }, `${documentName} re-printed with the current details.`)}
-                    >
-                      Re-print {documentName.toLowerCase()}
-                    </Button>
+                    <Hint content={"Re-print with the current company details. Issued tax invoices and receipts keep theirs."}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => void runAction({ action: "reprint_proforma" }, `${documentName} re-printed with the current details.`)}
+                      >
+                        Re-print {documentName.toLowerCase()}
+                      </Button>
+                    </Hint>
                   ) : null}
                   {invoice.documentType === "proforma" ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!isOpen || busy}
-                      title={isOpen ? "The merchant's purchase order number, printed on every document" : "Fixed once the invoice is paid or closed"}
-                      onClick={() => setDialog("po")}
-                    >
-                      {invoice.poNumber ? "Change PO number" : "Add PO number"}
-                    </Button>
+                    <Hint content={isOpen ? "The merchant's purchase order number, printed on every document" : "Fixed once the invoice is paid or closed"}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!isOpen || busy}
+                        onClick={() => setDialog("po")}
+                      >
+                        {invoice.poNumber ? "Change PO number" : "Add PO number"}
+                      </Button>
+                    </Hint>
                   ) : null}
                   {invoice.documentType === "proforma" ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!isOpen || busy}
-                      title={
+                    <Hint
+                      content={
                         isOpen
                           ? "Takes a new number from the other series. The merchant's link keeps working; an open payment session is reset."
                           : "Only an open document can change type"
                       }
-                      onClick={() => {
-                        const next = invoice.issuedAs === "quotation" ? "proforma" : "quotation"
-                        void runAction(
-                          { action: "switch_document_type", issuedAs: next },
-                          next === "quotation" ? "Re-issued as a quotation." : "Re-issued as a proforma invoice."
-                        )
-                      }}
                     >
-                      {invoice.issuedAs === "quotation" ? "Re-issue as proforma" : "Re-issue as quotation"}
-                    </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!isOpen || busy}
+                        onClick={() => {
+                          const next = invoice.issuedAs === "quotation" ? "proforma" : "quotation"
+                          void runAction(
+                            { action: "switch_document_type", issuedAs: next },
+                            next === "quotation" ? "Re-issued as a quotation." : "Re-issued as a proforma invoice."
+                          )
+                        }}
+                      >
+                        {invoice.issuedAs === "quotation" ? "Re-issue as proforma" : "Re-issue as quotation"}
+                      </Button>
+                    </Hint>
                   ) : null}
                   {invoice.documentType === "proforma" && !isPaid ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy || ["cancelled", "superseded"].includes(invoice.status)}
-                      title="Record why the merchant is not renewing. An open document is voided so no more reminders go out."
-                      onClick={() =>
-                        setReasonTarget({
-                          franchiseId: invoice.franchiseId,
-                          invoiceId: invoice.id,
-                          label: invoice.companyName ?? `Franchise ${invoice.franchiseId}`,
-                        })
-                      }
-                    >
-                      Not renewing
-                    </Button>
+                    <Hint content={"Record why the merchant is not renewing. An open document is voided so no more reminders go out."}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy || ["cancelled", "superseded"].includes(invoice.status)}
+                        onClick={() =>
+                          setReasonTarget({
+                            franchiseId: invoice.franchiseId,
+                            invoiceId: invoice.id,
+                            label: invoice.companyName ?? `Franchise ${invoice.franchiseId}`,
+                          })
+                        }
+                      >
+                        Not renewing
+                      </Button>
+                    </Hint>
                   ) : null}
-                  <Button variant="outline" size="sm" className="text-destructive" disabled={!isOpen || busy} onClick={() => setDialog("void")}>
-                    Void invoice
-                  </Button>
+                  <Hint content={isOpen ? "Cancel the document; its link stops working. Use Not renewing instead when the merchant is leaving, so it is counted" : "This document is already closed"}>
+                    <Button variant="outline" size="sm" className="text-destructive" disabled={!isOpen || busy} onClick={() => setDialog("void")}>
+                      Void invoice
+                    </Button>
+                  </Hint>
                 </div>
               </CardContent>
             </Card>

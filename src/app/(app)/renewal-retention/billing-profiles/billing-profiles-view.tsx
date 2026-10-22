@@ -14,7 +14,9 @@ import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/toast-provider"
 import { registrationLine } from "@/lib/renewal/document-content"
 
-import { ColumnHeadings, PageHeader, Pill, PillTabs, plural, shortDateTime } from "../ui"
+import { BILLING_PROFILE_HELP } from "@/lib/renewal/help-text"
+
+import { ColumnHeadings, Hint, PageHeader, Pill, PillTabs, plural, shortDateTime } from "../ui"
 import type { Tone } from "../ui"
 import { ProfileDialog } from "./profile-dialog"
 import type { Candidate, Profile } from "./profile-dialog"
@@ -43,20 +45,20 @@ type Filter = "all" | "review" | "missing" | "matched"
 const PAGE_SIZE = 100
 
 /** Where a franchise stands, for the pill and the filter. */
-function standing(row: Row): { filter: Exclude<Filter, "all">; label: string; tone: Tone } {
+function standing(row: Row): { filter: Exclude<Filter, "all">; label: string; tone: Tone; help: string } {
   if (row.profile) {
     switch (row.profile.matchStatus) {
       case "auto":
-        return { filter: "matched", label: "Auto-matched", tone: "blue" }
+        return { filter: "matched", label: "Auto-matched", tone: "blue", help: BILLING_PROFILE_HELP.auto }
       case "confirmed":
-        return { filter: "matched", label: "Confirmed", tone: "green" }
+        return { filter: "matched", label: "Confirmed", tone: "green", help: BILLING_PROFILE_HELP.confirmed }
       case "manual":
-        return { filter: "matched", label: "Entered by hand", tone: "green" }
+        return { filter: "matched", label: "Entered by hand", tone: "green", help: BILLING_PROFILE_HELP.manual }
     }
   }
   return row.candidates.length > 0
-    ? { filter: "review", label: `${plural(row.candidates.length, "candidate")}`, tone: "amber" }
-    : { filter: "missing", label: "No profile", tone: "gray" }
+    ? { filter: "review", label: `${plural(row.candidates.length, "candidate")}`, tone: "amber", help: BILLING_PROFILE_HELP.review }
+    : { filter: "missing", label: "No profile", tone: "gray", help: BILLING_PROFILE_HELP.missing }
 }
 
 /**
@@ -281,7 +283,9 @@ export function BillingProfilesView({ canManage, initialSearch }: { canManage: b
                         )}
                       </div>
                       <div>
-                        <Pill tone={state.tone}>{state.label}</Pill>
+                        <Hint content={state.help}>
+                          <Pill tone={state.tone}>{state.label}</Pill>
+                        </Hint>
                       </div>
                       <div className="flex justify-end">
                         {canManage ? (

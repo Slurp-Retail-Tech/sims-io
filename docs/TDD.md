@@ -1574,6 +1574,23 @@ Paid invoices whose tax invoice is not issued yet are left out and join a
 later batch. Batches generated before the change are CSV and still download as
 CSV.
 
+**Renewal message copy.** Every template in `message-templates.ts` opens
+with `GREETING` ("Dear Valued Merchant,") and no longer uses `{picName}`;
+`{documentLabel}` / `{documentLabelCapital}` name the document from the
+invoice's `issued_as`. WhatsApp body parameters are derived from the copy's
+placeholders in reading order (`whatsappBodyParameters`), so the greeting
+change shifted every parameter. The WhatsApp template names therefore moved
+to `_v2`, which keeps a send from ever pairing new parameters with an
+approved v1 body: the v2 templates must be approved in Meta through
+Respond.io before `dispatch_enabled` is switched on.
+
+**Tooltips.** `Hint` and `InfoTip` in `renewal-retention/ui.tsx` wrap the
+`ui/tooltip` primitive; `Hint` puts its trigger on a span so a disabled
+button still explains itself. The copy lives in `src/lib/renewal/help-text.ts`
+(invoice statuses, Renewal List states, headline metrics, billing profile
+statuses). `KpiTile` takes a `hint`. Native `title=` attributes are no longer
+used on the renewal screens.
+
 **Quotations and PO numbers.** A quotation is a proforma in every respect
 but its name: `renewal_invoices.issued_as` (`proforma` | `quotation`,
 migration 042) changes only the title (`docTypeTitle`), the "Due date" label

@@ -6,6 +6,14 @@
  * template approval and must match the approved template body exactly;
  * email copy is sent as written. Both channels go through Respond.io.
  *
+ * Every message opens with the same general greeting, "Dear Valued
+ * Merchant,", rather than the PIC's name: the name on file is often a
+ * cashier or a nickname, and a message forwarded inside the business should
+ * still read correctly. Changing the greeting changed every WhatsApp body and
+ * so the order of its parameters, which is why the templates carry a `_v2`
+ * name: Meta must approve them as new templates before dispatch is switched
+ * on, and a send can never pair the new parameters with an old body.
+ *
  * Variables are `{name}` placeholders substituted at send time. Keeping the
  * copy here, rather than in the dispatch job, means the Templates page shows
  * exactly what a merchant will receive and a copy change is one edit.
@@ -20,8 +28,14 @@ export type TemplateKey =
   | "receipt"
   | "payer_documents"
 
+/** The greeting every renewal message opens with. */
+export const GREETING = "Dear Valued Merchant,"
+
 export type TemplateVariables = {
+  /** The recipient's name. No longer in the copy; kept for templates that may want it. */
   picName: string
+  /** `proforma` or `quotation`: what the merchant was sent. */
+  documentLabel: string
   companyName: string
   outletCount: number
   expiryDate: string
@@ -59,56 +73,56 @@ export const MESSAGE_TEMPLATES: readonly MessageTemplate[] = [
   {
     key: "reminder_first",
     label: "T-15 reminder",
-    whatsappTemplate: "renewal_reminder_first",
+    whatsappTemplate: "renewal_reminder_first_v2",
     whatsappBody:
-      "Hi {picName},\n\n{companyName}'s Slurp licence for {outletCount} expires on {expiryDate}, {daysToExpiry} days from today.\n\nYour proforma {invoiceNumber} is ready. You can review it, choose a 1-year or 6-month term, and pay online.",
+      "Dear Valued Merchant,\n\n{companyName}'s Slurp licence for {outletCount} expires on {expiryDate}, {daysToExpiry} days from today.\n\nYour {documentLabel} {invoiceNumber} is ready. You can review it, choose a 1-year or 6-month term, and pay online.",
     whatsappButton: "View and renew",
     whatsappNote: "Sent at T-15 to the renewal PIC and every CC contact with WhatsApp enabled.",
     emailSubject: "Renewal due in {daysToExpiry} days: {companyName} ({outletCount})",
     emailBody:
-      "Hi {picName},\n\n{companyName}'s Slurp licence for {outletCount} expires on {expiryDate}.\n\nProforma {invoiceNumber} totals {totalAnnual} at the 1-year term. Opening the link lets you switch to a 6-month term, see the new expiry date either choice produces, print the proforma, and pay by card or FPX.\n\nSlurp Renewals",
+      "Dear Valued Merchant,\n\n{companyName}'s Slurp licence for {outletCount} expires on {expiryDate}.\n\n{documentLabelCapital} {invoiceNumber} totals {totalAnnual} at the 1-year term. Opening the link lets you switch to a 6-month term, see the new expiry date either choice produces, print the {documentLabel}, and pay by card or FPX.\n\nSlurp Renewals",
     emailNote: "One dispatch row per recipient and channel. A failure on one channel is retried only on that channel.",
     emailAttachments: false,
   },
   {
     key: "reminder_second",
     label: "T-5 reminder",
-    whatsappTemplate: "renewal_reminder_second",
+    whatsappTemplate: "renewal_reminder_second_v2",
     whatsappBody:
-      "Hi {picName},\n\nA reminder that {companyName}'s licence for {outletCount} expires on {expiryDate}, {daysToExpiry} days away.\n\nProforma {invoiceNumber} · {totalAnnual} at the 1-year term.",
+      "Dear Valued Merchant,\n\nA reminder that {companyName}'s licence for {outletCount} expires on {expiryDate}, {daysToExpiry} days away.\n\n{documentLabelCapital} {invoiceNumber} · {totalAnnual} at the 1-year term.",
     whatsappButton: "View and renew",
     whatsappNote: "Sent at T-5 against the same invoice created at T-15. No new number.",
     emailSubject: "Renewal due in {daysToExpiry} days: {companyName} ({outletCount})",
     emailBody:
-      "Hi {picName},\n\n{companyName}'s licence for {outletCount} expires on {expiryDate}, in {daysToExpiry} days.\n\nProforma {invoiceNumber} is still open at {totalAnnual} for the 1-year term{biAnnualClause}.\n\nSlurp Renewals",
+      "Dear Valued Merchant,\n\n{companyName}'s licence for {outletCount} expires on {expiryDate}, in {daysToExpiry} days.\n\n{documentLabelCapital} {invoiceNumber} is still open at {totalAnnual} for the 1-year term{biAnnualClause}.\n\nSlurp Renewals",
     emailNote: "The T-5 and T-1 runs reuse the invoice created at T-15, so the merchant's existing link keeps working.",
     emailAttachments: false,
   },
   {
     key: "reminder_final",
     label: "T-1 reminder",
-    whatsappTemplate: "renewal_reminder_final",
+    whatsappTemplate: "renewal_reminder_final_v2",
     whatsappBody:
-      "Hi {picName},\n\n{companyName}'s licence for {outletCount} expires tomorrow, {expiryDate}.\n\nRenewing today keeps every outlet running without interruption.",
+      "Dear Valued Merchant,\n\n{companyName}'s licence for {outletCount} expires tomorrow, {expiryDate}.\n\nRenewing today keeps every outlet running without interruption.",
     whatsappButton: "Renew now",
     whatsappNote: "The last message in the cadence. There is no post-expiry chase.",
     emailSubject: "Renewal due tomorrow: {companyName} ({outletCount})",
     emailBody:
-      "Hi {picName},\n\n{companyName}'s licence for {outletCount} expires tomorrow, {expiryDate}.\n\nProforma {invoiceNumber} · {totalAnnual} at the 1-year term. The renewal link stays payable for {graceDays} days after expiry, and a payment inside that window still extends from {expiryDate}.\n\nSlurp Renewals",
+      "Dear Valued Merchant,\n\n{companyName}'s licence for {outletCount} expires tomorrow, {expiryDate}.\n\n{documentLabelCapital} {invoiceNumber} · {totalAnnual} at the 1-year term. The renewal link stays payable for {graceDays} days after expiry, and a payment inside that window still extends from {expiryDate}.\n\nSlurp Renewals",
     emailNote: "Cadence ends here. Follow-up on a non-renewed subscription is worked from the Renewal List.",
     emailAttachments: false,
   },
   {
     key: "receipt",
     label: "Receipt to PIC",
-    whatsappTemplate: "renewal_payment_receipt",
+    whatsappTemplate: "renewal_payment_receipt_v2",
     whatsappBody:
-      "Payment received. Thank you.\n\n{companyName} · {outletCount} renewed for {term}.\nAmount: {amountPaid}\nNew expiry: {newExpiryDate}\n\nYour receipt and tax invoice are ready.",
+      "Dear Valued Merchant,\n\nPayment received. Thank you.\n\n{companyName} · {outletCount} renewed for {term}.\nAmount: {amountPaid}\nNew expiry: {newExpiryDate}\n\nYour receipt and tax invoice are ready.",
     whatsappButton: "View receipt",
     whatsappNote: "Sent on confirmed payment to the PIC and CC contacts, carrying a link to the receipt page.",
     emailSubject: "Payment received: {companyName} renewal",
     emailBody:
-      "Hi {picName},\n\nWe have received {amountPaid} for {companyName}'s renewal. {outletCountCapital} now valid until {newExpiryDate}.\n\nThe receipt and tax invoice are on the receipt page, and were emailed to the address entered at payment.\n\nSlurp Renewals",
+      "Dear Valued Merchant,\n\nWe have received {amountPaid} for {companyName}'s renewal. {outletCountCapital} now valid until {newExpiryDate}.\n\nThe receipt and tax invoice are on the receipt page, and were emailed to the address entered at payment.\n\nSlurp Renewals",
     emailNote: "Where the payer email matches the PIC's, one email is sent and the PIC's email receipt is suppressed. Their WhatsApp receipt still goes out.",
     emailAttachments: false,
   },
@@ -121,7 +135,7 @@ export const MESSAGE_TEMPLATES: readonly MessageTemplate[] = [
     whatsappNote: "Email only. It carries the PDFs to whoever paid, who may not be a WhatsApp contact at all.",
     emailSubject: "Your receipt and tax invoice: {companyName}",
     emailBody:
-      "Thank you for your payment of {amountPaid}.\n\nAttached are the receipt and the tax invoice {taxInvoiceNumber} for {companyName}, covering {outletCount} for the period {periodStart} to {periodEnd}.\n\nSlurp Renewals",
+      "Dear Valued Merchant,\n\nThank you for your payment of {amountPaid}.\n\nAttached are the receipt and the tax invoice {taxInvoiceNumber} for {companyName}, covering {outletCount} for the period {periodStart} to {periodEnd}.\n\nSlurp Renewals",
     emailNote: "Sent immediately on confirmed payment. A payer who is not already a Respond.io contact is created as one, tagged renewal-payer, with the conversation closed immediately.",
     emailAttachments: true,
   },
@@ -143,6 +157,8 @@ export function getTemplate(key: TemplateKey): MessageTemplate {
 export function renderTemplate(text: string, variables: TemplateVariables): string {
   const values: Record<string, string> = {
     picName: variables.picName,
+    documentLabel: variables.documentLabel,
+    documentLabelCapital: variables.documentLabel.charAt(0).toUpperCase() + variables.documentLabel.slice(1),
     companyName: variables.companyName,
     outletCount: outlets(variables.outletCount),
     outletCountCapital:
@@ -168,6 +184,7 @@ export function renderTemplate(text: string, variables: TemplateVariables): stri
 /** Sample values for the Templates page preview. */
 export const SAMPLE_VARIABLES: TemplateVariables = {
   picName: "Tan Wei Ling",
+  documentLabel: "proforma",
   companyName: "Teh Tarik House",
   outletCount: 6,
   expiryDate: "2 Oct 2026",
