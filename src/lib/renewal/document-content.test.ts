@@ -103,11 +103,11 @@ test("Bill To prints the registered name, SSM, TIN and address from the billing 
     billTo: {
       legalName: "TEH TARIK HOUSE SDN. BHD.",
       regNoType: "BRN",
-      registrationNo: "202103124055",
+      registrationNo: "202001000202",
       oldRegistrationNo: "1412345-X",
-      tin: "C26134056050",
+      tin: "C00000000202",
       sstNo: null,
-      street: "LOT 1-3A, VERVE SHOPS,,\nEmail: accounts@tehtarik.example\nNO.8, JALAN KIARA 5,",
+      street: "LOT 2-2, CONTOH PLAZA,,\nEmail: accounts@tehtarik.example\nNO.2, JALAN CONTOH 2,",
       city: "KUALA LUMPUR",
       state: "Wilayah Persekutuan Kuala Lumpur",
       postcode: "50480",
@@ -116,10 +116,10 @@ test("Bill To prints the registered name, SSM, TIN and address from the billing 
   })
   assert.equal(content.billTo.name, "TEH TARIK HOUSE SDN. BHD.")
   assert.deepEqual(content.billTo.lines, [
-    "SSM 202103124055 (1412345-X)",
-    "TIN C26134056050",
-    "LOT 1-3A, VERVE SHOPS",
-    "NO.8, JALAN KIARA 5",
+    "SSM 202001000202 (1412345-X)",
+    "TIN C00000000202",
+    "LOT 2-2, CONTOH PLAZA",
+    "NO.2, JALAN CONTOH 2",
     "50480 KUALA LUMPUR",
     "Wilayah Persekutuan Kuala Lumpur",
     "accounts@tehtarik.example",
@@ -145,14 +145,14 @@ test("an NRIC registration is labelled as one, and a street that names its town 
       oldRegistrationNo: null,
       tin: null,
       sstNo: null,
-      street: "85, JALAN SELASIH,\nTAMAN GEMBIRA,\n41100 KLANG,\nSELANGOR,",
+      street: "12, JALAN CONTOH,\nTAMAN SAMPEL,\n41100 KLANG,\nSELANGOR,",
       city: "Klang",
       state: "Selangor",
       postcode: "41100",
       country: null,
     },
   })
-  assert.deepEqual(content.billTo.lines, ["NRIC 800101-14-5555", "85, JALAN SELASIH", "TAMAN GEMBIRA", "41100 KLANG", "SELANGOR"])
+  assert.deepEqual(content.billTo.lines, ["NRIC 800101-14-5555", "12, JALAN CONTOH", "TAMAN SAMPEL", "41100 KLANG", "SELANGOR"])
 })
 
 test("a proforma issued as a quotation is titled QUOTATION, with its PO number and a validity date", () => {

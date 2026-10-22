@@ -27,10 +27,10 @@ const ROWS = [
   ["#", "Lines that start with '#' are comments."],
   ["#", "Basic Information", "", "", "", "", "Billing Address (17)"],
   HEADER,
-  row({ 1: "C-20003", 3: "23.5 COFFEE ROASTERY", 4: "Malaysian Company", 6: "BRN", 7: "202103124055", 8: "TR0241344-W", 9: "IG1315665090", 12: "tipsybrew@example.test, Email: roastery@example.test", 13: "LOT 1-3A, VERVE SHOPS", 14: "KUALA LUMPUR", 15: "Wilayah Persekutuan Kuala Lumpur", 16: "50480", 17: "MY", 18: "SHIPPING ST", 19: "SHIP CITY" }),
-  row({ 1: "C-10001", 3: "101 KOPITIAN" }),
+  row({ 1: "C-90001", 3: "SAMPLE ROASTERY SDN BHD", 4: "Malaysian Company", 6: "BRN", 7: "202001000101", 8: "1000101-A", 9: "IG00000000101", 12: "owner@example.test, Email: roastery@example.test", 13: "LOT 1-1, CONTOH PLAZA", 14: "KUALA LUMPUR", 15: "Wilayah Persekutuan Kuala Lumpur", 16: "50480", 17: "MY", 18: "SHIPPING ST", 19: "SHIP CITY" }),
+  row({ 1: "C-90002", 3: "SAMPLE KOPITIAN" }),
   row({ 1: "", 3: "NO CODE SDN BHD" }),
-  row({ 1: "C-10001", 3: "101 KOPITIAN AGAIN" }),
+  row({ 1: "C-90002", 3: "SAMPLE KOPITIAN AGAIN" }),
   ["", "", ""],
 ]
 
@@ -38,19 +38,19 @@ test("parses data rows by header, reading the billing address and not the shippi
   const { contacts, skipped } = parseBukkuContactRows(ROWS)
   assert.equal(contacts.length, 2)
   const [roastery] = contacts
-  assert.equal(roastery.contactCode, "C-20003")
-  assert.equal(roastery.legalName, "23.5 COFFEE ROASTERY")
+  assert.equal(roastery.contactCode, "C-90001")
+  assert.equal(roastery.legalName, "SAMPLE ROASTERY SDN BHD")
   assert.equal(roastery.regNoType, "BRN")
-  assert.equal(roastery.registrationNo, "202103124055")
-  assert.equal(roastery.oldRegistrationNo, "TR0241344-W")
-  assert.equal(roastery.tin, "IG1315665090")
-  assert.equal(roastery.billingStreet, "LOT 1-3A, VERVE SHOPS")
+  assert.equal(roastery.registrationNo, "202001000101")
+  assert.equal(roastery.oldRegistrationNo, "1000101-A")
+  assert.equal(roastery.tin, "IG00000000101")
+  assert.equal(roastery.billingStreet, "LOT 1-1, CONTOH PLAZA")
   assert.equal(roastery.billingCity, "KUALA LUMPUR")
-  assert.deepEqual(roastery.emails, ["tipsybrew@example.test", "roastery@example.test"])
+  assert.deepEqual(roastery.emails, ["owner@example.test", "roastery@example.test"])
   assert.equal(contacts[1].tin, null)
   assert.deepEqual(
     skipped.map((entry) => entry.reason),
-    ["No contact code or legal name.", "Contact code C-10001 appears twice."]
+    ["No contact code or legal name.", "Contact code C-90002 appears twice."]
   )
   // Rows are numbered as the spreadsheet shows them.
   assert.equal(skipped[0].row, 7)
@@ -62,9 +62,9 @@ test("refuses a sheet that is not a contacts export", () => {
 })
 
 test("company names normalise across punctuation, suffix spelling and bracketed registration numbers", () => {
-  assert.equal(normalizeCompanyName("A R 6 Management Sdn. Bhd. (1374135-H)"), "A R 6 MANAGEMENT SDN BHD")
-  assert.equal(normalizeCompanyName("A R 6 MANAGEMENT SDN BHD"), "A R 6 MANAGEMENT SDN BHD")
-  assert.equal(normalizeCompanyName("A&A Gemilang Global"), "A AND A GEMILANG GLOBAL")
+  assert.equal(normalizeCompanyName("Contoh Holdings Sdn. Bhd. (1000000-X)"), "CONTOH HOLDINGS SDN BHD")
+  assert.equal(normalizeCompanyName("CONTOH HOLDINGS SDN BHD"), "CONTOH HOLDINGS SDN BHD")
+  assert.equal(normalizeCompanyName("A&B Sample Global"), "A AND B SAMPLE GLOBAL")
   assert.equal(normalizeCompanyName(null), "")
 })
 
