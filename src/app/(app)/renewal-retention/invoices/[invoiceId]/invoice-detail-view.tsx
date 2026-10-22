@@ -1529,7 +1529,7 @@ function DocumentsCard({ invoice, taxInvoice, isPaid }: { invoice: Invoice; taxI
   const rows: Array<{ key: string; label: string; number?: string | null; detail: string; href: string | null }> = [
     {
       key: "proforma",
-      label: "Proforma invoice",
+      label: invoice.issuedAs === "quotation" ? "Quotation" : "Proforma invoice",
       number: invoice.invoiceNumber,
       detail: `Issued ${longDate(invoice.issueDate)} · due ${longDate(invoice.dueDate)}`,
       href: `/api/renewals/invoices/${invoice.id}/pdf`,
@@ -1563,7 +1563,8 @@ function DocumentsCard({ invoice, taxInvoice, isPaid }: { invoice: Invoice; taxI
       <CardHeader>
         <CardTitle className="text-base">Documents</CardTitle>
         <CardDescription>
-          One renewal, three documents: the proforma the merchant pays, and the tax invoice and receipt issued once they have.
+          One renewal, three documents: the {invoice.issuedAs === "quotation" ? "quotation" : "proforma"} the merchant
+          pays, and the tax invoice and receipt issued once they have.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))]">
