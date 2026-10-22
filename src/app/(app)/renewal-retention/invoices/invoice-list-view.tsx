@@ -30,6 +30,7 @@ import {
   TONE_TEXT,
 } from "../ui"
 import type { RunStatus } from "../ui"
+import { NewRenewalDialog } from "./new-renewal-dialog"
 
 type Invoice = {
   id: string
@@ -51,6 +52,9 @@ type Invoice = {
   createdAt: string
   /** The tax invoice issued against this proforma once paid, if any. */
   taxInvoiceNumber: string | null
+  paidVia: "commercepay" | "manual" | null
+  /** Proof of payment attached; counted for offline payments only. */
+  proofCount: number
 }
 
 const ALL = "__all__"
@@ -78,7 +82,8 @@ function engagement(invoice: Invoice): { label: string; warn: boolean } {
   return { label: `Opened ${invoice.openCount}×`, warn: false }
 }
 
-export function InvoiceListView() {
+export function InvoiceListView({ canCreate }: { canCreate: boolean }) {
+  const [creating, setCreating] = React.useState(false)
   const [invoices, setInvoices] = React.useState<Invoice[]>([])
   // `?status=paid` from the overview tiles pre-filters the list.
   const [status, setStatus] = React.useState<string>(() => {
@@ -133,7 +138,14 @@ export function InvoiceListView() {
             ))}
           </SelectContent>
         </Select>
+        {canCreate ? (
+          <Button size="sm" className="h-9" onClick={() => setCreating(true)}>
+            New renewal
+          </Button>
+        ) : null}
       </PageHeader>
+
+      <NewRenewalDialog open={creating} onOpenChange={setCreating} />
 
       <Card>
         <CardContent className="pt-6">
@@ -205,6 +217,11 @@ export function InvoiceListView() {
                       <span className={cn("text-xs", line.warn ? TONE_TEXT.amber : "text-muted-foreground")}>
                         {line.label}
                       </span>
+                      {invoice.status === "paid" && invoice.paidVia === "manual" && invoice.proofCount === 0 ? (
+                        <Pill tone="amber" className="font-medium">
+                          No proof
+                        </Pill>
+                      ) : null}
                     </span>
                   </Link>
                 )

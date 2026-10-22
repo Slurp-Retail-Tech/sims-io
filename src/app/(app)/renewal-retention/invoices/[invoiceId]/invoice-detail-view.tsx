@@ -94,6 +94,18 @@ type Invoice = {
   payerEmailError: string | null
 }
 
+type Proof = {
+  id: string
+  originalName: string
+  contentType: string
+  sizeBytes: number
+  uploadedByUserId: string | null
+  uploadedAt: string
+}
+
+/** Mirrors `PROOF_ACCEPT` in `src/lib/renewal/payment-proofs.ts`. */
+const PROOF_ACCEPT = ".jpg,.jpeg,.png,.webp,.heic,.pdf,image/jpeg,image/png,image/webp,image/heic,application/pdf"
+
 type Extension = {
   id: string
   outletId: string
@@ -232,6 +244,12 @@ function describeEvent(event: Event, invoice: Invoice): TimelineEntry {
         tone: "gray",
         detail: String(payload.objectKey ?? ""),
       }
+    case "payment_proof_attached":
+      return { ...base, title: "Proof of payment attached", tone: "green", detail: Array.isArray(payload.files) ? payload.files.map(String).join(", ") : "" }
+    case "payment_proof_removed":
+      return { ...base, title: "Proof of payment removed", tone: "amber", detail: "" }
+    case "manually_created":
+      return { ...base, title: "Raised by hand", tone: "blue", detail: `${plural(Number(payload.outlets ?? invoice.itemCount), "outlet")} · ${TERM_LABEL[String(payload.term)] ?? ""} term` }
     case "po_number_set":
       return { ...base, title: payload.to ? "PO number set" : "PO number removed", tone: "gray", detail: payload.to ? `PO ${String(payload.to)}${payload.from ? ` (was ${String(payload.from)})` : ""}` : `Was ${String(payload.from ?? "")}` }
     case "document_type_switched": {
@@ -342,6 +360,7 @@ export function InvoiceDetailView({
   const [taxInvoice, setTaxInvoice] = React.useState<Invoice | null>(null)
   const [callbacks, setCallbacks] = React.useState<Callback[]>([])
   const [dispatches, setDispatches] = React.useState<Dispatch[]>([])
+  const [proofs, setProofs] = React.useState<Proof[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [copied, setCopied] = React.useState(false)
@@ -365,6 +384,7 @@ export function InvoiceDetailView({
         taxInvoice?: Invoice | null
         callbacks?: Callback[]
         dispatches?: Dispatch[]
+        proofs?: Proof[]
       }
       setInvoice(payload.invoice)
       setItems(payload.items ?? [])
@@ -375,6 +395,7 @@ export function InvoiceDetailView({
       setTaxInvoice(payload.taxInvoice ?? null)
       setCallbacks(payload.callbacks ?? [])
       setDispatches(payload.dispatches ?? [])
+      setProofs(payload.proofs ?? [])
       setError(null)
     } catch (loadError) {
       setInvoice(null)
@@ -423,6 +444,54 @@ export function InvoiceDetailView({
     } catch {
       showToast("Unable to reach the server. Try again.", "error")
       return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Attach files; returns false (after saying why) when nothing was attached. */
+  async function attachProofs(files: readonly File[]): Promise<boolean> {
+    if (files.length === 0) return true
+    const form = new FormData()
+    for (const file of files) form.append("files", file)
+    try {
+      const response = await fetch(`/api/renewals/invoices/${invoiceId}/proofs`, { method: "POST", body: form })
+      const payload = (await response.json().catch(() => ({}))) as { error?: string }
+      if (!response.ok) {
+        showToast(payload.error ?? "The proof of payment could not be attached.", "error")
+        return false
+      }
+      return true
+    } catch {
+      showToast("Unable to reach the server to attach the proof. Try again from the Payment proof card.", "error")
+      return false
+    }
+  }
+
+  async function recordOfflinePayment(input: { reference: string; note?: string; payerEmail?: string }, files: File[]) {
+    const paid = await runAction({ action: "mark_paid_offline", ...input }, "Payment recorded. Extension, tax invoice and documents follow.")
+    if (paid && files.length > 0) {
+      setBusy(true)
+      if (await attachProofs(files)) {
+        showToast(`${plural(files.length, "file")} attached as proof of payment.`, "success")
+      }
+      setBusy(false)
+      void load()
+    }
+  }
+
+  async function removeProof(proofId: string) {
+    setBusy(true)
+    try {
+      const response = await fetch(`/api/renewals/invoices/${invoiceId}/proofs/${proofId}`, { method: "DELETE" })
+      if (!response.ok) {
+        showToast("The file could not be removed.", "error")
+        return
+      }
+      showToast("File removed. It stays in the timeline.", "success")
+      void load()
+    } catch {
+      showToast("Unable to reach the server. Try again.", "error")
     } finally {
       setBusy(false)
     }
@@ -585,6 +654,25 @@ export function InvoiceDetailView({
       <DocumentsCard invoice={invoice} taxInvoice={taxInvoice} isPaid={isPaid} />
 
       <BillToCard invoice={invoice} />
+
+      {invoice.documentType === "proforma" ? (
+        <PaymentProofCard
+          invoiceId={invoice.id}
+          proofs={proofs}
+          paidOffline={invoice.paidVia === "manual"}
+          canManage={canManage}
+          busy={busy}
+          onAttach={async (files) => {
+            setBusy(true)
+            if (await attachProofs(files)) {
+              showToast(`${plural(files.length, "file")} attached.`, "success")
+              void load()
+            }
+            setBusy(false)
+          }}
+          onRemove={(proofId) => void removeProof(proofId)}
+        />
+      ) : null}
 
       <div className="grid items-start gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr))]">
         <Card>
@@ -895,7 +983,7 @@ export function InvoiceDetailView({
         onOpenChange={(open) => setDialog(open ? "markPaid" : null)}
         invoice={invoice}
         busy={busy}
-        onConfirm={(input) => void runAction({ action: "mark_paid_offline", ...input }, "Payment recorded. Extension, tax invoice and documents follow.")}
+        onConfirm={(input, files) => void recordOfflinePayment(input, files)}
       />
 
       <ResendEmailDialog
@@ -1198,16 +1286,18 @@ function MarkPaidDialog({
   onOpenChange: (open: boolean) => void
   invoice: Invoice
   busy: boolean
-  onConfirm: (input: { reference: string; note?: string; payerEmail?: string }) => void
+  onConfirm: (input: { reference: string; note?: string; payerEmail?: string }, files: File[]) => void
 }) {
   const [reference, setReference] = React.useState("")
   const [note, setNote] = React.useState("")
   const [email, setEmail] = React.useState(invoice.paymentEmail ?? "")
+  const [files, setFiles] = React.useState<File[]>([])
   React.useEffect(() => {
     if (open) {
       setReference("")
       setNote("")
       setEmail(invoice.paymentEmail ?? "")
+      setFiles([])
     }
   }, [open, invoice.paymentEmail])
   return (
@@ -1234,6 +1324,22 @@ function MarkPaidDialog({
             <Label htmlFor="paidNote">Note</Label>
             <Textarea id="paidNote" rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Recorded in the timeline" maxLength={500} />
           </div>
+          <div className="grid gap-2">
+            <Label htmlFor="paidProof">Proof of payment</Label>
+            <Input
+              id="paidProof"
+              type="file"
+              multiple
+              accept={PROOF_ACCEPT}
+              onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 5))}
+              className="h-auto py-1.5"
+            />
+            <span className="text-muted-foreground text-xs">
+              {files.length > 0
+                ? files.map((file) => file.name).join(", ")
+                : "Bank slip, transfer screenshot or remittance PDF. Up to 5 files, 10 MB each. You can also attach them later."}
+            </span>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={busy}>
@@ -1243,11 +1349,14 @@ function MarkPaidDialog({
             size="sm"
             disabled={busy || !reference.trim()}
             onClick={() =>
-              onConfirm({
-                reference: reference.trim(),
-                ...(note.trim() ? { note: note.trim() } : {}),
-                ...(email.trim() ? { payerEmail: email.trim().toLowerCase() } : {}),
-              })
+              onConfirm(
+                {
+                  reference: reference.trim(),
+                  ...(note.trim() ? { note: note.trim() } : {}),
+                  ...(email.trim() ? { payerEmail: email.trim().toLowerCase() } : {}),
+                },
+                files
+              )
             }
           >
             {busy ? "Recording…" : "Record payment"}
@@ -1476,6 +1585,98 @@ function BillToCard({ invoice }: { invoice: Invoice }) {
             Bukku contact <span className="font-mono">{details.bukkuContactCode}</span>
           </div>
         ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function fileSize(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
+/**
+ * The bank slip, screenshot or remittance PDF behind a payment made outside
+ * the gateway. Files open through the invoice's own route; removing one keeps
+ * it in the timeline.
+ */
+function PaymentProofCard({
+  invoiceId,
+  proofs,
+  paidOffline,
+  canManage,
+  busy,
+  onAttach,
+  onRemove,
+}: {
+  invoiceId: string
+  proofs: Proof[]
+  paidOffline: boolean
+  canManage: boolean
+  busy: boolean
+  onAttach: (files: File[]) => void
+  onRemove: (proofId: string) => void
+}) {
+  const input = React.useRef<HTMLInputElement>(null)
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Payment proof</CardTitle>
+        <CardDescription>
+          {paidOffline && proofs.length === 0
+            ? "Paid offline with no proof attached yet. Attach the bank slip or transfer screenshot the merchant sent."
+            : "Bank slips, transfer screenshots or remittance advice for a payment made outside the gateway."}
+        </CardDescription>
+        {canManage ? (
+          <CardAction>
+            <input
+              ref={input}
+              type="file"
+              multiple
+              accept={PROOF_ACCEPT}
+              className="hidden"
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []).slice(0, 5)
+                event.target.value = ""
+                if (files.length > 0) onAttach(files)
+              }}
+            />
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => input.current?.click()}>
+              Attach files
+            </Button>
+          </CardAction>
+        ) : null}
+      </CardHeader>
+      <CardContent>
+        {proofs.length === 0 ? (
+          <p className="text-muted-foreground text-sm">Nothing attached.</p>
+        ) : (
+          <div className="grid gap-2">
+            {proofs.map((proof) => (
+              <div key={proof.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                <div className="flex min-w-0 flex-col">
+                  <a
+                    href={`/api/renewals/invoices/${invoiceId}/proofs/${proof.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-primary truncate text-sm hover:underline"
+                  >
+                    {proof.originalName}
+                  </a>
+                  <span className="text-muted-foreground text-xs">
+                    {proof.contentType === "application/pdf" ? "PDF" : "Image"} · {fileSize(proof.sizeBytes)} · attached{" "}
+                    {shortDateTime(proof.uploadedAt)}
+                    {proof.uploadedByUserId ? ` by user ${proof.uploadedByUserId}` : ""}
+                  </span>
+                </div>
+                {canManage ? (
+                  <Button variant="ghost" size="sm" className="text-destructive" disabled={busy} onClick={() => onRemove(proof.id)}>
+                    Remove
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

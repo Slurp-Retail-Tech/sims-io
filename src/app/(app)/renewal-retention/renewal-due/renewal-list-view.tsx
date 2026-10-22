@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
+import { NewRenewalDialog } from "../invoices/new-renewal-dialog"
 import { daysLabel, longDate, money, PageHeader, Pill, plural, TERM_LABEL, TONE_TEXT } from "../ui"
 import type { Tone } from "../ui"
 
@@ -101,7 +102,8 @@ function monthLabel(month: string): string {
  * Filters run in the browser. The list is a bounded working view, so a
  * search that round-tripped would only add latency.
  */
-export function RenewalListView({ actionCount }: { actionCount: number }) {
+export function RenewalListView({ actionCount, canCreate }: { actionCount: number; canCreate: boolean }) {
+  const [creatingFor, setCreatingFor] = React.useState<{ franchiseId: string; outletId: string } | null>(null)
   const [franchises, setFranchises] = React.useState<ListFranchise[]>([])
   const [months, setMonths] = React.useState<string[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -373,9 +375,20 @@ export function RenewalListView({ actionCount }: { actionCount: number }) {
                               </span>
                             </>
                           ) : (
-                            <span className="text-muted-foreground text-xs">
-                              {outlet.billedBy === "reseller" ? "Reseller-billed" : outlet.blockingReasons[0] ?? "—"}
-                            </span>
+                            <>
+                              <span className="text-muted-foreground text-xs">
+                                {outlet.billedBy === "reseller" ? "Reseller-billed" : outlet.blockingReasons[0] ?? "—"}
+                              </span>
+                              {canCreate && outlet.billedBy === "slurp" && !outlet.billingHold ? (
+                                <button
+                                  type="button"
+                                  className="text-primary self-start text-xs hover:underline"
+                                  onClick={() => setCreatingFor({ franchiseId: franchise.franchiseId, outletId: outlet.outletId })}
+                                >
+                                  Create document now
+                                </button>
+                              ) : null}
+                            </>
                           )}
                         </span>
                       </div>
@@ -387,6 +400,14 @@ export function RenewalListView({ actionCount }: { actionCount: number }) {
           })}
         </div>
       )}
+      <NewRenewalDialog
+        open={creatingFor !== null}
+        onOpenChange={(open) => {
+          if (!open) setCreatingFor(null)
+        }}
+        initialFranchiseId={creatingFor?.franchiseId ?? null}
+        initialOutletId={creatingFor?.outletId ?? null}
+      />
     </div>
   )
 }

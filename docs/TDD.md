@@ -1592,6 +1592,32 @@ is open (`po_number_set` event, forced re-render), copied to the tax invoice,
 printed as "PO No." on all three documents, and exported as Bukku's
 `Reference No.` in place of the proforma number.
 
+**Manual renewals.** `POST /api/renewals/invoices` (invoices manage key)
+raises a document for chosen outlets of one franchise through
+`createManualRenewal` (`manual-renewal-data.ts`; rules pure in
+`manual-renewal.ts`). Outlets must be live, Slurp-billed, not on hold and
+share one `valid_until_date`; each is priced with `resolvePlanForOutlet` and
+`resolvePriceForLine` on the chosen term, the same functions the cycle uses.
+The group key (`manualGroupKey`) is the one the cycle would claim for those
+outlets, and `findOpenProformaForOutlets` refuses outlets already billed for
+that expiry, so the nightly due pass reuses the document rather than raising
+a second. A missing renewal PIC does not block it. The due date is the expiry,
+or today if that has passed, so a lapsed outlet is not swept again the same
+night. Recorded as `manually_created`. `GET /api/renewals/invoices/new` serves
+the dialog: franchise search, then each outlet's price per term, block reason
+and any open document.
+
+**Proof of payment.** `renewal_payment_proofs` (migration 043) holds files
+attached to a proforma: images and PDFs only, sniffed from the bytes
+(`sniffUploadType`), at most five per upload and 10 MB each, stored in MinIO
+under `renewal-payment-proofs/{year}/{invoiceId}/`. That prefix is outside
+`OBJECT_KEY_PREFIXES`, so `/api/uploads/view` refuses the keys; files are
+served only by `GET /api/renewals/invoices/{id}/proofs/{proofId}` behind the
+invoice view keys, inline with `nosniff`. Attaching and removing are invoice
+events (`payment_proof_attached`, `payment_proof_removed`); a removed file is
+soft-deleted and its object kept. The Invoices list counts proofs for
+`paid_via = 'manual'` invoices and flags those with none.
+
 **Billing profiles.** `renewal_billing_profiles` (migrations 040, 041) holds
 one row per franchise: legal name, registration number and type (BRN for SSM,
 NRIC, PASSPORT), old registration number, TIN, SST number and billing address,
