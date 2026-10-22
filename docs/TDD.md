@@ -1618,6 +1618,23 @@ events (`payment_proof_attached`, `payment_proof_removed`); a removed file is
 soft-deleted and its object kept. The Invoices list counts proofs for
 `paid_via = 'manual'` invoices and flags those with none.
 
+**Non-renewal reasons.** `renewal_non_renewals` (migration 044) holds one
+reason per outlet per cycle (`cycle_valid_until`, the expiry it was due to
+renew from): `change_of_ownership`, `closed_business`, `switched_system`,
+`freeze_account`, `temp_close` or `other` (note required), defined with their
+labels and a `temporary` flag in `non-renewal.ts`. `recordNonRenewal`
+(`POST /api/renewals/non-renewals`, invoices manage key) upserts the rows,
+sets `outlet_subscriptions.renewal_state = 'non_renewed'` with the label as
+`renewal_state_reason`, resolves any open `non_renewal_reason_missing` entry,
+and voids the open document billing exactly those outlets (an outlet on a
+grouped document with others is refused from the Renewal List and recorded
+from the invoice instead). `sweepLapsedProformas` raises that informational
+entry for each outlet it marks non-renewed without a reason. In
+`deriveOutletState` a recorded reason makes the outlet `non_renewed` unless
+its invoice is paid. `nonRenewalMetrics` counts the cohort's renewable,
+non-renewed outlets by reason over the same set `renewalMetrics` counts, so
+the two cards agree.
+
 **Billing profiles.** `renewal_billing_profiles` (migrations 040, 041) holds
 one row per franchise: legal name, registration number and type (BRN for SSM,
 NRIC, PASSPORT), old registration number, TIN, SST number and billing address,

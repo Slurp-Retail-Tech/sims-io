@@ -10,6 +10,8 @@
  * gathers the inputs; this file only counts and divides.
  */
 
+import { NON_RENEWAL_REASONS } from "./non-renewal.ts"
+
 export type CohortOutlet = {
   /** YYYY-MM-DD */
   validUntilDate: string
@@ -19,6 +21,8 @@ export type CohortOutlet = {
   state: string
   /** Resolved price at the default term, or null when none resolves. */
   priceMinor: number | null
+  /** The reason recorded for not renewing this cycle, if any. */
+  nonRenewalReason?: string | null
 }
 
 export type InvoiceFact = {
@@ -121,6 +125,51 @@ export function renewalMetrics(cohort: readonly CohortOutlet[], invoices: readon
       biAnnually: paid.filter((invoice) => invoice.billingPlanSelected === "bi_annually").length,
     },
     groupedShare: percent(live.filter((invoice) => invoice.isGrouped).length, live.length),
+  }
+}
+
+export type NonRenewalMetrics = {
+  /** Renewable outlets in the cohort that did not renew. */
+  nonRenewed: number
+  /** Of those, how many have a reason recorded. */
+  recorded: number
+  unrecorded: number
+  /** Share of recorded reasons that are temporary (freeze, temporary closure). */
+  temporaryShare: number | null
+  /** Every reason, most common first; share is of the recorded total. */
+  byReason: Array<{ reason: string; label: string; temporary: boolean; count: number; share: number | null }>
+}
+
+/**
+ * Why the cohort's non-renewed outlets left, by the reason staff recorded.
+ * Counted over the same renewable, non-renewed outlets as `renewalMetrics`,
+ * so the two cards always agree on the total.
+ */
+export function nonRenewalMetrics(cohort: readonly CohortOutlet[]): NonRenewalMetrics {
+  const nonRenewed = cohort.filter(
+    (outlet) => outlet.billedBy === "slurp" && !outlet.billingHold && !outlet.blocked && outlet.state === "non_renewed"
+  )
+  const counts = new Map<string, number>()
+  for (const outlet of nonRenewed) {
+    if (outlet.nonRenewalReason) {
+      counts.set(outlet.nonRenewalReason, (counts.get(outlet.nonRenewalReason) ?? 0) + 1)
+    }
+  }
+  const recorded = [...counts.values()].reduce((sum, count) => sum + count, 0)
+  const byReason = NON_RENEWAL_REASONS.map((reason) => ({
+    reason: reason.value as string,
+    label: reason.label as string,
+    temporary: reason.temporary as boolean,
+    count: counts.get(reason.value) ?? 0,
+    share: percent(counts.get(reason.value) ?? 0, recorded),
+  })).sort((a, b) => b.count - a.count)
+  const temporary = byReason.filter((entry) => entry.temporary).reduce((sum, entry) => sum + entry.count, 0)
+  return {
+    nonRenewed: nonRenewed.length,
+    recorded,
+    unrecorded: nonRenewed.length - recorded,
+    temporaryShare: percent(temporary, recorded),
+    byReason,
   }
 }
 

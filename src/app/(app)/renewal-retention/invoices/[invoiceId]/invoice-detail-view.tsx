@@ -33,9 +33,12 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/toast-provider"
 import { addressLines, registrationLine } from "@/lib/renewal/document-content"
+import { nonRenewalLabel } from "@/lib/renewal/non-renewal"
 import type { BillToDetails } from "@/lib/renewal/document-content"
 import { cn } from "@/lib/utils"
 
+import { NonRenewalDialog } from "../../non-renewal-dialog"
+import type { NonRenewalTarget } from "../../non-renewal-dialog"
 import {
   INVOICE_STATUS_LABEL,
   INVOICE_STATUS_TONE,
@@ -244,6 +247,8 @@ function describeEvent(event: Event, invoice: Invoice): TimelineEntry {
         tone: "gray",
         detail: String(payload.objectKey ?? ""),
       }
+    case "non_renewal_recorded":
+      return { ...base, title: `Not renewing: ${nonRenewalLabel(String(payload.reason ?? ""))}`, tone: "red", detail: payload.note ? String(payload.note) : plural(Number(payload.outlets ?? 0), "outlet") }
     case "payment_proof_attached":
       return { ...base, title: "Proof of payment attached", tone: "green", detail: Array.isArray(payload.files) ? payload.files.map(String).join(", ") : "" }
     case "payment_proof_removed":
@@ -361,6 +366,7 @@ export function InvoiceDetailView({
   const [callbacks, setCallbacks] = React.useState<Callback[]>([])
   const [dispatches, setDispatches] = React.useState<Dispatch[]>([])
   const [proofs, setProofs] = React.useState<Proof[]>([])
+  const [reasonTarget, setReasonTarget] = React.useState<NonRenewalTarget | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [copied, setCopied] = React.useState(false)
@@ -910,6 +916,23 @@ export function InvoiceDetailView({
                       {invoice.issuedAs === "quotation" ? "Re-issue as proforma" : "Re-issue as quotation"}
                     </Button>
                   ) : null}
+                  {invoice.documentType === "proforma" && !isPaid ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy || ["cancelled", "superseded"].includes(invoice.status)}
+                      title="Record why the merchant is not renewing. An open document is voided so no more reminders go out."
+                      onClick={() =>
+                        setReasonTarget({
+                          franchiseId: invoice.franchiseId,
+                          invoiceId: invoice.id,
+                          label: invoice.companyName ?? `Franchise ${invoice.franchiseId}`,
+                        })
+                      }
+                    >
+                      Not renewing
+                    </Button>
+                  ) : null}
                   <Button variant="outline" size="sm" className="text-destructive" disabled={!isOpen || busy} onClick={() => setDialog("void")}>
                     Void invoice
                   </Button>
@@ -992,6 +1015,18 @@ export function InvoiceDetailView({
         currentEmail={invoice.paymentEmail}
         busy={busy}
         onConfirm={(email) => void runAction({ action: "resend_payer_email", ...(email ? { payerEmail: email } : {}) }, "Documents sent.")}
+      />
+
+      <NonRenewalDialog
+        target={reasonTarget}
+        onOpenChange={(open) => {
+          if (!open) setReasonTarget(null)
+        }}
+        onSaved={(message) => {
+          showToast(message, "success")
+          setReasonTarget(null)
+          void load()
+        }}
       />
 
       <PoNumberDialog

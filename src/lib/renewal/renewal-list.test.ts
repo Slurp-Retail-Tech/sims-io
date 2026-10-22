@@ -148,3 +148,13 @@ test("state, month and opened filters narrow the list", () => {
 test("expiry months are distinct and ascending", () => {
   assert.deepEqual(expiryMonths(["2026-10-02", "2026-09-30", null, "2026-10-15"]), ["2026-09", "2026-10"])
 })
+
+test("a recorded non-renewal reason makes the outlet non-renewed before it expires", () => {
+  assert.equal(deriveOutletState(facts({ invoiceStatus: "sent", nonRenewalRecorded: true }), today), "non_renewed")
+  // ...and outranks a blocking gap nobody needs to fix any more.
+  assert.equal(deriveOutletState(facts({ hasBlockingAction: true, nonRenewalRecorded: true }), today), "non_renewed")
+})
+
+test("a payment outranks a recorded non-renewal: the merchant changed their mind", () => {
+  assert.equal(deriveOutletState(facts({ invoiceStatus: "paid", nonRenewalRecorded: true }), today), "renewed")
+})

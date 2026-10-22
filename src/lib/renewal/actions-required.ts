@@ -48,6 +48,10 @@ export const ACTION_REASONS = {
   // that covers the outlet's new expiry date -- blocking would leave the
   // outlet with no correct invoice at all, which is the opposite of the fix.
   stale_proforma: "informational",
+  // Informational: nothing is blocked, the outlet has already lapsed. It asks
+  // a person to record why, so the non-renewal can be counted; recording the
+  // reason resolves it.
+  non_renewal_reason_missing: "informational",
 } as const
 
 export type ActionReason = keyof typeof ACTION_REASONS

@@ -14,9 +14,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useToast } from "@/components/toast-provider"
 import { cn } from "@/lib/utils"
 
 import { NewRenewalDialog } from "../invoices/new-renewal-dialog"
+import { NonRenewalDialog } from "../non-renewal-dialog"
+import type { NonRenewalTarget } from "../non-renewal-dialog"
 import { daysLabel, longDate, money, PageHeader, Pill, plural, TERM_LABEL, TONE_TEXT } from "../ui"
 import type { Tone } from "../ui"
 
@@ -32,6 +35,7 @@ type ListOutlet = {
   priceMinor: number | null
   state: string
   blockingReasons: string[]
+  nonRenewal: { reason: string; label: string; note: string | null } | null
   invoice: { id: string; number: string; status: string; openCount: number; term: string | null } | null
 }
 
@@ -104,6 +108,8 @@ function monthLabel(month: string): string {
  */
 export function RenewalListView({ actionCount, canCreate }: { actionCount: number; canCreate: boolean }) {
   const [creatingFor, setCreatingFor] = React.useState<{ franchiseId: string; outletId: string } | null>(null)
+  const [reasonTarget, setReasonTarget] = React.useState<NonRenewalTarget | null>(null)
+  const { showToast } = useToast()
   const [franchises, setFranchises] = React.useState<ListFranchise[]>([])
   const [months, setMonths] = React.useState<string[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -356,6 +362,46 @@ export function RenewalListView({ actionCount, canCreate }: { actionCount: numbe
                           <span className="text-muted-foreground text-xs">
                             {outlet.blockingReasons.length > 0 ? outlet.blockingReasons.join(", ") : outlet.resolvedFrom}
                           </span>
+                          {outlet.nonRenewal ? (
+                            <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                              <Pill tone="red" className="font-medium">
+                                Not renewing · {outlet.nonRenewal.label}
+                              </Pill>
+                              {canCreate ? (
+                                <button
+                                  type="button"
+                                  className="text-muted-foreground text-xs hover:underline"
+                                  onClick={() =>
+                                    setReasonTarget({
+                                      franchiseId: franchise.franchiseId,
+                                      outletIds: [outlet.outletId],
+                                      label: outlet.outletName ?? `Outlet ${outlet.outletId}`,
+                                      current: outlet.nonRenewal,
+                                    })
+                                  }
+                                >
+                                  Change
+                                </button>
+                              ) : null}
+                            </span>
+                          ) : canCreate && outlet.billedBy === "slurp" && outlet.state !== "renewed" ? (
+                            <button
+                              type="button"
+                              className={cn(
+                                "mt-1 self-start text-xs hover:underline",
+                                outlet.state === "non_renewed" ? "text-primary" : "text-muted-foreground"
+                              )}
+                              onClick={() =>
+                                setReasonTarget({
+                                  franchiseId: franchise.franchiseId,
+                                  outletIds: [outlet.outletId],
+                                  label: outlet.outletName ?? `Outlet ${outlet.outletId}`,
+                                })
+                              }
+                            >
+                              {outlet.state === "non_renewed" ? "Record why it did not renew" : "Not renewing…"}
+                            </button>
+                          ) : null}
                         </span>
                         <span className="text-right whitespace-nowrap tabular-nums">
                           {outlet.priceMinor === null || outlet.billedBy === "reseller" ? "—" : money(outlet.priceMinor)}
@@ -400,6 +446,18 @@ export function RenewalListView({ actionCount, canCreate }: { actionCount: numbe
           })}
         </div>
       )}
+      <NonRenewalDialog
+        target={reasonTarget}
+        onOpenChange={(open) => {
+          if (!open) setReasonTarget(null)
+        }}
+        onSaved={(message) => {
+          showToast(message, "success")
+          setReasonTarget(null)
+          void load()
+        }}
+      />
+
       <NewRenewalDialog
         open={creatingFor !== null}
         onOpenChange={(open) => {

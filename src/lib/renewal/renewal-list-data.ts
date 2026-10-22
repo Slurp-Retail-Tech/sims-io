@@ -21,6 +21,8 @@ import { resolvePlanForOutlet, resolvePriceForLine } from "./plan-resolution.ts"
 import type { AssignmentRecord, PlanRecord } from "./plan-resolution.ts"
 import { resolveRenewalPic } from "./pic-resolution.ts"
 import { invoicesWithSentReminder } from "./dispatches.ts"
+import { loadNonRenewals, nonRenewalKey } from "./non-renewal-data.ts"
+import type { NonRenewalRecord } from "./non-renewal-data.ts"
 import { loadRenewalDirectories } from "./renewal-contacts.ts"
 import {
   deriveOutletState,
@@ -45,6 +47,8 @@ export type ListOutlet = {
   priceMinor: number | null
   state: RenewalState
   blockingReasons: string[]
+  /** Why the merchant is not renewing this cycle, once recorded. */
+  nonRenewal: NonRenewalRecord | null
   invoice: {
     id: string
     number: string
@@ -140,7 +144,7 @@ export async function loadRenewalList(
 
   const franchiseIds = [...new Set(rows.map((row) => row.franchise_id))]
 
-  const [assignments, plans, actions, invoiceRows, groupingRows, directories] = await Promise.all([
+  const [assignments, plans, actions, invoiceRows, groupingRows, directories, nonRenewals] = await Promise.all([
     listAssignments({}, db),
     listPlans({ includeInactive: true }, db),
     listOpenActions({}, db),
@@ -151,6 +155,7 @@ export async function loadRenewalList(
       franchiseIds
     ),
     loadRenewalDirectories(franchiseIds, db),
+    loadNonRenewals(franchiseIds, db),
   ])
 
   const assignmentsByFranchise = new Map<string, AssignmentRecord[]>()
@@ -254,8 +259,12 @@ export async function loadRenewalList(
         ...(blockingByOutlet.get(`${franchiseId}|*`) ?? []),
       ]
 
+      const nonRenewal = row.valid_until_date
+        ? (nonRenewals.get(nonRenewalKey(franchiseId, row.outlet_id, row.valid_until_date.slice(0, 10))) ?? null)
+        : null
       const state = deriveOutletState(
         {
+          nonRenewalRecorded: nonRenewal !== null,
           validUntilDate: row.valid_until_date,
           billedBy: row.billed_by,
           billingHold: row.billing_hold === 1,
@@ -279,6 +288,7 @@ export async function loadRenewalList(
         priceMinor,
         state,
         blockingReasons,
+        nonRenewal,
         invoice: invoice
           ? {
               id: String(invoice.invoice_id),

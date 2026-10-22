@@ -36,6 +36,13 @@ type Analytics = {
     termMix: { annually: number; biAnnually: number }
     groupedShare: number | null
   }
+  nonRenewal: {
+    nonRenewed: number
+    recorded: number
+    unrecorded: number
+    temporaryShare: number | null
+    byReason: Array<{ reason: string; label: string; temporary: boolean; count: number; share: number | null }>
+  }
   engagement: {
     invoicesRaised: number
     opened: number
@@ -132,7 +139,8 @@ export function AnalyticsView() {
         { label: "Subscriptions due", definition: "Outlets with an expiry in the period", value: String(renewal.due), href: list() },
         { label: "Renewable subscriptions", definition: "Less reseller-billed, billing hold, and unresolved Actions Required", value: String(renewal.renewable) },
         { label: "Renewed", definition: "Paid within the same cohort", value: String(renewal.renewed), href: list({ state: "renewed" }) },
-        { label: "Non-renewed", definition: "Expired unpaid, grace window included", value: String(renewal.nonRenewed), href: list({ state: "non_renewed" }) },
+        { label: "Non-renewed", definition: "Expired unpaid, grace window included, or recorded as not renewing", value: String(renewal.nonRenewed), href: list({ state: "non_renewed" }) },
+        { label: "Non-renewal reason recorded", definition: "Non-renewed outlets with a reason picked by staff", value: `${data.nonRenewal.recorded} of ${data.nonRenewal.nonRenewed}`, href: list({ state: "non_renewed" }) },
         { label: "Potential revenue", definition: "Resolved price at the default term, summed over renewable outlets", value: money(renewal.potentialMinor) },
         { label: "Collected revenue", definition: "Total of paid invoices in the cohort", value: money(renewal.collectedMinor) },
         { label: "Term mix", definition: "1-year against 6-month selections on paid invoices", value: `${renewal.termMix.annually} / ${renewal.termMix.biAnnually}` },
@@ -178,6 +186,7 @@ export function AnalyticsView() {
   }
 
   const maxBar = Math.max(1, ...data.months.map((month) => Math.max(month.potentialMinor, month.collectedMinor)))
+  const maxReason = Math.max(1, ...data.nonRenewal.byReason.map((entry) => entry.count))
   const active = tabs[tab]
 
   return (
@@ -305,6 +314,54 @@ export function AnalyticsView() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Why merchants did not renew</CardTitle>
+          <CardDescription>
+            Non-renewed outlets in {data.period.label}, by the reason staff recorded. Freeze account and temporary
+            closure are merchants who may come back.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {data.nonRenewal.nonRenewed === 0 ? (
+            <p className="text-muted-foreground text-sm">No outlet in this period went unrenewed.</p>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {data.nonRenewal.byReason.map((entry) => (
+                <div key={entry.reason} className="grid grid-cols-[minmax(7rem,11rem)_1fr_5.5rem] items-center gap-3 text-sm">
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{entry.label}</span>
+                    {entry.temporary ? <span className="text-muted-foreground text-[0.6875rem]">May come back</span> : null}
+                  </span>
+                  <span className="bg-muted h-2.5 overflow-hidden rounded-full" aria-hidden>
+                    <span
+                      className="bg-primary block h-full rounded-full"
+                      style={{ width: `${Math.round((entry.count / maxReason) * 100)}%` }}
+                    />
+                  </span>
+                  <span className="text-right tabular-nums">
+                    {entry.count}
+                    <span className="text-muted-foreground ml-1.5 text-xs">{entry.share === null ? "" : `${Math.round(entry.share)}%`}</span>
+                  </span>
+                </div>
+              ))}
+              <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-xs">
+                <span>
+                  {data.nonRenewal.recorded} of {data.nonRenewal.nonRenewed} recorded
+                  {data.nonRenewal.temporaryShare !== null ? ` · ${pct(data.nonRenewal.temporaryShare)} temporary` : ""}
+                </span>
+                {data.nonRenewal.unrecorded > 0 ? (
+                  <Link href={list({ state: "non_renewed" })} className="text-primary inline-flex items-center gap-1 hover:underline">
+                    Record {data.nonRenewal.unrecorded} missing {data.nonRenewal.unrecorded === 1 ? "reason" : "reasons"}
+                    <ChevronRight className="size-3.5" />
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }
