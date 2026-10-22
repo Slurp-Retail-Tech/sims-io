@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   BarChart3,
   BookOpen,
+  Building2,
   Cable,
   CalendarCheck2,
   CalendarClock,
@@ -189,6 +190,11 @@ export const renewalRetentionNav: NavItem[] = [
     title: "Message Templates",
     url: "/renewal-retention/templates",
     icon: MessageSquareText,
+  },
+  {
+    title: "Billing Profiles",
+    url: "/renewal-retention/billing-profiles",
+    icon: Building2,
   },
   {
     title: "Bukku Export",

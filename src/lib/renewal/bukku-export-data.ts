@@ -3,8 +3,10 @@
  * period, generating the file, recording the batch, and marking the invoices
  * so the next export leaves them out.
  *
- * The file is stored under `renewal-exports/`, a prefix outside
- * OBJECT_KEY_PREFIXES, so it is reachable only through the exports route.
+ * The file is an .xlsx in Bukku's sales-invoice import layout. Batches made
+ * before that change are CSV and still download as CSV. Either way it is
+ * stored under `renewal-exports/`, a prefix outside OBJECT_KEY_PREFIXES, so it
+ * is reachable only through the exports route.
  */
 
 import getPool, { withTransaction, type Queryable } from "../db.ts"
@@ -12,7 +14,8 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2/promise"
 import * as XLSX from "xlsx"
 
 import { getObjectBuffer, uploadObject } from "../storage.ts"
-import { buildBukkuRows, formatBatchReference } from "./bukku-export.ts"
+import { parseBillToSnapshot } from "./bill-to.ts"
+import { buildBukkuRows, buildBukkuSheet, formatBatchReference } from "./bukku-export.ts"
 import type { ExportableLine } from "./bukku-export.ts"
 import { loadRenewalSettings } from "./settings.ts"
 
@@ -49,6 +52,7 @@ type LineRow = RowDataPacket & {
   central_id: string | null
   paid_at: string | null
   company_name: string | null
+  bill_to_json: unknown
   franchise_id: string
   outlet_name: string | null
   outlet_id: string
@@ -71,7 +75,7 @@ async function loadLines(
 ): Promise<LineRow[]> {
   const [rows] = await db.query<LineRow[]>(
     `SELECT i.id AS invoice_id, i.invoice_number, ti.invoice_number AS tax_invoice_number,
-            i.paid_at, i.company_name, i.franchise_id,
+            i.paid_at, i.company_name, i.bill_to_json, i.franchise_id,
             t.outlet_name, t.outlet_id, t.central_id, p.plan_name, t.billing_plan, t.previous_valid_until,
             t.effective_amount, i.tax_rate, i.paid_via, i.cap_transaction_number, i.paid_reference, i.bukku_export_id
        FROM renewal_invoices i
@@ -100,12 +104,15 @@ function exportable(rows: readonly LineRow[]): LineRow[] {
 }
 
 function toExportable(row: LineRow): ExportableLine {
+  const billTo = parseBillToSnapshot(row.bill_to_json)
   return {
     invoiceNumber: row.tax_invoice_number ?? row.invoice_number,
     proformaNumber: row.invoice_number,
     centralId: row.central_id,
     paidAt: row.paid_at,
     companyName: row.company_name,
+    bukkuContactCode: billTo?.bukkuContactCode ?? null,
+    legalName: billTo?.legalName ?? null,
     franchiseId: row.franchise_id,
     outletName: row.outlet_name,
     outletId: row.outlet_id,
@@ -173,8 +180,11 @@ export async function generateExport(
   }
 
   const settings = await loadRenewalSettings(db)
-  const rows = buildBukkuRows(lines.map(toExportable), settings.bukkuDescriptionFormat)
-  const csv = XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(rows))
+  const rows = buildBukkuRows(lines.map(toExportable), settings.bukkuDescriptionFormat, {
+    accountCode: settings.bukkuAccountCode,
+    taxCode: settings.bukkuTaxCode,
+    classificationCode: settings.bukkuClassificationCode,
+  })
   const invoiceIds = [...new Set(lines.map((row) => row.invoice_id))]
   const totalMinor = lines.reduce((sum, row) => sum + Math.round(Number(row.effective_amount) * 100), 0)
 
@@ -187,13 +197,16 @@ export async function generateExport(
     const last = (seqRows[0] as { reference?: string } | undefined)?.reference
     const sequence = last ? Number(last.slice(monthPrefix.length)) + 1 : 1
     const reference = formatBatchReference(input.paidTo, sequence)
-    const objectKey = `renewal-exports/${input.paidTo.slice(0, 4)}/${reference}.csv`
+    const objectKey = `renewal-exports/${input.paidTo.slice(0, 4)}/${reference}.xlsx`
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildBukkuSheet(rows, reference)), "Worksheet")
+    const bytes = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer
 
     await uploadObject({
       bucket: bucket(),
       key: objectKey,
-      body: Buffer.from(csv, "utf8"),
-      contentType: "text/csv; charset=utf-8",
+      body: bytes,
+      contentType: XLSX_CONTENT_TYPE,
     })
 
     const [result] = await connection.query<ResultSetHeader>(
@@ -263,10 +276,12 @@ export async function listExportBatches(db: Queryable = getPool()): Promise<Expo
   }))
 }
 
+const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
 export async function loadExportFile(
   batchId: string,
   db: Queryable = getPool()
-): Promise<{ bytes: Buffer; fileName: string } | null> {
+): Promise<{ bytes: Buffer; fileName: string; contentType: string } | null> {
   const [rows] = await db.query<RowDataPacket[]>(
     `SELECT reference, object_key FROM renewal_bukku_exports WHERE id = ?`,
     [batchId]
@@ -276,5 +291,10 @@ export async function loadExportFile(
     return null
   }
   const bytes = await getObjectBuffer(bucket(), row.object_key)
-  return { bytes, fileName: `${row.reference}.csv` }
+  const isCsv = row.object_key.endsWith(".csv")
+  return {
+    bytes,
+    fileName: `${row.reference}.${isCsv ? "csv" : "xlsx"}`,
+    contentType: isCsv ? "text/csv; charset=utf-8" : XLSX_CONTENT_TYPE,
+  }
 }

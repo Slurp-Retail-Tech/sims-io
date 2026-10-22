@@ -53,3 +53,9 @@ test("only the three document kinds are accepted", () => {
   assert.equal(isSampleDocumentKind("invoice"), false)
   assert.equal(isSampleDocumentKind(null), false)
 })
+
+test("the sample prints made-up SSM and TIN under Bill To, so the preview shows where they go", () => {
+  const content = buildDocumentContent(buildSampleDocumentSource("proforma", { taxRatePercent: 0, today: "2026-10-22" }))
+  assert.ok(content.billTo.lines.includes("SSM 202001000001 (1234567-A)"))
+  assert.ok(content.billTo.lines.includes("TIN C00000000000"))
+})

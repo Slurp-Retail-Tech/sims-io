@@ -32,6 +32,8 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/toast-provider"
+import { addressLines, registrationLine } from "@/lib/renewal/document-content"
+import type { BillToDetails } from "@/lib/renewal/document-content"
 import { cn } from "@/lib/utils"
 
 import {
@@ -55,6 +57,7 @@ type Invoice = {
   documentType: "proforma" | "tax_invoice"
   franchiseId: string
   companyName: string | null
+  billTo: (BillToDetails & { bukkuContactCode: string | null }) | null
   groupKey: string
   isGrouped: boolean
   itemCount: number
@@ -561,6 +564,8 @@ export function InvoiceDetailView({
       </div>
 
       <DocumentsCard invoice={invoice} taxInvoice={taxInvoice} isPaid={isPaid} />
+
+      <BillToCard invoice={invoice} />
 
       <div className="grid items-start gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr))]">
         <Card>
@@ -1304,6 +1309,63 @@ function DocumentsCard({ invoice, taxInvoice, isPaid }: { invoice: Invoice; taxI
             ) : null}
           </div>
         ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Who the documents are billed to, from the franchise's billing profile. An
+ * open proforma follows edits to the profile; a paid one, and its tax invoice,
+ * keep what they were paid against.
+ */
+function BillToCard({ invoice }: { invoice: Invoice }) {
+  const details = invoice.billTo
+  const lines = details
+    ? [
+        registrationLine(details),
+        details.tin ? `TIN ${details.tin}` : null,
+        details.sstNo ? `SST ${details.sstNo}` : null,
+        ...addressLines(details),
+      ].filter((line): line is string => Boolean(line))
+    : []
+  const open = !["paid", "cancelled", "superseded", "lapsed"].includes(invoice.status) && invoice.documentType === "proforma"
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Bill To</CardTitle>
+        <CardDescription>
+          {open
+            ? "From the franchise's billing profile. Editing the profile reprints this proforma."
+            : "As printed on the paid documents. Later edits to the billing profile do not change them."}
+        </CardDescription>
+        <CardAction>
+          <Button variant="ghost" size="sm" asChild>
+            <Link href={`/renewal-retention/billing-profiles?q=${encodeURIComponent(invoice.franchiseId)}`}>
+              {details ? "Edit billing profile" : "Add billing profile"}
+            </Link>
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <div className="text-sm font-medium">{details?.legalName ?? invoice.companyName ?? `Franchise ${invoice.franchiseId}`}</div>
+        {lines.length > 0 ? (
+          <div className="text-muted-foreground mt-1 grid gap-0.5 text-xs">
+            {lines.map((line, index) => (
+              <span key={index}>{line}</span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-muted-foreground mt-1 text-xs">
+            No billing profile yet, so only the company name prints. Import the Bukku contacts or add the SSM and TIN by
+            hand.
+          </p>
+        )}
+        {details?.bukkuContactCode ? (
+          <div className="text-muted-foreground mt-2 text-xs">
+            Bukku contact <span className="font-mono">{details.bukkuContactCode}</span>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   )

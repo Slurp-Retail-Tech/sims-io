@@ -14,6 +14,9 @@
 import getPool, { withTransaction, type Queryable } from "../db.ts"
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise"
 
+import { parseBillToSnapshot } from "./bill-to.ts"
+import type { BillToSnapshot } from "./bill-to.ts"
+import { billToSnapshotFor } from "./billing-profiles.ts"
 import { parseAmountToMinor } from "./money.ts"
 import { allocateInvoiceNumber, mintRenewalToken } from "./numbering.ts"
 import type { InvoiceDraft } from "./invoice-build.ts"
@@ -37,6 +40,8 @@ export type InvoiceRecord = {
   parentInvoiceId: string | null
   franchiseId: string
   companyName: string | null
+  /** The billing profile printed under Bill To; null before profiles, or without one. */
+  billTo: BillToSnapshot | null
   groupKey: string
   isGrouped: boolean
   contactId: string | null
@@ -85,6 +90,7 @@ type InvoiceRow = RowDataPacket & {
   parent_invoice_id: string | null
   franchise_id: string
   company_name: string | null
+  bill_to_json: unknown
   group_key: string
   is_grouped: number
   contact_id: string | null
@@ -123,7 +129,7 @@ type InvoiceRow = RowDataPacket & {
 
 const INVOICE_SELECT = `
   SELECT i.id, i.invoice_number, i.document_type, i.parent_invoice_id, i.franchise_id,
-         i.company_name, i.group_key, i.is_grouped, i.contact_id, i.billing_plan_selected,
+         i.company_name, i.bill_to_json, i.group_key, i.is_grouped, i.contact_id, i.billing_plan_selected,
          i.term_months, i.period_start, i.period_end, i.issue_date, i.due_date,
          i.currency_code, i.subtotal_amount, i.adjustment_amount, i.tax_rate, i.tax_amount,
          i.total_amount, i.payment_email, i.status, i.renewal_token, i.pdf_object_key,
@@ -169,20 +175,24 @@ export async function createProformaForGroup(input: {
         issueDate
       )
       const renewalToken = mintRenewalToken()
+      // Bill To as the franchise's profile stands now; it follows later edits
+      // only while the proforma is open (see refreshOpenDocuments).
+      const billTo = await billToSnapshotFor(draft.franchiseId, connection)
 
       const [result] = await connection.query<ResultSetHeader>(
         `INSERT INTO renewal_invoices
-           (invoice_number, document_type, franchise_id, company_name, group_key,
+           (invoice_number, document_type, franchise_id, company_name, bill_to_json, group_key,
             is_grouped, contact_id, billing_plan_selected, term_months,
             period_start, period_end, issue_date, due_date, currency_code,
             subtotal_amount, adjustment_amount, tax_rate, tax_amount,
             total_amount, status, renewal_token, excluded_outlets_json)
-         VALUES (?, 'proforma', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MYR',
+         VALUES (?, 'proforma', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'MYR',
                  ?, ?, ?, ?, ?, 'draft', ?, ?)`,
         [
           invoiceNumber,
           draft.franchiseId,
           companyName,
+          billTo ? JSON.stringify(billTo) : null,
           draft.groupKey,
           draft.isGrouped ? 1 : 0,
           contactId,
@@ -598,6 +608,7 @@ function mapInvoice(row: InvoiceRow): InvoiceRecord {
     parentInvoiceId: row.parent_invoice_id ? String(row.parent_invoice_id) : null,
     franchiseId: row.franchise_id,
     companyName: row.company_name,
+    billTo: parseBillToSnapshot(row.bill_to_json),
     groupKey: row.group_key,
     isGrouped: row.is_grouped === 1,
     contactId: row.contact_id ? String(row.contact_id) : null,

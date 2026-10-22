@@ -16,6 +16,8 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2/promise"
 import { createHash } from "node:crypto"
 
 import { createLogger } from "../logger.ts"
+import { detailsOf } from "./bill-to.ts"
+import type { BillToDetails } from "./document-content.ts"
 import { addDays } from "./invoice-build.ts"
 import type { InvoiceTotals } from "./invoice-build.ts"
 import { ensureInvoicePdf, sellerBlockFor } from "./invoice-pdf.ts"
@@ -97,6 +99,8 @@ export type PublicInvoiceView = {
   /** How long the receipt page waits on a confirmation, from Renewal Settings. */
   receiptPollCeilingSeconds: number
   companyName: string | null
+  /** Bill To details from the billing profile; see `bill-to.ts`. */
+  billTo: BillToDetails | null
   franchiseId: string
   issueDate: string | null
   dueDate: string | null
@@ -262,6 +266,7 @@ export function buildPublicView(
     paymentReference: invoice.status === "paid" ? invoice.capTransactionNumber ?? invoice.paidReference : null,
     receiptPollCeilingSeconds: settings.receiptPollCeilingSeconds,
     companyName: invoice.companyName,
+    billTo: detailsOf(invoice.billTo),
     franchiseId: invoice.franchiseId,
     issueDate: invoice.issueDate,
     dueDate: invoice.dueDate,

@@ -1559,11 +1559,42 @@ and recorded on the invoice:
 The receipt PDF is re-rendered only on the run that issues the tax invoice
 (it prints the INV- number); later reruns leave the stored receipt alone.
 
-**Bukku export.** One row per paid line, `Invoice No` from the linked INV-
-tax invoice (`parent_invoice_id`), with `Proforma No`, `Central ID`, and
-`Payment Ref` from the gateway transaction or the offline bank reference.
+**Bukku export.** An .xlsx in Bukku's "Invoices (Credit Sales) – Extended
+Mode – MY" import layout (`buildBukkuRows` / `buildBukkuSheet` in
+`bukku-export.ts`): `#` comment lines, one `$` line naming the template's
+columns, then one row per paid line with an empty first cell. `No.` is the
+linked INV- tax invoice (`parent_invoice_id`) and `Reference No.` the PI-
+proforma. The customer is matched by `Contact Code` from the invoice's
+`bill_to_json`, with `Legal Name` as Bukku's fallback; `Account`, `Tax` (named
+only when the line carries tax) and `Classification Code` come from
+`renewal_settings.bukku_account_code`, `bukku_tax_code` and
+`bukku_classification_code` (migration 040). The payment method and reference
+go in `Description`, and the outlet ID in the `Field:outlet_id` custom field.
 Paid invoices whose tax invoice is not issued yet are left out and join a
-later batch.
+later batch. Batches generated before the change are CSV and still download as
+CSV.
+
+**Billing profiles.** `renewal_billing_profiles` (migrations 040, 041) holds
+one row per franchise: legal name, registration number and type (BRN for SSM,
+NRIC, PASSPORT), old registration number, TIN, SST number and billing address,
+plus the Bukku contact code behind them. **Import Bukku contacts** on
+`/renewal-retention/billing-profiles` stores the Contacts export in
+`renewal_bukku_contacts` (parsed by header text, `parseBukkuContactRows`), then
+matches contacts to franchises (`matchContactsToFranchises`, pure): a
+normalised company name (`normalizeCompanyName`) against the subscription's
+company and outlet names and the merchant name first, then PIC and payer
+emails. Exactly one fit creates a profile (`match_status = 'auto'`); several
+are listed as candidates for review, computed on read so they follow the
+latest import. Profiles linked to a contact are refreshed by each import
+unless `source = 'manual'`. Each proforma snapshots its franchise's profile
+into `renewal_invoices.bill_to_json` when created; `refreshOpenDocuments`
+re-points every open proforma (draft to payment pending) at the current
+profile and clears its stored PDF whenever a profile changes. The tax invoice
+copies the proforma's snapshot. `buildBillTo` prints the legal name, then
+`SSM {new} ({old})`, `TIN`, `SST`, up to four address lines (`addressLines`
+drops email lines and does not repeat a postcode or state the street already
+spells out) and the payment email. Access keys: `/renewal-retention/billing-profiles`
+(view) and `/billing-profiles/manage` (import and edit).
 
 Automatic re-queuing by the reconcile job stops 48 hours after payment; after
 that a person uses **Retry post-payment steps** from the invoice page.

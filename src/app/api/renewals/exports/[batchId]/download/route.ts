@@ -12,7 +12,7 @@ export const runtime = "nodejs"
 
 type RouteContext = { params: Promise<{ batchId: string }> }
 
-/** GET — download a batch's CSV. */
+/** GET — download a batch's file: .xlsx in Bukku's import layout, or .csv for older batches. */
 export const GET = withRequestContext(
   "/api/renewals/exports/[batchId]/download",
   handleGet as never
@@ -35,7 +35,7 @@ async function handleGet(request: NextRequest, context: RouteContext): Promise<R
     return new Response(new Uint8Array(file.bytes), {
       status: 200,
       headers: {
-        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Type": file.contentType,
         "Content-Disposition": `attachment; filename="${file.fileName}"`,
         "Cache-Control": "private, no-store",
       },

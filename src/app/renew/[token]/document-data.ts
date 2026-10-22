@@ -33,6 +33,7 @@ export function documentSourceFor(view: PublicInvoice, kind: DocumentKind = "pro
     paidVia: view.paidVia,
     paymentReference: view.paymentReference,
     companyName: view.companyName,
+    billTo: view.billTo,
     franchiseId: view.franchiseId,
     paymentEmail: view.paymentEmail,
     isGrouped: view.isGrouped,

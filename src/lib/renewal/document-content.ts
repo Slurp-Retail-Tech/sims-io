@@ -14,6 +14,26 @@
 
 export type DocumentKind = "proforma" | "tax_invoice" | "receipt"
 
+/**
+ * The registered customer printed under Bill To: the franchise's billing
+ * profile, matched from Bukku or entered by staff. Every field is optional;
+ * a franchise with no profile prints its company name alone.
+ */
+export type BillToDetails = {
+  legalName: string | null
+  /** Bukku's Reg. No. Type: BRN (an SSM number), NRIC or PASSPORT. */
+  regNoType: string | null
+  registrationNo: string | null
+  oldRegistrationNo: string | null
+  tin: string | null
+  sstNo: string | null
+  street: string | null
+  city: string | null
+  state: string | null
+  postcode: string | null
+  country: string | null
+}
+
 export type DocumentSourceLine = {
   outletId: string
   outletName: string | null
@@ -42,6 +62,8 @@ export type DocumentSource = {
   paidVia: "commercepay" | "manual" | null
   paymentReference: string | null
   companyName: string | null
+  /** The billing profile snapshotted on the document; null prints the company name alone. */
+  billTo?: BillToDetails | null
   franchiseId: string
   paymentEmail: string | null
   isGrouped: boolean
@@ -140,12 +162,74 @@ function termDocLabel(term: string): string {
   return TERM_DOC_LABELS[term] ?? term.toUpperCase()
 }
 
+/** The name a document is addressed to: the registered name where known. */
+export function billToName(source: Pick<DocumentSource, "billTo" | "companyName" | "franchiseId">): string {
+  return source.billTo?.legalName?.trim() || source.companyName || `Franchise ${source.franchiseId}`
+}
+
+const REGISTRATION_LABELS: Record<string, string> = { BRN: "SSM", NRIC: "NRIC", PASSPORT: "Passport" }
+
+/** `SSM 202103124055 (TR0241344-W)`: the new-format number, then the old one. */
+export function registrationLine(details: BillToDetails): string | null {
+  const numbers = [details.registrationNo, details.oldRegistrationNo].map((value) => value?.trim()).filter(Boolean)
+  if (numbers.length === 0) {
+    return null
+  }
+  const label = REGISTRATION_LABELS[details.regNoType?.toUpperCase() ?? ""] ?? "SSM"
+  const [first, second] = numbers
+  return `${label} ${first}${second && second !== first ? ` (${second})` : ""}`
+}
+
+/**
+ * The billing address as printed lines, at most four.
+ *
+ * Bukku's street cells are free text typed over years: trailing commas, an
+ * `Email:` line, the outlet's trading name above the address. Email lines and
+ * empty lines go; the postcode, city and state are appended unless the street
+ * already spells them out.
+ */
+export function addressLines(details: BillToDetails): string[] {
+  const street = (details.street ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/[\s,]+$/, "").replace(/^[\s,]+/, ""))
+    .filter((line) => line.length > 0 && !line.includes("@"))
+  const lines = [...street]
+  const written = street.join(" ").toUpperCase()
+  const locality = [details.postcode, details.city]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value) && !written.includes(value!.toUpperCase()))
+    .join(" ")
+  if (locality) {
+    lines.push(locality)
+  }
+  const state = details.state?.trim()
+  if (state && !written.includes(state.toUpperCase())) {
+    lines.push(state)
+  }
+  const country = details.country?.trim().toUpperCase()
+  if (country && country !== "MY" && !written.includes(country)) {
+    lines.push(country)
+  }
+  if (lines.length <= 4) {
+    return lines
+  }
+  return [...lines.slice(0, 3), lines.slice(3).join(", ")]
+}
+
 export function buildBillTo(source: DocumentSource): { name: string; lines: string[] } {
-  const lines: string[] = [`Franchise ID ${source.franchiseId}`]
+  const lines: string[] = []
+  const details = source.billTo
+  if (details) {
+    const registration = registrationLine(details)
+    if (registration) lines.push(registration)
+    if (details.tin?.trim()) lines.push(`TIN ${details.tin.trim()}`)
+    if (details.sstNo?.trim()) lines.push(`SST ${details.sstNo.trim()}`)
+    lines.push(...addressLines(details))
+  }
   if (source.paymentEmail) {
     lines.push(source.paymentEmail)
   }
-  return { name: source.companyName ?? `Franchise ${source.franchiseId}`, lines }
+  return { name: billToName(source), lines }
 }
 
 export function buildShipTo(source: DocumentSource): { name: string; lines: string[] } {
@@ -164,7 +248,7 @@ export function buildShipTo(source: DocumentSource): { name: string; lines: stri
 }
 
 export function buildDocTitle(source: DocumentSource, suffix?: string): string {
-  const who = (source.companyName ?? `FRANCHISE ${source.franchiseId}`).toUpperCase()
+  const who = billToName(source).toUpperCase()
   const outlets = `${source.outletCount} ${source.outletCount === 1 ? "OUTLET" : "OUTLETS"}`
   return `(RN) ${who} @ ${outlets} - SLURP! LICENSE RENEWAL (${termDocLabel(source.term)})${suffix ? ` - ${suffix}` : ""}`
 }

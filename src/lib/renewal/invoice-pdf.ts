@@ -113,6 +113,7 @@ export function buildProformaDocument(
     paidVia: invoice.paidVia,
     paymentReference: options.paymentReference ?? null,
     companyName: invoice.companyName,
+    billTo: invoice.billTo,
     franchiseId: invoice.franchiseId,
     paymentEmail: invoice.paymentEmail,
     isGrouped: invoice.isGrouped,

@@ -96,6 +96,11 @@ const pageAccessGroups: PageAccessGroup[] = [
         value: "/renewal-retention/actions-required/manage",
       },
       { label: "Message Templates", value: "/renewal-retention/templates" },
+      { label: "Billing Profiles", value: "/renewal-retention/billing-profiles" },
+      {
+        label: "Billing Profiles — import and edit",
+        value: "/renewal-retention/billing-profiles/manage",
+      },
       { label: "Bukku Export", value: "/renewal-retention/exports" },
       { label: "Bukku Export — generate", value: "/renewal-retention/exports/manage" },
       { label: "Settings", value: "/renewal-retention/settings" },

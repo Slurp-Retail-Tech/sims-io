@@ -3,6 +3,8 @@
  * client bundle. Mirrors `PublicInvoiceView` in `src/lib/renewal/public-invoice.ts`.
  */
 
+import type { BillToDetails } from "@/lib/renewal/document-content"
+
 export type BillingTerm = "annually" | "bi_annually"
 
 export type PublicLine = {
@@ -45,6 +47,7 @@ export type PublicInvoice = {
   paymentReference: string | null
   receiptPollCeilingSeconds: number
   companyName: string | null
+  billTo: BillToDetails | null
   franchiseId: string
   issueDate: string | null
   dueDate: string | null
