@@ -13,11 +13,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { INVOICE_STATUS_HELP } from "@/lib/renewal/help-text"
 import { cn } from "@/lib/utils"
 
 import {
   ColumnHeadings,
   daysUntil,
+  Hint,
   INVOICE_STATUS_LABEL,
   INVOICE_STATUS_TONE,
   longDate,
@@ -30,6 +32,7 @@ import {
   TONE_TEXT,
 } from "../ui"
 import type { RunStatus } from "../ui"
+import { NewRenewalDialog } from "./new-renewal-dialog"
 
 type Invoice = {
   id: string
@@ -51,6 +54,9 @@ type Invoice = {
   createdAt: string
   /** The tax invoice issued against this proforma once paid, if any. */
   taxInvoiceNumber: string | null
+  paidVia: "commercepay" | "manual" | null
+  /** Proof of payment attached; counted for offline payments only. */
+  proofCount: number
 }
 
 const ALL = "__all__"
@@ -78,7 +84,8 @@ function engagement(invoice: Invoice): { label: string; warn: boolean } {
   return { label: `Opened ${invoice.openCount}×`, warn: false }
 }
 
-export function InvoiceListView() {
+export function InvoiceListView({ canCreate }: { canCreate: boolean }) {
+  const [creating, setCreating] = React.useState(false)
   const [invoices, setInvoices] = React.useState<Invoice[]>([])
   // `?status=paid` from the overview tiles pre-filters the list.
   const [status, setStatus] = React.useState<string>(() => {
@@ -133,7 +140,14 @@ export function InvoiceListView() {
             ))}
           </SelectContent>
         </Select>
+        {canCreate ? (
+          <Button size="sm" className="h-9" onClick={() => setCreating(true)}>
+            New renewal
+          </Button>
+        ) : null}
       </PageHeader>
+
+      <NewRenewalDialog open={creating} onOpenChange={setCreating} />
 
       <Card>
         <CardContent className="pt-6">
@@ -180,9 +194,9 @@ export function InvoiceListView() {
                       <span className="flex flex-wrap items-baseline gap-x-2 font-mono text-[0.8125rem] whitespace-nowrap">
                         <span>{invoice.invoiceNumber}</span>
                         {invoice.taxInvoiceNumber ? (
-                          <span className="text-muted-foreground" title="Tax invoice issued against this proforma">
-                            → {invoice.taxInvoiceNumber}
-                          </span>
+                          <Hint content="Tax invoice issued against this proforma">
+                            <span className="text-muted-foreground">→ {invoice.taxInvoiceNumber}</span>
+                          </Hint>
                         ) : null}
                       </span>
                       <span className="text-sm">{invoice.companyName ?? `Franchise ${invoice.franchiseId}`}</span>
@@ -199,12 +213,21 @@ export function InvoiceListView() {
                       {money(invoice.totalMinor, invoice.currencyCode)}
                     </span>
                     <span className="flex flex-col items-start gap-1">
-                      <Pill tone={INVOICE_STATUS_TONE[invoice.status] ?? "gray"}>
-                        {INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status}
-                      </Pill>
+                      <Hint content={INVOICE_STATUS_HELP[invoice.status]}>
+                        <Pill tone={INVOICE_STATUS_TONE[invoice.status] ?? "gray"}>
+                          {INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status}
+                        </Pill>
+                      </Hint>
                       <span className={cn("text-xs", line.warn ? TONE_TEXT.amber : "text-muted-foreground")}>
                         {line.label}
                       </span>
+                      {invoice.status === "paid" && invoice.paidVia === "manual" && invoice.proofCount === 0 ? (
+                        <Hint content="Paid offline with no bank slip or screenshot attached. Attach it on the invoice page.">
+                          <Pill tone="amber" className="font-medium">
+                            No proof
+                          </Pill>
+                        </Hint>
+                      ) : null}
                     </span>
                   </Link>
                 )

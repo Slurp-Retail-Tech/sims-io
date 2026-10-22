@@ -37,6 +37,9 @@ type Settings = {
   receiptPollCeilingSeconds: number
   respondioWhatsappChannelId: string | null
   bukkuDescriptionFormat: string | null
+  bukkuAccountCode: string | null
+  bukkuTaxCode: string | null
+  bukkuClassificationCode: string | null
   sellerName: string | null
   sellerRegistrationNo: string | null
   sellerAddress: string | null
@@ -57,6 +60,9 @@ type Draft = {
   maxSessionRetries: string
   respondioWhatsappChannelId: string
   bukkuDescriptionFormat: string
+  bukkuAccountCode: string
+  bukkuTaxCode: string
+  bukkuClassificationCode: string
   sellerName: string
   sellerRegistrationNo: string
   sellerAddress: string
@@ -77,6 +83,9 @@ function toDraft(settings: Settings): Draft {
     maxSessionRetries: String(settings.maxSessionRetries),
     respondioWhatsappChannelId: settings.respondioWhatsappChannelId ?? "",
     bukkuDescriptionFormat: settings.bukkuDescriptionFormat ?? "",
+    bukkuAccountCode: settings.bukkuAccountCode ?? "",
+    bukkuTaxCode: settings.bukkuTaxCode ?? "",
+    bukkuClassificationCode: settings.bukkuClassificationCode ?? "",
     sellerName: settings.sellerName ?? "",
     sellerRegistrationNo: settings.sellerRegistrationNo ?? "",
     sellerAddress: settings.sellerAddress ?? "",
@@ -192,6 +201,9 @@ export function SettingsView({ canManage }: { canManage: boolean }) {
         maxSessionRetries: draft.maxSessionRetries,
         respondioWhatsappChannelId: draft.respondioWhatsappChannelId,
         bukkuDescriptionFormat: draft.bukkuDescriptionFormat,
+        bukkuAccountCode: draft.bukkuAccountCode,
+        bukkuTaxCode: draft.bukkuTaxCode,
+        bukkuClassificationCode: draft.bukkuClassificationCode,
         sellerName: draft.sellerName,
         sellerRegistrationNo: draft.sellerRegistrationNo,
         sellerAddress: draft.sellerAddress,
@@ -393,6 +405,9 @@ export function SettingsView({ canManage }: { canManage: boolean }) {
               {field("sessionExpiryMinutes", "Payment session expiry (minutes)", "CommercePay expiredInMinutes. 1440 is a day", { inputMode: "numeric" })}
               {field("receiptPollCeilingSeconds", "Receipt page wait (seconds)", "How long the page waits for the payment to confirm before promising the documents by email. 10 to 600", { inputMode: "numeric" })}
               {field("bukkuDescriptionFormat", "Bukku line description", "Composed from {plan}, {outlet} and {period}", { className: "h-8 w-44 shrink-0" })}
+              {field("bukkuAccountCode", "Bukku income account", "The account code every exported line is booked to. Bukku requires one", { className: "h-8 w-28 shrink-0" })}
+              {field("bukkuTaxCode", "Bukku tax code", "Named on lines only while the tax rate is above 0", { className: "h-8 w-28 shrink-0" })}
+              {field("bukkuClassificationCode", "MyInvois classification", "Classification code on every line, e.g. 022 for Others", { className: "h-8 w-28 shrink-0" })}
               {canManage ? (
                 <Button size="sm" className="self-start" disabled={saving} onClick={() => void save()}>
                   {saving ? "Saving…" : "Save settings"}

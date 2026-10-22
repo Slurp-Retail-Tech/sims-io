@@ -3,7 +3,8 @@
  *
  * Numbers follow Slurp's existing convention, `PI-{YYYY}/{MM}-{NNN}` for a
  * proforma and `INV-{YYYY}/{MM}-{NNN}` for the tax invoice that settles it.
- * The two series are independent and reset each month.
+ * A proforma issued as a quotation is `QT-{YYYY}/{MM}-{NNN}` instead. The
+ * series are independent and reset each month.
  *
  * Allocation takes the counter row for its series and month with a
  * `FOR UPDATE` lock, inside the same transaction that inserts the invoice. The
@@ -16,7 +17,7 @@ import { randomBytes } from "node:crypto"
 
 import type { PoolConnection, ResultSetHeader, RowDataPacket } from "mysql2/promise"
 
-export type InvoiceSeries = "PI" | "INV"
+export type InvoiceSeries = "PI" | "INV" | "QT"
 
 /** Zero-padding of the per-month counter, e.g. 014. Overflows to 4 digits. */
 const SEQUENCE_PAD = 3

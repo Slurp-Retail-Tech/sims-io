@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
+import { Hint } from "../../ui"
 import { AssignmentDialog, type AssignmentSaved } from "../assignment-dialog"
 import { formatMinor } from "../format"
 import { PlanDialog } from "../plan-dialog"
@@ -241,16 +242,17 @@ export function PlanDetailView({ planId, canManage }: PlanDetailViewProps) {
           </CardDescription>
           {canManage ? (
             <CardAction>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!plan.isActive}
-                title={plan.isActive ? undefined : "Retired plans cannot take new assignments"}
-                onClick={() => setAssignOpen(true)}
-              >
-                <Plus className="size-4" />
-                New assignment
-              </Button>
+              <Hint content={plan.isActive ? null : "Retired plans cannot take new assignments"}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!plan.isActive}
+                  onClick={() => setAssignOpen(true)}
+                >
+                  <Plus className="size-4" />
+                  New assignment
+                </Button>
+              </Hint>
             </CardAction>
           ) : null}
         </CardHeader>

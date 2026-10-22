@@ -25,6 +25,9 @@ export type SettingsPatchInput = {
   receiptPollCeilingSeconds?: unknown
   respondioWhatsappChannelId?: unknown
   bukkuDescriptionFormat?: unknown
+  bukkuAccountCode?: unknown
+  bukkuTaxCode?: unknown
+  bukkuClassificationCode?: unknown
   sellerName?: unknown
   sellerRegistrationNo?: unknown
   sellerAddress?: unknown
@@ -46,6 +49,9 @@ export type SettingsPatch = {
   receiptPollCeilingSeconds?: number
   respondioWhatsappChannelId?: string | null
   bukkuDescriptionFormat?: string | null
+  bukkuAccountCode?: string | null
+  bukkuTaxCode?: string | null
+  bukkuClassificationCode?: string | null
   sellerName?: string | null
   sellerRegistrationNo?: string | null
   /** Newline-separated; one printed line per line. */
@@ -255,6 +261,20 @@ export function validateSettingsPatch(input: SettingsPatchInput): SettingsValida
   if (input.bukkuDescriptionFormat !== undefined) {
     const value = optionalText(input.bukkuDescriptionFormat, "bukkuDescriptionFormat", 255, errors)
     if (value !== undefined) patch.bukkuDescriptionFormat = value
+  }
+
+  // Bukku codes, capped at their column widths.
+  if (input.bukkuAccountCode !== undefined) {
+    const value = optionalText(input.bukkuAccountCode, "bukkuAccountCode", 32, errors)
+    if (value !== undefined) patch.bukkuAccountCode = value
+  }
+  if (input.bukkuTaxCode !== undefined) {
+    const value = optionalText(input.bukkuTaxCode, "bukkuTaxCode", 32, errors)
+    if (value !== undefined) patch.bukkuTaxCode = value
+  }
+  if (input.bukkuClassificationCode !== undefined) {
+    const value = optionalText(input.bukkuClassificationCode, "bukkuClassificationCode", 16, errors)
+    if (value !== undefined) patch.bukkuClassificationCode = value
   }
 
   // The letterhead. Single-line fields are capped by column width; the

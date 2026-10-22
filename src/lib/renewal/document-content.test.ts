@@ -95,3 +95,99 @@ test("tax appears only when charged, and money is spaced as the design writes it
   assert.equal(docMoney(-500), "-RM 5.00")
   assert.equal(docMoney(null), "—")
 })
+
+test("Bill To prints the registered name, SSM, TIN and address from the billing profile", () => {
+  const content = buildDocumentContent({
+    ...base,
+    paymentEmail: "accounts@tehtarik.example",
+    billTo: {
+      legalName: "TEH TARIK HOUSE SDN. BHD.",
+      regNoType: "BRN",
+      registrationNo: "202001000202",
+      oldRegistrationNo: "1412345-X",
+      tin: "C00000000202",
+      sstNo: null,
+      street: "LOT 2-2, CONTOH PLAZA,,\nEmail: accounts@tehtarik.example\nNO.2, JALAN CONTOH 2,",
+      city: "KUALA LUMPUR",
+      state: "Wilayah Persekutuan Kuala Lumpur",
+      postcode: "50480",
+      country: "MY",
+    },
+  })
+  assert.equal(content.billTo.name, "TEH TARIK HOUSE SDN. BHD.")
+  assert.deepEqual(content.billTo.lines, [
+    "SSM 202001000202 (1412345-X)",
+    "TIN C00000000202",
+    "LOT 2-2, CONTOH PLAZA",
+    "NO.2, JALAN CONTOH 2",
+    "50480 KUALA LUMPUR",
+    "Wilayah Persekutuan Kuala Lumpur",
+    "accounts@tehtarik.example",
+  ])
+  // The document title follows the registered name too.
+  assert.match(content.docTitle, /^\(RN\) TEH TARIK HOUSE SDN\. BHD\. @ 1 OUTLET/)
+})
+
+test("Bill To without a profile is the company name alone; the franchise ID stays on Ship To", () => {
+  const content = buildDocumentContent(base)
+  assert.equal(content.billTo.name, "Teh Tarik House Holdings Sdn Bhd")
+  assert.deepEqual(content.billTo.lines, [])
+  assert.ok(content.shipTo.lines.includes("FID 11007"))
+})
+
+test("an NRIC registration is labelled as one, and a street that names its town is not repeated", () => {
+  const content = buildDocumentContent({
+    ...base,
+    billTo: {
+      legalName: "KEDAI KOPI AH SENG",
+      regNoType: "NRIC",
+      registrationNo: "800101-14-5555",
+      oldRegistrationNo: null,
+      tin: null,
+      sstNo: null,
+      street: "12, JALAN CONTOH,\nTAMAN SAMPEL,\n41100 KLANG,\nSELANGOR,",
+      city: "Klang",
+      state: "Selangor",
+      postcode: "41100",
+      country: null,
+    },
+  })
+  assert.deepEqual(content.billTo.lines, ["NRIC 800101-14-5555", "12, JALAN CONTOH", "TAMAN SAMPEL", "41100 KLANG", "SELANGOR"])
+})
+
+test("a proforma issued as a quotation is titled QUOTATION, with its PO number and a validity date", () => {
+  const content = buildDocumentContent({ ...base, invoiceNumber: "QT-2026/09-001", issuedAs: "quotation", poNumber: "PO-4471" })
+  assert.equal(content.docTypeTitle, "QUOTATION")
+  assert.deepEqual(
+    content.docMeta.map((row) => [row.label, row.value]),
+    [
+      ["No.", "QT-2026/09-001"],
+      ["PO No.", "PO-4471"],
+      ["Date", "23 Sep 2026"],
+      ["Valid until", "8 Oct 2026"],
+      ["Term", "1 year"],
+    ]
+  )
+})
+
+test("the tax invoice names the quotation it settles and carries the PO number", () => {
+  const content = buildDocumentContent({
+    ...base,
+    kind: "tax_invoice",
+    invoiceNumber: "INV-2026/09-010",
+    proformaNumber: "QT-2026/09-001",
+    issuedAs: "quotation",
+    poNumber: "PO-4471",
+    paidAt: "2026-09-25 10:00:00",
+    paidVia: "manual",
+  })
+  assert.equal(content.docTypeTitle, "TAX INVOICE")
+  const meta = Object.fromEntries(content.docMeta.map((row) => [row.label, row.value]))
+  assert.equal(meta.Quotation, "QT-2026/09-001")
+  assert.equal(meta["PO No."], "PO-4471")
+})
+
+test("without a PO number no PO row is printed", () => {
+  const content = buildDocumentContent(base)
+  assert.ok(!content.docMeta.some((row) => row.label === "PO No."))
+})

@@ -19,6 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
+import { METRIC_HELP } from "@/lib/renewal/help-text"
+
 import { KpiTile, money, PageHeader, PillTabs } from "../ui"
 
 type Analytics = {
@@ -35,6 +37,13 @@ type Analytics = {
     retentionRate: number | null
     termMix: { annually: number; biAnnually: number }
     groupedShare: number | null
+  }
+  nonRenewal: {
+    nonRenewed: number
+    recorded: number
+    unrecorded: number
+    temporaryShare: number | null
+    byReason: Array<{ reason: string; label: string; temporary: boolean; count: number; share: number | null }>
   }
   engagement: {
     invoicesRaised: number
@@ -132,7 +141,8 @@ export function AnalyticsView() {
         { label: "Subscriptions due", definition: "Outlets with an expiry in the period", value: String(renewal.due), href: list() },
         { label: "Renewable subscriptions", definition: "Less reseller-billed, billing hold, and unresolved Actions Required", value: String(renewal.renewable) },
         { label: "Renewed", definition: "Paid within the same cohort", value: String(renewal.renewed), href: list({ state: "renewed" }) },
-        { label: "Non-renewed", definition: "Expired unpaid, grace window included", value: String(renewal.nonRenewed), href: list({ state: "non_renewed" }) },
+        { label: "Non-renewed", definition: "Expired unpaid, grace window included, or recorded as not renewing", value: String(renewal.nonRenewed), href: list({ state: "non_renewed" }) },
+        { label: "Non-renewal reason recorded", definition: "Non-renewed outlets with a reason picked by staff", value: `${data.nonRenewal.recorded} of ${data.nonRenewal.nonRenewed}`, href: list({ state: "non_renewed" }) },
         { label: "Potential revenue", definition: "Resolved price at the default term, summed over renewable outlets", value: money(renewal.potentialMinor) },
         { label: "Collected revenue", definition: "Total of paid invoices in the cohort", value: money(renewal.collectedMinor) },
         { label: "Term mix", definition: "1-year against 6-month selections on paid invoices", value: `${renewal.termMix.annually} / ${renewal.termMix.biAnnually}` },
@@ -178,6 +188,7 @@ export function AnalyticsView() {
   }
 
   const maxBar = Math.max(1, ...data.months.map((month) => Math.max(month.potentialMinor, month.collectedMinor)))
+  const maxReason = Math.max(1, ...data.nonRenewal.byReason.map((entry) => entry.count))
   const active = tabs[tab]
 
   return (
@@ -201,12 +212,12 @@ export function AnalyticsView() {
       </PageHeader>
 
       <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr))]">
-        <KpiTile label="Renewable subscriptions" value={String(renewal.renewable)} meta={`${renewal.due} due, less ${renewal.due - renewal.renewable} excluded`} href={list()} />
-        <KpiTile label="Renewed" value={String(renewal.renewed)} meta={`${renewal.nonRenewed} non-renewed`} href={list({ state: "renewed" })} />
-        <KpiTile label="Retention rate" value={pct(renewal.retentionRate)} meta={`Within ${data.period.label}`} metaTone={renewal.retentionRate !== null && renewal.retentionRate >= 80 ? "green" : "gray"} />
-        <KpiTile label="Collected revenue" value={money(renewal.collectedMinor)} meta={`of ${money(renewal.potentialMinor)} potential`} />
-        <KpiTile label="Collection rate" value={pct(renewal.collectionRate)} meta="Paid invoices ÷ potential" metaTone={renewal.collectionRate !== null && renewal.collectionRate >= 80 ? "green" : "gray"} />
-        <KpiTile label="Link open rate" value={pct(engagement.openRate)} meta={`${engagement.neverOpened} never opened`} metaTone={engagement.neverOpened > 0 ? "amber" : "gray"} href={list({ opened: "never" })} />
+        <KpiTile label="Renewable subscriptions" hint={METRIC_HELP.renewable} value={String(renewal.renewable)} meta={`${renewal.due} due, less ${renewal.due - renewal.renewable} excluded`} href={list()} />
+        <KpiTile label="Renewed" hint={METRIC_HELP.renewed} value={String(renewal.renewed)} meta={`${renewal.nonRenewed} non-renewed`} href={list({ state: "renewed" })} />
+        <KpiTile label="Retention rate" hint={METRIC_HELP.retention} value={pct(renewal.retentionRate)} meta={`Within ${data.period.label}`} metaTone={renewal.retentionRate !== null && renewal.retentionRate >= 80 ? "green" : "gray"} />
+        <KpiTile label="Collected revenue" hint={METRIC_HELP.collected} value={money(renewal.collectedMinor)} meta={`of ${money(renewal.potentialMinor)} potential`} />
+        <KpiTile label="Collection rate" hint={METRIC_HELP.collectionRate} value={pct(renewal.collectionRate)} meta="Paid invoices ÷ potential" metaTone={renewal.collectionRate !== null && renewal.collectionRate >= 80 ? "green" : "gray"} />
+        <KpiTile label="Link open rate" hint={METRIC_HELP.openRate} value={pct(engagement.openRate)} meta={`${engagement.neverOpened} never opened`} metaTone={engagement.neverOpened > 0 ? "amber" : "gray"} href={list({ opened: "never" })} />
       </div>
 
       <PillTabs
@@ -305,6 +316,54 @@ export function AnalyticsView() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Why merchants did not renew</CardTitle>
+          <CardDescription>
+            Non-renewed outlets in {data.period.label}, by the reason staff recorded. Freeze account and temporary
+            closure are merchants who may come back.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {data.nonRenewal.nonRenewed === 0 ? (
+            <p className="text-muted-foreground text-sm">No outlet in this period went unrenewed.</p>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {data.nonRenewal.byReason.map((entry) => (
+                <div key={entry.reason} className="grid grid-cols-[minmax(7rem,11rem)_1fr_5.5rem] items-center gap-3 text-sm">
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate">{entry.label}</span>
+                    {entry.temporary ? <span className="text-muted-foreground text-[0.6875rem]">May come back</span> : null}
+                  </span>
+                  <span className="bg-muted h-2.5 overflow-hidden rounded-full" aria-hidden>
+                    <span
+                      className="bg-primary block h-full rounded-full"
+                      style={{ width: `${Math.round((entry.count / maxReason) * 100)}%` }}
+                    />
+                  </span>
+                  <span className="text-right tabular-nums">
+                    {entry.count}
+                    <span className="text-muted-foreground ml-1.5 text-xs">{entry.share === null ? "" : `${Math.round(entry.share)}%`}</span>
+                  </span>
+                </div>
+              ))}
+              <div className="text-muted-foreground flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-xs">
+                <span>
+                  {data.nonRenewal.recorded} of {data.nonRenewal.nonRenewed} recorded
+                  {data.nonRenewal.temporaryShare !== null ? ` · ${pct(data.nonRenewal.temporaryShare)} temporary` : ""}
+                </span>
+                {data.nonRenewal.unrecorded > 0 ? (
+                  <Link href={list({ state: "non_renewed" })} className="text-primary inline-flex items-center gap-1 hover:underline">
+                    Record {data.nonRenewal.unrecorded} missing {data.nonRenewal.unrecorded === 1 ? "reason" : "reasons"}
+                    <ChevronRight className="size-3.5" />
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

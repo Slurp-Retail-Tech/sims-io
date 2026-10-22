@@ -15,6 +15,7 @@ import { daysBetween } from "./invoice-build.ts"
 import {
   engagementMetrics,
   monthlyBars,
+  nonRenewalMetrics,
   operationsMetrics,
   pricingMetrics,
   renewalMetrics,
@@ -25,6 +26,7 @@ import type {
   InvoiceFact,
   LineFact,
   MonthBar,
+  NonRenewalMetrics,
   OperationsMetrics,
   PricingMetrics,
   RenewalMetrics,
@@ -40,6 +42,7 @@ export type AnalyticsData = {
   period: AnalyticsPeriod
   periods: AnalyticsPeriod[]
   renewal: RenewalMetrics
+  nonRenewal: NonRenewalMetrics
   engagement: EngagementMetrics
   pricing: PricingMetrics
   operations: OperationsMetrics
@@ -119,6 +122,7 @@ export async function loadAnalytics(periodKey: string | null, db: Queryable = ge
         blocked: outlet.blockingReasons.length > 0,
         state: outlet.state,
         priceMinor: outlet.priceMinor,
+        nonRenewalReason: outlet.nonRenewal?.reason ?? null,
       }))
   )
   const cohort = allOutlets.filter((outlet) => outlet.validUntilDate >= period.from && outlet.validUntilDate <= period.to)
@@ -158,6 +162,7 @@ export async function loadAnalytics(periodKey: string | null, db: Queryable = ge
     period,
     periods,
     renewal: renewalMetrics(cohort, periodInvoices),
+    nonRenewal: nonRenewalMetrics(cohort),
     engagement: engagementMetrics(periodInvoices),
     pricing: pricingMetrics(lines, Number((overrideRows[0] as Array<{ n: number | string }>)[0]?.n ?? 0)),
     operations: operationsMetrics(
