@@ -6,6 +6,11 @@ import Script from "next/script"
 
 import styles from "./demoform.module.css"
 
+// Mirrors DEMOFORM_REGION_BLOCKED_CODE in src/lib/demoform-geo.ts. Not
+// imported from there because that module bundles the whole MY/SG IP range
+// table, which has no business in the browser.
+const DEMOFORM_REGION_BLOCKED_CODE = "region_not_supported"
+
 const businessTypes = [
   "Restaurant",
   "Cafe",
@@ -52,6 +57,8 @@ const copy = {
     },
     messages: {
       genericError: "Sesuatu yang tidak kena.",
+      regionNotSupported:
+        "Maaf, permintaan demo hanya tersedia di Malaysia dan Singapura.",
       recaptchaMissing:
         "reCAPTCHA belum dikonfigurasi. Tetapkan NEXT_PUBLIC_RECAPTCHA_SITE_KEY dan RECAPTCHA_SECRET_KEY untuk mengaktifkan penghantaran.",
     },
@@ -102,6 +109,8 @@ const copy = {
     },
     messages: {
       genericError: "Something went wrong.",
+      regionNotSupported:
+        "Sorry, demo requests are only available in Malaysia and Singapore.",
       recaptchaMissing:
         "reCAPTCHA is not configured. Set NEXT_PUBLIC_RECAPTCHA_SITE_KEY and RECAPTCHA_SECRET_KEY to enable submissions.",
     },
@@ -247,20 +256,25 @@ export default function DemoForm({ variant }: { variant: DemoFormVariant }) {
       })
 
       const responseText = await response.text()
-      let payload: { whatsappUrl?: string; error?: string; errors?: string[] } | null = null
+      type LeadResponse = {
+        whatsappUrl?: string
+        error?: string
+        errors?: string[]
+        code?: string
+      }
+      let payload: LeadResponse | null = null
       if (responseText) {
         try {
-          payload = JSON.parse(responseText) as {
-            whatsappUrl?: string
-            error?: string
-            errors?: string[]
-          }
+          payload = JSON.parse(responseText) as LeadResponse
         } catch {
           payload = null
         }
       }
 
       if (!response.ok) {
+        if (payload?.code === DEMOFORM_REGION_BLOCKED_CODE) {
+          throw new Error(t.messages.regionNotSupported)
+        }
         if (Array.isArray(payload?.errors)) {
           throw new Error(payload.errors.join(", "))
         }
