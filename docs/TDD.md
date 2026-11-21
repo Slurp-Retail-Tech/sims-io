@@ -668,6 +668,7 @@ outlet "1" -- "*" user_scope
 | `TRUSTED_PROXY` | Optional | Set to `"true"` when behind a reverse proxy (Coolify/Traefik) to enable `X-Forwarded-For` reading for IP-based rate limits. Leave unset when running without a proxy to prevent header spoofing. |
 | `MINIO_PUBLIC_URL` | Optional | Public base URL for MinIO presigned URLs served to browsers (e.g. `https://files.example.my`). Needed when the internal `MINIO_ENDPOINT` is not reachable from clients. |
 | `RECAPTCHA_SECRET_KEY` | Production required (demo form) | Google reCAPTCHA v2/v3 secret. If absent in production, the demo form `POST` returns HTTP 500 (fail-closed). |
+| `DEMOFORM_GEO_BLOCK` | Optional | Country gate on demo form submissions. Unset (default) or any value other than `off`/`false`/`0`/`no` keeps it on: `POST /api/leads` accepts only Malaysian and Singaporean client IPs. Set to `off` to accept submissions from anywhere (container restart, no rebuild). |
 | `LEAD_WHATSAPP_COUNTRY_CODE` | Optional | Default country code for the "Open in WhatsApp" button in the lead-assigned email. When a lead's digits-only telephone starts with `0`, the leading `0` is replaced with this code. Defaults to `60` (Malaysia) when unset. |
 | `NEXT_PUBLIC_META_PIXEL_ID` | Optional | Meta (Facebook) Pixel ID. When set, the base pixel loads site-wide (`PageView`) and the demoform fires a `Lead` conversion on success. Baked into the client bundle at build time. Single source of the `Lead` event — do not duplicate it in GTM. |
 | `META_CAPI_ACCESS_TOKEN` | Optional | Meta Conversions API access token (System User token). When set alongside `NEXT_PUBLIC_META_PIXEL_ID`, the demoform `Lead` is also sent server-side from `POST /api/leads` so it survives browser ad blockers; deduplicated with the browser pixel via a shared `event_id`. Server-only secret. |
@@ -1459,6 +1460,13 @@ Minimum 12 characters enforced at: account activation, password reset, profile p
 **reCAPTCHA**
 Fail-closed in production: if `RECAPTCHA_SECRET_KEY` is not set, the demo form `POST` returns HTTP 500 rather than bypassing verification. Local development retains a bypass with a console warning.
 
+**Demo Form Country Gate**
+`POST /api/leads` accepts public demo form submissions only from Malaysian and Singaporean client IPs (`src/lib/demoform-geo.ts`). It runs right after the rate limit, so blocked senders still use up their budget, and before reCAPTCHA and the insert. A blocked request gets HTTP 403 `{ error, code: "region_not_supported" }`; the form maps that code to a translated message, and the block is logged as a `warn` with the IP and reason.
+- **Where:** only the submission is gated. `/demoform` and `/demoform/web` still render for everyone, because Meta and Google review ad landing pages from overseas IPs and a blocked page gets ads disapproved.
+- **Country lookup:** SIMS is served straight from the VPS with no CDN in front, so no proxy sends a country header. The client IP from `getRateLimitIp` (which needs `TRUSTED_PROXY`) is matched against MY and SG blocks from APNIC's delegated statistics file, bundled as sorted, merged ranges in `src/lib/demoform-geo-ranges.generated.ts` and binary-searched (IPv4 as integers, IPv6 as 32-character hex strings, so no BigInt at runtime). `npm run geo:update` (`scripts/update-demoform-geo-ranges.mjs`) downloads the latest file and regenerates the module; refresh it every few months. APNIC records where a block was first allocated, so local ISPs and mobile carriers match, but some VPN and iCloud Private Relay users inside MY/SG will be blocked.
+- **Let through:** `"direct"` (no trusted proxy, local dev only since production requires `TRUSTED_PROXY`), and private, loopback, link-local and CGNAT addresses. An IP that cannot be parsed is blocked.
+- **Kill switch:** `DEMOFORM_GEO_BLOCK=off` (or `false`/`0`/`no`) turns the gate off; unset keeps it on.
+
 **File Upload Viewer Auth**
 `GET /api/uploads/view` requires authentication via `requireAuthenticatedUser`. Previously this endpoint was unauthenticated.
 
@@ -1559,11 +1567,120 @@ and recorded on the invoice:
 The receipt PDF is re-rendered only on the run that issues the tax invoice
 (it prints the INV- number); later reruns leave the stored receipt alone.
 
-**Bukku export.** One row per paid line, `Invoice No` from the linked INV-
-tax invoice (`parent_invoice_id`), with `Proforma No`, `Central ID`, and
-`Payment Ref` from the gateway transaction or the offline bank reference.
+**Bukku export.** An .xlsx in Bukku's "Invoices (Credit Sales) – Extended
+Mode – MY" import layout (`buildBukkuRows` / `buildBukkuSheet` in
+`bukku-export.ts`): `#` comment lines, one `$` line naming the template's
+columns, then one row per paid line with an empty first cell. `No.` is the
+linked INV- tax invoice (`parent_invoice_id`) and `Reference No.` the PI-
+proforma. The customer is matched by `Contact Code` from the invoice's
+`bill_to_json`, with `Legal Name` as Bukku's fallback; `Account`, `Tax` (named
+only when the line carries tax) and `Classification Code` come from
+`renewal_settings.bukku_account_code`, `bukku_tax_code` and
+`bukku_classification_code` (migration 040). The payment method and reference
+go in `Description`, and the outlet ID in the `Field:outlet_id` custom field.
 Paid invoices whose tax invoice is not issued yet are left out and join a
-later batch.
+later batch. Batches generated before the change are CSV and still download as
+CSV.
+
+**Renewal message copy.** Every template in `message-templates.ts` opens
+with `GREETING` ("Dear Valued Merchant,") and no longer uses `{picName}`;
+`{documentLabel}` / `{documentLabelCapital}` name the document from the
+invoice's `issued_as`. WhatsApp body parameters are derived from the copy's
+placeholders in reading order (`whatsappBodyParameters`), so the greeting
+change shifted every parameter. The WhatsApp template names therefore moved
+to `_v2`, which keeps a send from ever pairing new parameters with an
+approved v1 body: the v2 templates must be approved in Meta through
+Respond.io before `dispatch_enabled` is switched on.
+
+**Tooltips.** `Hint` and `InfoTip` in `renewal-retention/ui.tsx` wrap the
+`ui/tooltip` primitive; `Hint` puts its trigger on a span so a disabled
+button still explains itself. The copy lives in `src/lib/renewal/help-text.ts`
+(invoice statuses, Renewal List states, headline metrics, billing profile
+statuses). `KpiTile` takes a `hint`. Native `title=` attributes are no longer
+used on the renewal screens.
+
+**Quotations and PO numbers.** A quotation is a proforma in every respect
+but its name: `renewal_invoices.issued_as` (`proforma` | `quotation`,
+migration 042) changes only the title (`docTypeTitle`), the "Due date" label
+("Valid until") and the number series (`QT-{YYYY}/{MM}-{NNN}`, its own row in
+`renewal_invoice_sequences`). `document_type` stays `proforma`, so the open
+guard, lapse sweep, payment reconcile and every aggregate are untouched.
+`createProformaForGroup` issues the franchise's
+`renewal_franchise_settings.default_document` unless the caller says
+otherwise (set on Billing Profiles). The `switch_document_type` action
+re-numbers an open document from the other series, records both numbers in
+`document_type_switched`, supersedes any open payment session (its
+description named the old number), returns `payment_pending` to `issued`, and
+re-renders the PDF under the new number; the renewal token is unchanged.
+`renewal_invoices.po_number` is set with `set_po_number` while the document
+is open (`po_number_set` event, forced re-render), copied to the tax invoice,
+printed as "PO No." on all three documents, and exported as Bukku's
+`Reference No.` in place of the proforma number.
+
+**Manual renewals.** `POST /api/renewals/invoices` (invoices manage key)
+raises a document for chosen outlets of one franchise through
+`createManualRenewal` (`manual-renewal-data.ts`; rules pure in
+`manual-renewal.ts`). Outlets must be live, Slurp-billed, not on hold and
+share one `valid_until_date`; each is priced with `resolvePlanForOutlet` and
+`resolvePriceForLine` on the chosen term, the same functions the cycle uses.
+The group key (`manualGroupKey`) is the one the cycle would claim for those
+outlets, and `findOpenProformaForOutlets` refuses outlets already billed for
+that expiry, so the nightly due pass reuses the document rather than raising
+a second. A missing renewal PIC does not block it. The due date is the expiry,
+or today if that has passed, so a lapsed outlet is not swept again the same
+night. Recorded as `manually_created`. `GET /api/renewals/invoices/new` serves
+the dialog: franchise search, then each outlet's price per term, block reason
+and any open document.
+
+**Proof of payment.** `renewal_payment_proofs` (migration 043) holds files
+attached to a proforma: images and PDFs only, sniffed from the bytes
+(`sniffUploadType`), at most five per upload and 10 MB each, stored in MinIO
+under `renewal-payment-proofs/{year}/{invoiceId}/`. That prefix is outside
+`OBJECT_KEY_PREFIXES`, so `/api/uploads/view` refuses the keys; files are
+served only by `GET /api/renewals/invoices/{id}/proofs/{proofId}` behind the
+invoice view keys, inline with `nosniff`. Attaching and removing are invoice
+events (`payment_proof_attached`, `payment_proof_removed`); a removed file is
+soft-deleted and its object kept. The Invoices list counts proofs for
+`paid_via = 'manual'` invoices and flags those with none.
+
+**Non-renewal reasons.** `renewal_non_renewals` (migration 044) holds one
+reason per outlet per cycle (`cycle_valid_until`, the expiry it was due to
+renew from): `change_of_ownership`, `closed_business`, `switched_system`,
+`freeze_account`, `temp_close` or `other` (note required), defined with their
+labels and a `temporary` flag in `non-renewal.ts`. `recordNonRenewal`
+(`POST /api/renewals/non-renewals`, invoices manage key) upserts the rows,
+sets `outlet_subscriptions.renewal_state = 'non_renewed'` with the label as
+`renewal_state_reason`, resolves any open `non_renewal_reason_missing` entry,
+and voids the open document billing exactly those outlets (an outlet on a
+grouped document with others is refused from the Renewal List and recorded
+from the invoice instead). `sweepLapsedProformas` raises that informational
+entry for each outlet it marks non-renewed without a reason. In
+`deriveOutletState` a recorded reason makes the outlet `non_renewed` unless
+its invoice is paid. `nonRenewalMetrics` counts the cohort's renewable,
+non-renewed outlets by reason over the same set `renewalMetrics` counts, so
+the two cards agree.
+
+**Billing profiles.** `renewal_billing_profiles` (migrations 040, 041) holds
+one row per franchise: legal name, registration number and type (BRN for SSM,
+NRIC, PASSPORT), old registration number, TIN, SST number and billing address,
+plus the Bukku contact code behind them. **Import Bukku contacts** on
+`/renewal-retention/billing-profiles` stores the Contacts export in
+`renewal_bukku_contacts` (parsed by header text, `parseBukkuContactRows`), then
+matches contacts to franchises (`matchContactsToFranchises`, pure): a
+normalised company name (`normalizeCompanyName`) against the subscription's
+company and outlet names and the merchant name first, then PIC and payer
+emails. Exactly one fit creates a profile (`match_status = 'auto'`); several
+are listed as candidates for review, computed on read so they follow the
+latest import. Profiles linked to a contact are refreshed by each import
+unless `source = 'manual'`. Each proforma snapshots its franchise's profile
+into `renewal_invoices.bill_to_json` when created; `refreshOpenDocuments`
+re-points every open proforma (draft to payment pending) at the current
+profile and clears its stored PDF whenever a profile changes. The tax invoice
+copies the proforma's snapshot. `buildBillTo` prints the legal name, then
+`SSM {new} ({old})`, `TIN`, `SST`, up to four address lines (`addressLines`
+drops email lines and does not repeat a postcode or state the street already
+spells out) and the payment email. Access keys: `/renewal-retention/billing-profiles`
+(view) and `/billing-profiles/manage` (import and edit).
 
 Automatic re-queuing by the reconcile job stops 48 hours after payment; after
 that a person uses **Retry post-payment steps** from the invoice page.

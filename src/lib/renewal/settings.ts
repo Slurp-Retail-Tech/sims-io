@@ -39,6 +39,12 @@ export type RenewalSettings = {
   receiptPollCeilingSeconds: number
   respondioWhatsappChannelId: string | null
   bukkuDescriptionFormat: string | null
+  /** The income account every exported line is booked to, by its Bukku code. */
+  bukkuAccountCode: string | null
+  /** The Bukku tax code named on lines that carry tax. */
+  bukkuTaxCode: string | null
+  /** The MyInvois classification code on every line, e.g. 022 (Others). */
+  bukkuClassificationCode: string | null
   /** Letterhead on every renewal document. Null falls back to the environment. */
   sellerName: string | null
   sellerRegistrationNo: string | null
@@ -69,6 +75,9 @@ export const DEFAULT_RENEWAL_SETTINGS: RenewalSettings = {
   receiptPollCeilingSeconds: 90,
   respondioWhatsappChannelId: null,
   bukkuDescriptionFormat: null,
+  bukkuAccountCode: null,
+  bukkuTaxCode: null,
+  bukkuClassificationCode: null,
   sellerName: null,
   sellerRegistrationNo: null,
   sellerAddress: null,
@@ -91,6 +100,9 @@ type SettingsRow = RowDataPacket & {
   receipt_poll_ceiling_seconds: number
   respondio_whatsapp_channel_id: string | null
   bukku_description_format: string | null
+  bukku_account_code: string | null
+  bukku_tax_code: string | null
+  bukku_classification_code: string | null
   seller_name: string | null
   seller_registration_no: string | null
   seller_address: string | null
@@ -108,6 +120,7 @@ export async function loadRenewalSettings(
             send_window_start, send_window_end, session_expiry_minutes,
             max_session_retries, receipt_poll_ceiling_seconds,
             respondio_whatsapp_channel_id, bukku_description_format,
+            bukku_account_code, bukku_tax_code, bukku_classification_code,
             seller_name, seller_registration_no, seller_address, seller_contact,
             updated_at
        FROM renewal_settings WHERE id = 1`
@@ -133,6 +146,9 @@ export async function loadRenewalSettings(
     receiptPollCeilingSeconds: row.receipt_poll_ceiling_seconds,
     respondioWhatsappChannelId: row.respondio_whatsapp_channel_id,
     bukkuDescriptionFormat: row.bukku_description_format,
+    bukkuAccountCode: row.bukku_account_code,
+    bukkuTaxCode: row.bukku_tax_code,
+    bukkuClassificationCode: row.bukku_classification_code,
     sellerName: row.seller_name,
     sellerRegistrationNo: row.seller_registration_no,
     sellerAddress: row.seller_address,
@@ -173,6 +189,9 @@ export async function saveRenewalSettings(
     ["receiptPollCeilingSeconds", "receipt_poll_ceiling_seconds", (value: number) => value],
     ["respondioWhatsappChannelId", "respondio_whatsapp_channel_id", (value: string | null) => value],
     ["bukkuDescriptionFormat", "bukku_description_format", (value: string | null) => value],
+    ["bukkuAccountCode", "bukku_account_code", (value: string | null) => value],
+    ["bukkuTaxCode", "bukku_tax_code", (value: string | null) => value],
+    ["bukkuClassificationCode", "bukku_classification_code", (value: string | null) => value],
     ["sellerName", "seller_name", (value: string | null) => value],
     ["sellerRegistrationNo", "seller_registration_no", (value: string | null) => value],
     ["sellerAddress", "seller_address", (value: string | null) => value],

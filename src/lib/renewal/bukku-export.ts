@@ -1,13 +1,16 @@
 /**
  * Shaping paid invoices into the rows Bukku imports.
  *
- * One row per invoice line item: a grouped invoice with six outlets is six
- * rows sharing an invoice number, because that is how the revenue is
- * recognised per outlet. Amounts are formatted from minor units here, once.
+ * The file follows Bukku's "Invoices (Credit Sales) - Extended Mode - MY"
+ * import template column for column: `#` comment lines, one `$` line naming
+ * the columns, and data from the second column on. One row per invoice line
+ * item: a grouped invoice with six outlets is six rows sharing an invoice
+ * number, because that is how the revenue is recognised per outlet, and Bukku
+ * reads repeated header columns as the same invoice.
  *
- * The exact column set Bukku expects is an open dependency (PRD §8). These
- * columns follow Bukku's sales-invoice import and are named so a finance
- * user can map them; changing a header is a one-line edit.
+ * The customer is matched in Bukku by Contact Code, from the franchise's
+ * billing profile, and by Legal Name when there is no code. The account, tax
+ * and classification codes come from Renewal Settings.
  *
  * Pure and runtime-free so the shaping is unit-tested.
  */
@@ -18,11 +21,18 @@ import { formatMinorAsDecimalString } from "./money.ts"
 export type ExportableLine = {
   /** The INV- tax invoice number: the document finance books in Bukku. */
   invoiceNumber: string
-  /** The PI- proforma it settles, for tracing back to SIMS. */
+  /** The PI- proforma (or QT- quotation) it settles, for tracing back to SIMS. */
   proformaNumber: string
+  /** Whether that document was a proforma or a quotation. */
+  issuedAs?: "proforma" | "quotation"
+  /** The merchant's purchase order number, if they gave one. */
+  poNumber?: string | null
   centralId: string | null
   paidAt: string | null
   companyName: string | null
+  /** From the billing profile snapshotted on the invoice. */
+  bukkuContactCode: string | null
+  legalName: string | null
   franchiseId: string
   outletName: string | null
   outletId: string
@@ -37,7 +47,43 @@ export type ExportableLine = {
   paidReference: string | null
 }
 
-export type BukkuRow = Record<string, string>
+/** The template's columns, in order, spelled exactly as its `$` line spells them. */
+export const BUKKU_INVOICE_COLUMNS = [
+  "Contact Code (1)",
+  "Legal Name (2)",
+  "No. (3)",
+  "Reference No.",
+  "Date (D) *",
+  "Payment Term (4)",
+  "Due Date (D) (5)",
+  "Currency (6)",
+  "Rate (7)",
+  "Tags (8)",
+  "Title",
+  "Description",
+  "Product (9)",
+  "Account (10) *",
+  "Item Description *",
+  "Quantity (11)",
+  "UOM (12)",
+  "Location (13)",
+  "Unit Price *",
+  "Discount (14)",
+  "Tax (15)",
+  "Classification Code (16)",
+  "Field:sales_agent",
+  "Field:outlet_id",
+] as const
+
+export type BukkuColumn = (typeof BUKKU_INVOICE_COLUMNS)[number]
+export type BukkuRow = Record<BukkuColumn, string>
+
+/** The Bukku codes every line carries, from Renewal Settings. */
+export type BukkuCodes = {
+  accountCode: string | null
+  taxCode: string | null
+  classificationCode: string | null
+}
 
 const TERM_MONTHS = { annually: 12, bi_annually: 6 } as const
 
@@ -60,30 +106,78 @@ export function describeLine(format: string | null, line: ExportableLine): strin
   )
 }
 
+/** `2026-09-12…` as Bukku's `12/09/2026`. Read literally, so no timezone can shift it. */
+export function bukkuDate(value: string | null | undefined): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? "")
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : ""
+}
+
+function paymentNote(line: ExportableLine): string {
+  const method = line.paidVia === "manual" ? "bank transfer" : "CommercePay"
+  const reference = line.capTransactionNumber ?? line.paidReference
+  const document = line.issuedAs === "quotation" ? "Quotation" : "Proforma"
+  return `Paid by ${method}${reference ? `, ref ${reference}` : ""}. ${document} ${line.proformaNumber}.`
+}
+
 export function buildBukkuRows(
   lines: readonly ExportableLine[],
-  descriptionFormat: string | null
+  descriptionFormat: string | null,
+  codes: BukkuCodes
 ): BukkuRow[] {
+  const outletsPerInvoice = new Map<string, number>()
+  for (const line of lines) {
+    outletsPerInvoice.set(line.invoiceNumber, (outletsPerInvoice.get(line.invoiceNumber) ?? 0) + 1)
+  }
+
   return lines.map((line) => {
-    const taxMinor = Math.round((line.effectiveMinor * line.taxRatePercent) / 100)
+    const name = line.legalName ?? line.companyName ?? `Franchise ${line.franchiseId}`
+    const outlets = outletsPerInvoice.get(line.invoiceNumber) ?? 1
+    const date = bukkuDate(line.paidAt)
     return {
-      "Invoice Date": line.paidAt?.slice(0, 10) ?? "",
-      "Invoice No": line.invoiceNumber,
-      Customer: line.companyName ?? `Franchise ${line.franchiseId}`,
-      "Customer Ref": line.franchiseId,
-      "Central ID": line.centralId ?? "",
-      Description: describeLine(descriptionFormat, line),
-      Quantity: "1",
-      "Unit Price": formatMinorAsDecimalString(line.effectiveMinor),
-      "Tax Rate (%)": line.taxRatePercent.toFixed(2),
-      "Tax Amount": formatMinorAsDecimalString(taxMinor),
-      Total: formatMinorAsDecimalString(line.effectiveMinor + taxMinor),
-      Currency: "MYR",
-      "Payment Method": line.paidVia === "manual" ? "Bank transfer" : "CommercePay",
-      "Payment Ref": line.capTransactionNumber ?? line.paidReference ?? "",
-      "Proforma No": line.proformaNumber,
+      "Contact Code (1)": line.bukkuContactCode ?? "",
+      "Legal Name (2)": name,
+      "No. (3)": line.invoiceNumber,
+      // The merchant's PO is what their finance team will quote back; without
+      // one, the proforma number traces the invoice to SIMS.
+      "Reference No.": line.poNumber?.trim() || line.proformaNumber,
+      "Date (D) *": date,
+      "Payment Term (4)": "",
+      // Already paid, so due on the day it was issued.
+      "Due Date (D) (5)": date,
+      "Currency (6)": "MYR",
+      "Rate (7)": "",
+      "Tags (8)": "",
+      Title: `(RN) ${name.toUpperCase()} @ ${outlets} ${outlets === 1 ? "OUTLET" : "OUTLETS"} - SLURP! LICENSE RENEWAL (${line.billingPlan === "annually" ? "YEARLY" : "BI-ANNUAL"})`,
+      Description: paymentNote(line),
+      "Product (9)": "",
+      "Account (10) *": codes.accountCode ?? "",
+      "Item Description *": describeLine(descriptionFormat, line),
+      "Quantity (11)": "1",
+      "UOM (12)": "",
+      "Location (13)": "",
+      "Unit Price *": formatMinorAsDecimalString(line.effectiveMinor),
+      "Discount (14)": "",
+      // Bukku works the tax out from its own code; at 0% there is none to name.
+      "Tax (15)": line.taxRatePercent > 0 ? (codes.taxCode ?? "") : "",
+      "Classification Code (16)": codes.classificationCode ?? "",
+      "Field:sales_agent": "",
+      "Field:outlet_id": line.outletId,
     }
   })
+}
+
+/**
+ * The sheet as rows of cells, framed the way Bukku's importer reads it: `#`
+ * comment lines, the `$` column line, then each row with an empty first cell.
+ */
+export function buildBukkuSheet(rows: readonly BukkuRow[], reference: string): string[][] {
+  return [
+    ["#", "TEMPLATE FOR INVOICES (CREDIT SALES) - EXTENDED MODE - MY"],
+    ["#", `Generated by SIMS Renewals as ${reference}. Lines that start with '#' are comments.`],
+    ["#", 'Dates are "DD/MM/YYYY". Each outlet is one line item; lines sharing a No. are one invoice.'],
+    ["$", ...BUKKU_INVOICE_COLUMNS],
+    ...rows.map((row) => ["", ...BUKKU_INVOICE_COLUMNS.map((column) => row[column])]),
+  ]
 }
 
 /** `BKX-2026-08-003`: the month exported, then a running number. */

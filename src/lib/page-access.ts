@@ -79,6 +79,14 @@ const accessRouteMappings: { prefix: string; accessKeys: string[] }[] = [
   },
   { prefix: "/renewal-retention/templates", accessKeys: ["/renewal-retention/templates"] },
   {
+    prefix: "/renewal-retention/billing-profiles/manage",
+    accessKeys: ["/renewal-retention/billing-profiles/manage"],
+  },
+  {
+    prefix: "/renewal-retention/billing-profiles",
+    accessKeys: ["/renewal-retention/billing-profiles"],
+  },
+  {
     prefix: "/renewal-retention/exports/manage",
     accessKeys: ["/renewal-retention/exports/manage"],
   },

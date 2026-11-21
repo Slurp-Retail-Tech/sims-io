@@ -6,6 +6,7 @@ import {
   hoursBetween,
   median,
   monthlyBars,
+  nonRenewalMetrics,
   operationsMetrics,
   percent,
   pricingMetrics,
@@ -155,4 +156,38 @@ test("monthly bars pair potential by expiry month with collected by paid month",
     { month: "2026-09", potentialMinor: 120000, collectedMinor: 120000 },
     { month: "2026-10", potentialMinor: 70000, collectedMinor: 0 },
   ])
+})
+
+test("non-renewals are counted by recorded reason, with the unrecorded remainder", () => {
+  const metrics = nonRenewalMetrics([
+    outlet({ state: "non_renewed", nonRenewalReason: "switched_system" }),
+    outlet({ state: "non_renewed", nonRenewalReason: "switched_system" }),
+    outlet({ state: "non_renewed", nonRenewalReason: "temp_close" }),
+    outlet({ state: "non_renewed" }),
+    // Not renewable, so not counted, just as renewalMetrics leaves them out.
+    outlet({ state: "non_renewed", billedBy: "reseller", nonRenewalReason: "closed_business" }),
+    outlet({ state: "renewed" }),
+  ])
+  assert.equal(metrics.nonRenewed, 4)
+  assert.equal(metrics.recorded, 3)
+  assert.equal(metrics.unrecorded, 1)
+  assert.deepEqual(metrics.byReason.slice(0, 2).map((entry) => [entry.reason, entry.count, entry.share]), [
+    ["switched_system", 2, 66.7],
+    ["temp_close", 1, 33.3],
+  ])
+  assert.equal(metrics.temporaryShare, 33.3)
+  // Every reason is listed, so the chart's categories never shift between periods.
+  assert.equal(metrics.byReason.length, 6)
+})
+
+test("with nothing recorded, shares are empty rather than zero", () => {
+  const metrics = nonRenewalMetrics([outlet({ state: "non_renewed" })])
+  assert.equal(metrics.recorded, 0)
+  assert.equal(metrics.temporaryShare, null)
+  assert.ok(metrics.byReason.every((entry) => entry.share === null))
+})
+
+test("the reason total agrees with renewalMetrics' non-renewed count", () => {
+  const cohort = [outlet({ state: "non_renewed", blocked: true }), outlet({ state: "non_renewed", nonRenewalReason: "other" })]
+  assert.equal(nonRenewalMetrics(cohort).nonRenewed, renewalMetrics(cohort, []).nonRenewed)
 })

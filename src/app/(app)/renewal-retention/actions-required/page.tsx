@@ -23,6 +23,8 @@ export default async function ActionsRequiredPage() {
         "/renewal-retention/subscriptions/manage"
       )}
       canAssignPlan={canAccessPath(user.role, user.pageAccess, "/renewal-retention/plans/manage")}
+      // Recording a reason may void the open document, so it needs the invoices manage key.
+      canRecordReason={canAccessPath(user.role, user.pageAccess, "/renewal-retention/invoices/manage")}
       // Both keys the designation endpoint requires.
       canSetPic={evaluateDesignationAccess(user).allowed}
       // Same gate as the manual path of POST /api/renewals/cycle.

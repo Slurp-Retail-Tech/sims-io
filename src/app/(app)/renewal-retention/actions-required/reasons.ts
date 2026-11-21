@@ -23,6 +23,7 @@ export const REASON_LABELS: Record<string, string> = {
   overpayment: "Paid more than once",
   payment_refunded: "Payment was refunded",
   stale_proforma: "Invoice bills an expiry date that moved",
+  non_renewal_reason_missing: "Record why the merchant did not renew",
 }
 
 export const REASON_FIXES: Record<string, string> = {
@@ -53,6 +54,8 @@ export const REASON_FIXES: Record<string, string> = {
   overpayment: "Review both payments before refunding either.",
   payment_refunded:
     "The gateway reports money going back. Check the licence dates against what was actually paid.",
+  non_renewal_reason_missing:
+    "The proforma lapsed unpaid. Pick the reason the merchant gave, so the non-renewal is counted on Analytics.",
   stale_proforma:
     "The outlet's expiry date changed after this proforma was raised, so it quotes a period that no longer applies. A proforma for the new date is raised separately. Void this one unless the merchant is paying it.",
 }

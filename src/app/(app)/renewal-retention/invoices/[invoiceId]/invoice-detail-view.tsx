@@ -32,8 +32,14 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/components/toast-provider"
+import { addressLines, registrationLine } from "@/lib/renewal/document-content"
+import { INVOICE_STATUS_HELP } from "@/lib/renewal/help-text"
+import { nonRenewalLabel } from "@/lib/renewal/non-renewal"
+import type { BillToDetails } from "@/lib/renewal/document-content"
 import { cn } from "@/lib/utils"
 
+import { NonRenewalDialog } from "../../non-renewal-dialog"
+import type { NonRenewalTarget } from "../../non-renewal-dialog"
 import {
   INVOICE_STATUS_LABEL,
   INVOICE_STATUS_TONE,
@@ -44,6 +50,7 @@ import {
   plural,
   shortDateTime,
   signedMoney,
+  Hint,
   TERM_LABEL,
   TONE_DOT,
 } from "../../ui"
@@ -53,8 +60,11 @@ type Invoice = {
   id: string
   invoiceNumber: string
   documentType: "proforma" | "tax_invoice"
+  issuedAs: "proforma" | "quotation"
+  poNumber: string | null
   franchiseId: string
   companyName: string | null
+  billTo: (BillToDetails & { bukkuContactCode: string | null }) | null
   groupKey: string
   isGrouped: boolean
   itemCount: number
@@ -88,6 +98,18 @@ type Invoice = {
   payerEmailSentAt: string | null
   payerEmailError: string | null
 }
+
+type Proof = {
+  id: string
+  originalName: string
+  contentType: string
+  sizeBytes: number
+  uploadedByUserId: string | null
+  uploadedAt: string
+}
+
+/** Mirrors `PROOF_ACCEPT` in `src/lib/renewal/payment-proofs.ts`. */
+const PROOF_ACCEPT = ".jpg,.jpeg,.png,.webp,.heic,.pdf,image/jpeg,image/png,image/webp,image/heic,application/pdf"
 
 type Extension = {
   id: string
@@ -219,7 +241,7 @@ function describeEvent(event: Event, invoice: Invoice): TimelineEntry {
   const base = { key: `e-${event.id}`, when: shortDateTime(event.createdAt), actor }
   switch (event.eventType) {
     case "invoice_created":
-      return { ...base, title: "Invoice created", tone: "blue", detail: `Proforma ${invoice.invoiceNumber} · ${plural(Number(payload.outlets ?? invoice.itemCount), "outlet")} · group ${String(payload.groupKey ?? invoice.groupKey)}` }
+      return { ...base, title: "Invoice created", tone: "blue", detail: `${invoice.issuedAs === "quotation" ? "Quotation" : "Proforma"} ${invoice.invoiceNumber} · ${plural(Number(payload.outlets ?? invoice.itemCount), "outlet")} · group ${String(payload.groupKey ?? invoice.groupKey)}` }
     case "pdf_rendered":
       return {
         ...base,
@@ -227,6 +249,21 @@ function describeEvent(event: Event, invoice: Invoice): TimelineEntry {
         tone: "gray",
         detail: String(payload.objectKey ?? ""),
       }
+    case "non_renewal_recorded":
+      return { ...base, title: `Not renewing: ${nonRenewalLabel(String(payload.reason ?? ""))}`, tone: "red", detail: payload.note ? String(payload.note) : plural(Number(payload.outlets ?? 0), "outlet") }
+    case "payment_proof_attached":
+      return { ...base, title: "Proof of payment attached", tone: "green", detail: Array.isArray(payload.files) ? payload.files.map(String).join(", ") : "" }
+    case "payment_proof_removed":
+      return { ...base, title: "Proof of payment removed", tone: "amber", detail: "" }
+    case "manually_created":
+      return { ...base, title: "Raised by hand", tone: "blue", detail: `${plural(Number(payload.outlets ?? invoice.itemCount), "outlet")} · ${TERM_LABEL[String(payload.term)] ?? ""} term` }
+    case "po_number_set":
+      return { ...base, title: payload.to ? "PO number set" : "PO number removed", tone: "gray", detail: payload.to ? `PO ${String(payload.to)}${payload.from ? ` (was ${String(payload.from)})` : ""}` : `Was ${String(payload.from ?? "")}` }
+    case "document_type_switched": {
+      const from = (payload.from ?? {}) as Record<string, unknown>
+      const to = (payload.to ?? {}) as Record<string, unknown>
+      return { ...base, title: to.issuedAs === "quotation" ? "Re-issued as a quotation" : "Re-issued as a proforma", tone: "amber", detail: `${String(from.invoiceNumber ?? "")} → ${String(to.invoiceNumber ?? "")}` }
+    }
     case "cycle_reused":
       return { ...base, title: "Reminder run reused this invoice", tone: "blue", detail: payload.daysToExpiry !== undefined && payload.daysToExpiry !== null ? `T-${String(payload.daysToExpiry)} run` : "" }
     case "term_changed":
@@ -330,10 +367,12 @@ export function InvoiceDetailView({
   const [taxInvoice, setTaxInvoice] = React.useState<Invoice | null>(null)
   const [callbacks, setCallbacks] = React.useState<Callback[]>([])
   const [dispatches, setDispatches] = React.useState<Dispatch[]>([])
+  const [proofs, setProofs] = React.useState<Proof[]>([])
+  const [reasonTarget, setReasonTarget] = React.useState<NonRenewalTarget | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [copied, setCopied] = React.useState(false)
-  const [dialog, setDialog] = React.useState<"override" | "term" | "void" | "markPaid" | "resendEmail" | null>(null)
+  const [dialog, setDialog] = React.useState<"override" | "term" | "void" | "markPaid" | "resendEmail" | "po" | null>(null)
   const [busy, setBusy] = React.useState(false)
 
   const load = React.useCallback(async () => {
@@ -353,6 +392,7 @@ export function InvoiceDetailView({
         taxInvoice?: Invoice | null
         callbacks?: Callback[]
         dispatches?: Dispatch[]
+        proofs?: Proof[]
       }
       setInvoice(payload.invoice)
       setItems(payload.items ?? [])
@@ -363,6 +403,7 @@ export function InvoiceDetailView({
       setTaxInvoice(payload.taxInvoice ?? null)
       setCallbacks(payload.callbacks ?? [])
       setDispatches(payload.dispatches ?? [])
+      setProofs(payload.proofs ?? [])
       setError(null)
     } catch (loadError) {
       setInvoice(null)
@@ -416,6 +457,54 @@ export function InvoiceDetailView({
     }
   }
 
+  /** Attach files; returns false (after saying why) when nothing was attached. */
+  async function attachProofs(files: readonly File[]): Promise<boolean> {
+    if (files.length === 0) return true
+    const form = new FormData()
+    for (const file of files) form.append("files", file)
+    try {
+      const response = await fetch(`/api/renewals/invoices/${invoiceId}/proofs`, { method: "POST", body: form })
+      const payload = (await response.json().catch(() => ({}))) as { error?: string }
+      if (!response.ok) {
+        showToast(payload.error ?? "The proof of payment could not be attached.", "error")
+        return false
+      }
+      return true
+    } catch {
+      showToast("Unable to reach the server to attach the proof. Try again from the Payment proof card.", "error")
+      return false
+    }
+  }
+
+  async function recordOfflinePayment(input: { reference: string; note?: string; payerEmail?: string }, files: File[]) {
+    const paid = await runAction({ action: "mark_paid_offline", ...input }, "Payment recorded. Extension, tax invoice and documents follow.")
+    if (paid && files.length > 0) {
+      setBusy(true)
+      if (await attachProofs(files)) {
+        showToast(`${plural(files.length, "file")} attached as proof of payment.`, "success")
+      }
+      setBusy(false)
+      void load()
+    }
+  }
+
+  async function removeProof(proofId: string) {
+    setBusy(true)
+    try {
+      const response = await fetch(`/api/renewals/invoices/${invoiceId}/proofs/${proofId}`, { method: "DELETE" })
+      if (!response.ok) {
+        showToast("The file could not be removed.", "error")
+        return
+      }
+      showToast("File removed. It stays in the timeline.", "success")
+      void load()
+    } catch {
+      showToast("Unable to reach the server. Try again.", "error")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (loading) {
     return <p className="text-muted-foreground text-sm">Loading invoice…</p>
   }
@@ -437,6 +526,7 @@ export function InvoiceDetailView({
   const termLocked = Boolean(liveSession) || !isOpen
   const renewalLink = invoice.renewalToken ? `/renew/${invoice.renewalToken}` : null
   const isPaid = invoice.status === "paid"
+  const documentName = invoice.issuedAs === "quotation" ? "Quotation" : "Proforma"
   const canMarkPaid = canManage && invoice.documentType === "proforma" && !["paid", "cancelled", "superseded"].includes(invoice.status)
   const postPaymentIncomplete =
     isPaid &&
@@ -528,14 +618,21 @@ export function InvoiceDetailView({
           <h1 className="font-mono text-[1.375rem] font-semibold">
             {invoice.invoiceNumber}
             {taxInvoice ? (
-              <span className="text-muted-foreground font-normal" title="Tax invoice issued against this proforma">
-                {" "}→ {taxInvoice.invoiceNumber}
-              </span>
+              <Hint content="Tax invoice issued against this proforma">
+                <span className="text-muted-foreground font-normal">
+                  {" "}→ {taxInvoice.invoiceNumber}
+                </span>
+              </Hint>
             ) : null}
           </h1>
-          <Pill tone={INVOICE_STATUS_TONE[invoice.status] ?? "gray"}>
-            {INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status}
-          </Pill>
+          <Hint content={INVOICE_STATUS_HELP[invoice.status]}>
+            <Pill tone={INVOICE_STATUS_TONE[invoice.status] ?? "gray"}>
+              {INVOICE_STATUS_LABEL[invoice.status] ?? invoice.status}
+            </Pill>
+          </Hint>
+          {invoice.documentType === "proforma" ? (
+            <OutlinePill>{invoice.issuedAs === "quotation" ? "Quotation" : "Proforma invoice"}</OutlinePill>
+          ) : null}
           {invoice.isGrouped ? (
             <Pill tone="blue" className="font-medium">
               Grouped · {plural(invoice.itemCount, "outlet")}
@@ -544,7 +641,13 @@ export function InvoiceDetailView({
           <OutlinePill>{termLocked ? "Term locked" : "Term unlocked"}</OutlinePill>
         </div>
         <p className="text-muted-foreground mt-1.5 text-sm">
-          {invoice.companyName ?? `Franchise ${invoice.franchiseId}`} · FID {invoice.franchiseId} · group key{" "}
+          {invoice.companyName ?? `Franchise ${invoice.franchiseId}`} · FID {invoice.franchiseId}
+          {invoice.poNumber ? (
+            <>
+              {" "}· PO <span className="font-mono text-xs">{invoice.poNumber}</span>
+            </>
+          ) : null}{" "}
+          · group key{" "}
           <span className="font-mono text-xs">{invoice.groupKey}</span> · issued {longDate(invoice.issueDate)} · due{" "}
           {longDate(invoice.dueDate)}
         </p>
@@ -561,6 +664,27 @@ export function InvoiceDetailView({
       </div>
 
       <DocumentsCard invoice={invoice} taxInvoice={taxInvoice} isPaid={isPaid} />
+
+      <BillToCard invoice={invoice} />
+
+      {invoice.documentType === "proforma" ? (
+        <PaymentProofCard
+          invoiceId={invoice.id}
+          proofs={proofs}
+          paidOffline={invoice.paidVia === "manual"}
+          canManage={canManage}
+          busy={busy}
+          onAttach={async (files) => {
+            setBusy(true)
+            if (await attachProofs(files)) {
+              showToast(`${plural(files.length, "file")} attached.`, "success")
+              void load()
+            }
+            setBusy(false)
+          }}
+          onRemove={(proofId) => void removeProof(proofId)}
+        />
+      ) : null}
 
       <div className="grid items-start gap-6 [grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr))]">
         <Card>
@@ -705,46 +829,55 @@ export function InvoiceDetailView({
               <CardContent>
                 <div className="flex flex-wrap gap-2">
                   {invoice.status === "draft" ? (
-                    <Button variant="outline" size="sm" disabled={busy} onClick={() => void runAction({ action: "issue" }, "Invoice issued.")}>
-                      Issue invoice
-                    </Button>
+                    <Hint content="Make the draft a live document. Reminders go out on the next offset night.">
+                      <Button variant="outline" size="sm" disabled={busy} onClick={() => void runAction({ action: "issue" }, "Invoice issued.")}>
+                        Issue invoice
+                      </Button>
+                    </Hint>
                   ) : null}
-                  <Button variant="outline" size="sm" disabled={!isOpen || busy} onClick={() => setDialog("term")}>
-                    Override term
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!liveSession || busy}
-                    title={liveSession ? "Supersede the open gateway session so the merchant starts a fresh one" : "No open payment session"}
-                    onClick={() => void runAction({ action: "reset_session" }, "Payment session reset. The merchant's next Renew now opens a fresh one.")}
-                  >
-                    Reset payment session
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy || !dispatchEnabled || !dispatches.some((dispatch) => dispatch.status !== "suppressed")}
-                    title={
+                  <Hint content={isOpen ? "Switch between the 1-year and 6-month term on the merchant's behalf; the lines are repriced" : "Only an open document can change term"}>
+                    <Button variant="outline" size="sm" disabled={!isOpen || busy} onClick={() => setDialog("term")}>
+                      Override term
+                    </Button>
+                  </Hint>
+                  <Hint content={liveSession ? "Supersede the open gateway session so the merchant starts a fresh one" : "No open payment session"}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!liveSession || busy}
+                      onClick={() => void runAction({ action: "reset_session" }, "Payment session reset. The merchant's next Renew now opens a fresh one.")}
+                    >
+                      Reset payment session
+                    </Button>
+                  </Hint>
+                  <Hint
+                    content={
                       dispatches.length === 0
                         ? "Nothing has been sent on this invoice yet"
                         : !dispatchEnabled
                           ? "Outbound dispatch is paused in Renewal Settings"
                           : "Send the latest message again to everyone it went to"
                     }
-                    onClick={() => void runAction({ action: "resend_dispatch" }, "Queued to send again.")}
                   >
-                    Resend dispatch
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!isPaid || busy}
-                    title={isPaid ? "Email the receipt and tax invoice again" : "Available once the invoice is paid"}
-                    onClick={() => setDialog("resendEmail")}
-                  >
-                    Re-send payer email
-                  </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={busy || !dispatchEnabled || !dispatches.some((dispatch) => dispatch.status !== "suppressed")}
+                      onClick={() => void runAction({ action: "resend_dispatch" }, "Queued to send again.")}
+                    >
+                      Resend dispatch
+                    </Button>
+                  </Hint>
+                  <Hint content={isPaid ? "Email the receipt and tax invoice again" : "Available once the invoice is paid"}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={!isPaid || busy}
+                      onClick={() => setDialog("resendEmail")}
+                    >
+                      Re-send payer email
+                    </Button>
+                  </Hint>
                   {postPaymentIncomplete ? (
                     <Button
                       variant="outline"
@@ -756,19 +889,76 @@ export function InvoiceDetailView({
                     </Button>
                   ) : null}
                   {invoice.documentType === "proforma" && isOpen ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={busy}
-                      title="Re-print with the current company details. Issued tax invoices and receipts keep theirs."
-                      onClick={() => void runAction({ action: "reprint_proforma" }, "Proforma re-printed with the current details.")}
-                    >
-                      Re-print proforma
-                    </Button>
+                    <Hint content={"Re-print with the current company details. Issued tax invoices and receipts keep theirs."}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => void runAction({ action: "reprint_proforma" }, `${documentName} re-printed with the current details.`)}
+                      >
+                        Re-print {documentName.toLowerCase()}
+                      </Button>
+                    </Hint>
                   ) : null}
-                  <Button variant="outline" size="sm" className="text-destructive" disabled={!isOpen || busy} onClick={() => setDialog("void")}>
-                    Void invoice
-                  </Button>
+                  {invoice.documentType === "proforma" ? (
+                    <Hint content={isOpen ? "The merchant's purchase order number, printed on every document" : "Fixed once the invoice is paid or closed"}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!isOpen || busy}
+                        onClick={() => setDialog("po")}
+                      >
+                        {invoice.poNumber ? "Change PO number" : "Add PO number"}
+                      </Button>
+                    </Hint>
+                  ) : null}
+                  {invoice.documentType === "proforma" ? (
+                    <Hint
+                      content={
+                        isOpen
+                          ? "Takes a new number from the other series. The merchant's link keeps working; an open payment session is reset."
+                          : "Only an open document can change type"
+                      }
+                    >
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={!isOpen || busy}
+                        onClick={() => {
+                          const next = invoice.issuedAs === "quotation" ? "proforma" : "quotation"
+                          void runAction(
+                            { action: "switch_document_type", issuedAs: next },
+                            next === "quotation" ? "Re-issued as a quotation." : "Re-issued as a proforma invoice."
+                          )
+                        }}
+                      >
+                        {invoice.issuedAs === "quotation" ? "Re-issue as proforma" : "Re-issue as quotation"}
+                      </Button>
+                    </Hint>
+                  ) : null}
+                  {invoice.documentType === "proforma" && !isPaid ? (
+                    <Hint content={"Record why the merchant is not renewing. An open document is voided so no more reminders go out."}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busy || ["cancelled", "superseded"].includes(invoice.status)}
+                        onClick={() =>
+                          setReasonTarget({
+                            franchiseId: invoice.franchiseId,
+                            invoiceId: invoice.id,
+                            label: invoice.companyName ?? `Franchise ${invoice.franchiseId}`,
+                          })
+                        }
+                      >
+                        Not renewing
+                      </Button>
+                    </Hint>
+                  ) : null}
+                  <Hint content={isOpen ? "Cancel the document; its link stops working. Use Not renewing instead when the merchant is leaving, so it is counted" : "This document is already closed"}>
+                    <Button variant="outline" size="sm" className="text-destructive" disabled={!isOpen || busy} onClick={() => setDialog("void")}>
+                      Void invoice
+                    </Button>
+                  </Hint>
                 </div>
               </CardContent>
             </Card>
@@ -839,7 +1029,7 @@ export function InvoiceDetailView({
         onOpenChange={(open) => setDialog(open ? "markPaid" : null)}
         invoice={invoice}
         busy={busy}
-        onConfirm={(input) => void runAction({ action: "mark_paid_offline", ...input }, "Payment recorded. Extension, tax invoice and documents follow.")}
+        onConfirm={(input, files) => void recordOfflinePayment(input, files)}
       />
 
       <ResendEmailDialog
@@ -848,6 +1038,28 @@ export function InvoiceDetailView({
         currentEmail={invoice.paymentEmail}
         busy={busy}
         onConfirm={(email) => void runAction({ action: "resend_payer_email", ...(email ? { payerEmail: email } : {}) }, "Documents sent.")}
+      />
+
+      <NonRenewalDialog
+        target={reasonTarget}
+        onOpenChange={(open) => {
+          if (!open) setReasonTarget(null)
+        }}
+        onSaved={(message) => {
+          showToast(message, "success")
+          setReasonTarget(null)
+          void load()
+        }}
+      />
+
+      <PoNumberDialog
+        open={dialog === "po"}
+        onOpenChange={(open) => setDialog(open ? "po" : null)}
+        current={invoice.poNumber}
+        busy={busy}
+        onConfirm={(poNumber) =>
+          void runAction({ action: "set_po_number", poNumber }, poNumber ? `PO ${poNumber} added. The document is re-printed.` : "PO number removed.")
+        }
       />
 
       <VoidDialog
@@ -1132,16 +1344,18 @@ function MarkPaidDialog({
   onOpenChange: (open: boolean) => void
   invoice: Invoice
   busy: boolean
-  onConfirm: (input: { reference: string; note?: string; payerEmail?: string }) => void
+  onConfirm: (input: { reference: string; note?: string; payerEmail?: string }, files: File[]) => void
 }) {
   const [reference, setReference] = React.useState("")
   const [note, setNote] = React.useState("")
   const [email, setEmail] = React.useState(invoice.paymentEmail ?? "")
+  const [files, setFiles] = React.useState<File[]>([])
   React.useEffect(() => {
     if (open) {
       setReference("")
       setNote("")
       setEmail(invoice.paymentEmail ?? "")
+      setFiles([])
     }
   }, [open, invoice.paymentEmail])
   return (
@@ -1168,6 +1382,22 @@ function MarkPaidDialog({
             <Label htmlFor="paidNote">Note</Label>
             <Textarea id="paidNote" rows={2} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Recorded in the timeline" maxLength={500} />
           </div>
+          <div className="grid gap-2">
+            <Label htmlFor="paidProof">Proof of payment</Label>
+            <Input
+              id="paidProof"
+              type="file"
+              multiple
+              accept={PROOF_ACCEPT}
+              onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 5))}
+              className="h-auto py-1.5"
+            />
+            <span className="text-muted-foreground text-xs">
+              {files.length > 0
+                ? files.map((file) => file.name).join(", ")
+                : "Bank slip, transfer screenshot or remittance PDF. Up to 5 files, 10 MB each. You can also attach them later."}
+            </span>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={busy}>
@@ -1177,14 +1407,66 @@ function MarkPaidDialog({
             size="sm"
             disabled={busy || !reference.trim()}
             onClick={() =>
-              onConfirm({
-                reference: reference.trim(),
-                ...(note.trim() ? { note: note.trim() } : {}),
-                ...(email.trim() ? { payerEmail: email.trim().toLowerCase() } : {}),
-              })
+              onConfirm(
+                {
+                  reference: reference.trim(),
+                  ...(note.trim() ? { note: note.trim() } : {}),
+                  ...(email.trim() ? { payerEmail: email.trim().toLowerCase() } : {}),
+                },
+                files
+              )
             }
           >
             {busy ? "Recording…" : "Record payment"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PoNumberDialog({
+  open,
+  onOpenChange,
+  current,
+  busy,
+  onConfirm,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  current: string | null
+  busy: boolean
+  onConfirm: (poNumber: string | null) => void
+}) {
+  const [value, setValue] = React.useState(current ?? "")
+  React.useEffect(() => {
+    if (open) setValue(current ?? "")
+  }, [open, current])
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Purchase order number</DialogTitle>
+          <DialogDescription>
+            The merchant&rsquo;s own PO number, printed on this document and copied to the tax invoice and receipt.
+            Saving re-prints the document; the merchant&rsquo;s link shows it straight away.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2 py-2">
+          <Label htmlFor="poNumber">PO number</Label>
+          <Input id="poNumber" value={value} onChange={(event) => setValue(event.target.value)} placeholder="e.g. PO-2026-0142" maxLength={64} />
+        </div>
+        <DialogFooter>
+          {current ? (
+            <Button variant="ghost" size="sm" className="mr-auto" disabled={busy} onClick={() => onConfirm(null)}>
+              Remove
+            </Button>
+          ) : null}
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={busy}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={busy || !value.trim() || value.trim() === current} onClick={() => onConfirm(value.trim())}>
+            {busy ? "Saving…" : "Save PO number"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1247,7 +1529,7 @@ function DocumentsCard({ invoice, taxInvoice, isPaid }: { invoice: Invoice; taxI
   const rows: Array<{ key: string; label: string; number?: string | null; detail: string; href: string | null }> = [
     {
       key: "proforma",
-      label: "Proforma invoice",
+      label: invoice.issuedAs === "quotation" ? "Quotation" : "Proforma invoice",
       number: invoice.invoiceNumber,
       detail: `Issued ${longDate(invoice.issueDate)} · due ${longDate(invoice.dueDate)}`,
       href: `/api/renewals/invoices/${invoice.id}/pdf`,
@@ -1281,7 +1563,8 @@ function DocumentsCard({ invoice, taxInvoice, isPaid }: { invoice: Invoice; taxI
       <CardHeader>
         <CardTitle className="text-base">Documents</CardTitle>
         <CardDescription>
-          One renewal, three documents: the proforma the merchant pays, and the tax invoice and receipt issued once they have.
+          One renewal, three documents: the {invoice.issuedAs === "quotation" ? "quotation" : "proforma"} the merchant
+          pays, and the tax invoice and receipt issued once they have.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr))]">
@@ -1304,6 +1587,155 @@ function DocumentsCard({ invoice, taxInvoice, isPaid }: { invoice: Invoice; taxI
             ) : null}
           </div>
         ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * Who the documents are billed to, from the franchise's billing profile. An
+ * open proforma follows edits to the profile; a paid one, and its tax invoice,
+ * keep what they were paid against.
+ */
+function BillToCard({ invoice }: { invoice: Invoice }) {
+  const details = invoice.billTo
+  const lines = details
+    ? [
+        registrationLine(details),
+        details.tin ? `TIN ${details.tin}` : null,
+        details.sstNo ? `SST ${details.sstNo}` : null,
+        ...addressLines(details),
+      ].filter((line): line is string => Boolean(line))
+    : []
+  const open = !["paid", "cancelled", "superseded", "lapsed"].includes(invoice.status) && invoice.documentType === "proforma"
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Bill To</CardTitle>
+        <CardDescription>
+          {open
+            ? "From the franchise's billing profile. Editing the profile reprints this proforma."
+            : "As printed on the paid documents. Later edits to the billing profile do not change them."}
+        </CardDescription>
+        <CardAction>
+          <Button variant="ghost" size="sm" asChild>
+            <Link href={`/renewal-retention/billing-profiles?q=${encodeURIComponent(invoice.franchiseId)}`}>
+              {details ? "Edit billing profile" : "Add billing profile"}
+            </Link>
+          </Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <div className="text-sm font-medium">{details?.legalName ?? invoice.companyName ?? `Franchise ${invoice.franchiseId}`}</div>
+        {lines.length > 0 ? (
+          <div className="text-muted-foreground mt-1 grid gap-0.5 text-xs">
+            {lines.map((line, index) => (
+              <span key={index}>{line}</span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-muted-foreground mt-1 text-xs">
+            No billing profile yet, so only the company name prints. Import the Bukku contacts or add the SSM and TIN by
+            hand.
+          </p>
+        )}
+        {details?.bukkuContactCode ? (
+          <div className="text-muted-foreground mt-2 text-xs">
+            Bukku contact <span className="font-mono">{details.bukkuContactCode}</span>
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function fileSize(bytes: number): string {
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
+}
+
+/**
+ * The bank slip, screenshot or remittance PDF behind a payment made outside
+ * the gateway. Files open through the invoice's own route; removing one keeps
+ * it in the timeline.
+ */
+function PaymentProofCard({
+  invoiceId,
+  proofs,
+  paidOffline,
+  canManage,
+  busy,
+  onAttach,
+  onRemove,
+}: {
+  invoiceId: string
+  proofs: Proof[]
+  paidOffline: boolean
+  canManage: boolean
+  busy: boolean
+  onAttach: (files: File[]) => void
+  onRemove: (proofId: string) => void
+}) {
+  const input = React.useRef<HTMLInputElement>(null)
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Payment proof</CardTitle>
+        <CardDescription>
+          {paidOffline && proofs.length === 0
+            ? "Paid offline with no proof attached yet. Attach the bank slip or transfer screenshot the merchant sent."
+            : "Bank slips, transfer screenshots or remittance advice for a payment made outside the gateway."}
+        </CardDescription>
+        {canManage ? (
+          <CardAction>
+            <input
+              ref={input}
+              type="file"
+              multiple
+              accept={PROOF_ACCEPT}
+              className="hidden"
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []).slice(0, 5)
+                event.target.value = ""
+                if (files.length > 0) onAttach(files)
+              }}
+            />
+            <Button variant="outline" size="sm" disabled={busy} onClick={() => input.current?.click()}>
+              Attach files
+            </Button>
+          </CardAction>
+        ) : null}
+      </CardHeader>
+      <CardContent>
+        {proofs.length === 0 ? (
+          <p className="text-muted-foreground text-sm">Nothing attached.</p>
+        ) : (
+          <div className="grid gap-2">
+            {proofs.map((proof) => (
+              <div key={proof.id} className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                <div className="flex min-w-0 flex-col">
+                  <a
+                    href={`/api/renewals/invoices/${invoiceId}/proofs/${proof.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-primary truncate text-sm hover:underline"
+                  >
+                    {proof.originalName}
+                  </a>
+                  <span className="text-muted-foreground text-xs">
+                    {proof.contentType === "application/pdf" ? "PDF" : "Image"} · {fileSize(proof.sizeBytes)} · attached{" "}
+                    {shortDateTime(proof.uploadedAt)}
+                    {proof.uploadedByUserId ? ` by user ${proof.uploadedByUserId}` : ""}
+                  </span>
+                </div>
+                {canManage ? (
+                  <Button variant="ghost" size="sm" className="text-destructive" disabled={busy} onClick={() => onRemove(proof.id)}>
+                    Remove
+                  </Button>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

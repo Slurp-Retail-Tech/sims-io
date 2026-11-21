@@ -9,10 +9,12 @@ import { Card, CardContent } from "@/components/ui/card"
 import { useToast } from "@/components/toast-provider"
 import { cn } from "@/lib/utils"
 
-import { daysLabel, PageHeader, Pill, PillTabs, RunStatusLine, TONE_TEXT } from "../ui"
+import { daysLabel, Hint, PageHeader, Pill, PillTabs, RunStatusLine, TONE_TEXT } from "../ui"
 import type { RunStatus, Tone } from "../ui"
 import { AssignmentDialog } from "../plans/assignment-dialog"
 import type { Plan } from "../plans/types"
+import { NonRenewalDialog } from "../non-renewal-dialog"
+import type { NonRenewalTarget } from "../non-renewal-dialog"
 import { PicDialog } from "./pic-dialog"
 import { REASON_FIXES, REASON_LABELS } from "./reasons"
 
@@ -81,7 +83,7 @@ function emptyQueueCopy(state: QueueState, status: RunStatus | null): {
  * for a missing plan or PIC, opens the fix in place (`inline`) when the
  * person has the access the save needs.
  */
-function fixLink(action: ActionRow): { label: string; href: string; inline?: "plan" | "pic" } | null {
+function fixLink(action: ActionRow): { label: string; href: string; inline?: "plan" | "pic" | "reason" } | null {
   const contactsHref = `/contacts?fid=${encodeURIComponent(action.franchiseId)}`
   switch (action.reason) {
     case "no_plan_assigned":
@@ -98,6 +100,12 @@ function fixLink(action: ActionRow): { label: string; href: string; inline?: "pl
     case "unreachable_renewal_pic":
     case "channel_unreachable":
       return { label: "Fix contact", href: contactsHref }
+    case "non_renewal_reason_missing":
+      return {
+        label: "Record reason",
+        href: action.invoiceId ? `/renewal-retention/invoices/${action.invoiceId}` : "/renewal-retention/renewal-due",
+        inline: "reason",
+      }
     case "missing_valid_until":
       return { label: "Open renewal list", href: `/renewal-retention/renewal-due?fid=${encodeURIComponent(action.franchiseId)}` }
     default:
@@ -123,8 +131,11 @@ export function ActionsRequiredView({
   canAcceptPosDate,
   canAssignPlan,
   canSetPic,
+  canRecordReason,
 }: {
   canManage: boolean
+  /** Invoices manage key: "Record reason" opens the non-renewal dialog in place. */
+  canRecordReason: boolean
   /** Plans manage key: "Assign a plan" opens the assignment panel in place. */
   canAssignPlan: boolean
   /** Subscriptions manage and Contacts: "Set renewal PIC" opens in place. */
@@ -145,6 +156,7 @@ export function ActionsRequiredView({
   const [checking, setChecking] = React.useState(false)
   const [planTarget, setPlanTarget] = React.useState<ActionRow | null>(null)
   const [picTarget, setPicTarget] = React.useState<ActionRow | null>(null)
+  const [reasonTarget, setReasonTarget] = React.useState<(NonRenewalTarget & { action: ActionRow }) | null>(null)
   const [plans, setPlans] = React.useState<Plan[]>([])
   // Entries fixed here that the queue still shows: the entry itself only
   // clears when the nightly check (or Check now) confirms the fix.
@@ -286,16 +298,12 @@ export function ActionsRequiredView({
         meta={<RunStatusLine status={runStatus} />}
       >
         {canCheckNow ? (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={checking}
-            onClick={() => void checkNow()}
-            title="Re-runs the plan, price and PIC checks now. Never raises an invoice."
-          >
-            <RefreshCw className={cn("size-3.5", checking && "animate-spin")} />
-            {checking ? "Checking…" : "Check now"}
-          </Button>
+          <Hint content="Re-runs the plan, price and PIC checks now. Never raises an invoice.">
+            <Button variant="outline" size="sm" disabled={checking} onClick={() => void checkNow()}>
+              <RefreshCw className={cn("size-3.5", checking && "animate-spin")} />
+              {checking ? "Checking…" : "Check now"}
+            </Button>
+          </Hint>
         ) : null}
         <PillTabs
           size="sm"
@@ -362,9 +370,11 @@ export function ActionsRequiredView({
               >
                 <div className="flex min-w-0 flex-1 basis-[22rem] flex-col gap-1.5">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={cn("text-sm font-semibold", TONE_TEXT[accent])} title={action.reason}>
-                      {REASON_LABELS[action.reason] ?? action.reason}
-                    </span>
+                    <Hint content={REASON_FIXES[action.reason] ?? action.reason}>
+                      <span className={cn("text-sm font-semibold", TONE_TEXT[accent])}>
+                        {REASON_LABELS[action.reason] ?? action.reason}
+                      </span>
+                    </Hint>
                     <Pill tone={isBlocking ? "red" : "gray"} className="font-medium">
                       {isBlocking ? "Blocks invoicing" : "Informational"}
                     </Pill>
@@ -393,6 +403,22 @@ export function ActionsRequiredView({
                     </Button>
                   ) : fix && fix.inline === "pic" && canSetPic ? (
                     <Button variant="outline" size="sm" onClick={() => setPicTarget(action)}>
+                      {fix.label}
+                    </Button>
+                  ) : fix && fix.inline === "reason" && canRecordReason && action.outletId ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setReasonTarget({
+                          franchiseId: action.franchiseId,
+                          invoiceId: action.invoiceId,
+                          outletIds: [action.outletId as string],
+                          label: scopeLabel(action),
+                          action,
+                        })
+                      }
+                    >
                       {fix.label}
                     </Button>
                   ) : fix ? (
@@ -448,6 +474,19 @@ export function ActionsRequiredView({
                 : "Plan assigned."
             )
           }
+        }}
+      />
+
+      <NonRenewalDialog
+        target={reasonTarget}
+        onOpenChange={(open) => {
+          if (!open) setReasonTarget(null)
+        }}
+        onSaved={(message) => {
+          // Recording the reason resolves the entry at once; no check needed.
+          showToast(message, "success")
+          setReasonTarget(null)
+          void load()
         }}
       />
 

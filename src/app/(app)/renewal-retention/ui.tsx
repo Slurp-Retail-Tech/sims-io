@@ -2,7 +2,9 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { Info } from "lucide-react"
 
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 /**
@@ -196,6 +198,48 @@ export function plural(count: number, singular: string, pluralForm = `${singular
 }
 
 /** The design's page header: title, one-line purpose, actions on the right. */
+/**
+ * A tooltip around anything: a pill, a figure, a button. Wrapped in a span
+ * so a disabled button, which fires no pointer events, still explains why
+ * it is disabled. Renders the child alone when there is nothing to say.
+ */
+export function Hint({
+  content,
+  children,
+  side = "top",
+  className,
+}: {
+  content: React.ReactNode
+  children: React.ReactNode
+  side?: "top" | "bottom" | "left" | "right"
+  className?: string
+}) {
+  if (!content) {
+    return <>{children}</>
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={cn("inline-flex", className)} tabIndex={0}>
+          {children}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side={side} className="max-w-72 text-left">
+        {content}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** A small info icon that explains the label beside it. */
+export function InfoTip({ content, className }: { content: React.ReactNode; className?: string }) {
+  return (
+    <Hint content={content} className={cn("text-muted-foreground hover:text-foreground align-middle", className)}>
+      <Info className="size-3.5" aria-label="More information" />
+    </Hint>
+  )
+}
+
 export function PageHeader({
   title,
   description,
@@ -227,18 +271,24 @@ export function KpiTile({
   metaTone = "gray",
   onClick,
   href,
+  hint,
 }: {
   label: string
   value: string
   meta?: string
   metaTone?: Tone
+  /** How the figure is counted, behind an info icon beside the label. */
+  hint?: string
   onClick?: () => void
   /** Drill through to the rows behind the figure. */
   href?: string
 }) {
   const body = (
     <>
-      <div className="text-muted-foreground text-xs">{label}</div>
+      <div className="text-muted-foreground flex items-center gap-1 text-xs">
+        {label}
+        {hint ? <InfoTip content={hint} /> : null}
+      </div>
       <div className="mt-1.5 text-[1.625rem] font-semibold tracking-[-0.02em] tabular-nums">{value}</div>
       {meta ? <div className={cn("mt-1 text-xs", TONE_TEXT[metaTone])}>{meta}</div> : null}
     </>

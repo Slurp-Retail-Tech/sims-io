@@ -3,6 +3,7 @@ import test from "node:test"
 
 import {
   getTemplate,
+  GREETING,
   MESSAGE_TEMPLATES,
   renderTemplate,
   SAMPLE_VARIABLES,
@@ -44,11 +45,28 @@ test("an unknown placeholder is left visible rather than blanked", () => {
 })
 
 test("the WhatsApp reminder names match the templates submitted to Meta", () => {
-  assert.equal(getTemplate("reminder_first").whatsappTemplate, "renewal_reminder_first")
-  assert.equal(getTemplate("reminder_second").whatsappTemplate, "renewal_reminder_second")
-  assert.equal(getTemplate("reminder_final").whatsappTemplate, "renewal_reminder_final")
-  assert.equal(getTemplate("receipt").whatsappTemplate, "renewal_payment_receipt")
+  // v2: the general greeting changed every body, so each is a new template.
+  assert.equal(getTemplate("reminder_first").whatsappTemplate, "renewal_reminder_first_v2")
+  assert.equal(getTemplate("reminder_second").whatsappTemplate, "renewal_reminder_second_v2")
+  assert.equal(getTemplate("reminder_final").whatsappTemplate, "renewal_reminder_final_v2")
+  assert.equal(getTemplate("receipt").whatsappTemplate, "renewal_payment_receipt_v2")
   // The payer documents dispatch is email only.
   assert.equal(getTemplate("payer_documents").whatsappTemplate, null)
   assert.equal(getTemplate("payer_documents").emailAttachments, true)
+})
+
+test("every message opens with the general greeting and never names the PIC", () => {
+  for (const template of MESSAGE_TEMPLATES) {
+    assert.ok(template.emailBody.startsWith(`${GREETING}\n\n`), `${template.key} email`)
+    if (template.whatsappBody) {
+      assert.ok(template.whatsappBody.startsWith(`${GREETING}\n\n`), `${template.key} WhatsApp`)
+    }
+    assert.ok(!`${template.emailBody}${template.whatsappBody ?? ""}`.includes("{picName}"), template.key)
+  }
+})
+
+test("reminders name the document the merchant was sent, proforma or quotation", () => {
+  const body = getTemplate("reminder_second").emailBody
+  assert.match(renderTemplate(body, { ...SAMPLE_VARIABLES, documentLabel: "quotation" }), /Quotation PI-2026\/09-014 is still open/)
+  assert.match(renderTemplate(body, SAMPLE_VARIABLES), /Proforma PI-2026\/09-014 is still open/)
 })

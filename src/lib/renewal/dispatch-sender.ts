@@ -188,6 +188,7 @@ async function sendOne(
   const variables = buildTemplateVariables(
     {
       invoiceNumber: view.invoiceNumber,
+      issuedAs: view.issuedAs,
       companyName: view.companyName,
       franchiseId: view.franchiseId,
       outletCount: view.outletCount,

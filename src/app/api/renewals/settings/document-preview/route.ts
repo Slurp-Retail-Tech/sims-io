@@ -13,12 +13,13 @@ export const runtime = "nodejs"
 
 const FILE_NAMES = {
   proforma: "sample-proforma.pdf",
+  quotation: "sample-quotation.pdf",
   tax_invoice: "sample-tax-invoice.pdf",
   receipt: "sample-receipt.pdf",
 } as const
 
 /**
- * GET ?kind=proforma|tax_invoice|receipt — a sample document printed with the
+ * GET ?kind=proforma|quotation|tax_invoice|receipt — a sample document printed with the
  * saved company details and tax rate, so Settings can show what a merchant
  * will receive. Made-up merchant, never stored, never numbered.
  */
@@ -34,7 +35,7 @@ async function handleGet(request: NextRequest): Promise<Response> {
 
   const kind = new URL(request.url).searchParams.get("kind") ?? "proforma"
   if (!isSampleDocumentKind(kind)) {
-    return errorResponse("kind must be proforma, tax_invoice or receipt.", 400)
+    return errorResponse("kind must be proforma, quotation, tax_invoice or receipt.", 400)
   }
 
   try {

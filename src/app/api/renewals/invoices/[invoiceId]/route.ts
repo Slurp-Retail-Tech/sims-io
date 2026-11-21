@@ -11,6 +11,7 @@ import {
 } from "@/lib/renewal/invoices"
 import { listDispatchesForInvoice } from "@/lib/renewal/dispatches"
 import { listCallbacksForInvoice } from "@/lib/renewal/payment-callbacks"
+import { listPaymentProofs } from "@/lib/renewal/payment-proofs"
 import { listSessions } from "@/lib/renewal/payment-sessions"
 import { listExtensions } from "@/lib/renewal/post-payment"
 import { listLinkEvents } from "@/lib/renewal/public-invoice"
@@ -57,7 +58,7 @@ async function handleGet(
       return notFound("Invoice not found.")
     }
 
-    const [items, events, linkEvents, sessions, extensions, taxInvoice, callbacks, dispatches] = await Promise.all([
+    const [items, events, linkEvents, sessions, extensions, taxInvoice, callbacks, dispatches, proofs] = await Promise.all([
       loadInvoiceItems(invoiceId),
       loadInvoiceEvents(invoiceId),
       listLinkEvents(invoiceId),
@@ -66,9 +67,10 @@ async function handleGet(
       invoice.documentType === "proforma" ? findTaxInvoiceForProforma(invoiceId) : Promise.resolve(null),
       listCallbacksForInvoice(invoiceId),
       listDispatchesForInvoice(invoiceId),
+      invoice.documentType === "proforma" ? listPaymentProofs(invoiceId) : Promise.resolve([]),
     ])
 
-    return NextResponse.json({ invoice, items, events, linkEvents, sessions, extensions, taxInvoice, callbacks, dispatches })
+    return NextResponse.json({ invoice, items, events, linkEvents, sessions, extensions, taxInvoice, callbacks, dispatches, proofs })
   } catch (error) {
     return serverError(
       "renewals/invoices/[invoiceId]",

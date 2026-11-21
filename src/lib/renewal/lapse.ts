@@ -7,6 +7,10 @@
  * `lapsed`, records the transition on the timeline, and marks the outlets it
  * billed `non_renewed`.
  *
+ * Each outlet marked non_renewed also gets an informational Actions
+ * Required entry asking a person to record why, so the lapse can be counted
+ * by reason on Analytics. Recording the reason resolves it.
+ *
  * An invoice with an open payment session is left alone. A merchant who paid
  * on the last day of grace, with the callback lost, is found by the hourly
  * reconcile sweep through that open session; superseding it here would hide
@@ -17,6 +21,7 @@
 import getPool, { type Queryable } from "../db.ts"
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise"
 
+import { raiseAction } from "./actions-required.ts"
 import { recordEvent } from "./invoices.ts"
 import { lapsedIfDueBefore } from "./public-invoice-rules.ts"
 
@@ -29,8 +34,10 @@ export async function sweepLapsedProformas(
   db: Queryable = getPool()
 ): Promise<number> {
   const cutoff = lapsedIfDueBefore(today, graceWindowDays)
-  const [rows] = await db.query<Array<RowDataPacket & { id: string; invoice_number: string; due_date: string }>>(
-    `SELECT i.id, i.invoice_number, DATE_FORMAT(i.due_date, '%Y-%m-%d') AS due_date
+  const [rows] = await db.query<
+    Array<RowDataPacket & { id: string; invoice_number: string; franchise_id: string; due_date: string }>
+  >(
+    `SELECT i.id, i.invoice_number, i.franchise_id, DATE_FORMAT(i.due_date, '%Y-%m-%d') AS due_date
        FROM renewal_invoices i
       WHERE i.deleted_at IS NULL
         AND i.document_type = 'proforma'
@@ -78,6 +85,34 @@ export async function sweepLapsedProformas(
           AND (t.previous_valid_until IS NULL OR DATE(t.previous_valid_until) = s.valid_until_date)`,
       [`${row.invoice_number} lapsed unpaid`, row.id]
     )
+
+    // Ask why, for every outlet just marked that has no reason on file yet.
+    const [unexplained] = await db.query<Array<RowDataPacket & { outlet_id: string; central_id: string | null }>>(
+      `SELECT s.outlet_id, s.central_id
+         FROM renewal_invoice_items t
+         JOIN outlet_subscriptions s ON s.id = t.outlet_subscription_id
+        WHERE t.invoice_id = ?
+          AND s.renewal_state = 'non_renewed'
+          AND NOT EXISTS (
+            SELECT 1 FROM renewal_non_renewals n
+             WHERE n.franchise_id = s.franchise_id AND n.outlet_id = s.outlet_id
+               AND n.cycle_valid_until = s.valid_until_date
+          )`,
+      [row.id]
+    )
+    for (const outlet of unexplained) {
+      await raiseAction(
+        {
+          franchiseId: row.franchise_id,
+          outletId: outlet.outlet_id,
+          centralId: outlet.central_id,
+          invoiceId: row.id,
+          reason: "non_renewal_reason_missing",
+          detail: `${row.invoice_number} lapsed unpaid. Record why the merchant did not renew.`,
+        },
+        db
+      )
+    }
   }
   return lapsed
 }

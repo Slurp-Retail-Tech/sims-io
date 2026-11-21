@@ -14,9 +14,11 @@ import { enqueueJobRun } from "../job-runner.ts"
 import { RENEWAL_DISPATCH_JOB_TYPE } from "../job-types.ts"
 import { createLogger } from "../logger.ts"
 import { requeueLatestDispatch } from "./dispatches.ts"
+import { todayInAppZone } from "./app-date.ts"
 import { ensureInvoicePdf } from "./invoice-pdf.ts"
-import { minorToDecimal, recordEvent, setInvoiceStatus } from "./invoices.ts"
-import type { InvoiceRecord } from "./invoices.ts"
+import { getInvoiceById, minorToDecimal, recordEvent, setInvoiceStatus } from "./invoices.ts"
+import type { InvoiceRecord, IssuedAs } from "./invoices.ts"
+import { allocateInvoiceNumber } from "./numbering.ts"
 import { applyTaxExclusive, sumMinor } from "./money.ts"
 import { confirmPayment, enqueuePostPayment } from "./payment-confirmation.ts"
 import { findLiveSession, supersedeOpenSessions } from "./payment-sessions.ts"
@@ -477,3 +479,96 @@ export async function resendDispatch(
 }
 
 export type { LoadedPublicInvoice }
+
+/**
+ * Re-render an open proforma after an edit to what it prints. Best-effort,
+ * like the nightly render: the change is already saved, and the download
+ * routes render on demand if storage is down now.
+ */
+async function rerenderSafely(invoiceId: string, actorUserId: string, db: Queryable): Promise<void> {
+  try {
+    await ensureInvoicePdf(invoiceId, { force: true, actorUserId }, db)
+  } catch (error) {
+    log.error("Re-render after an edit failed; will render on demand", error, { invoiceId })
+  }
+}
+
+/**
+ * Set or clear the merchant's purchase order number. Printed on the proforma
+ * and copied to the tax invoice and receipt, so it is fixed once the invoice
+ * is paid or closed.
+ */
+export async function setPoNumber(
+  invoiceId: string,
+  poNumber: string | null,
+  actorUserId: string,
+  db: Queryable = getPool()
+): Promise<ActionOutcome> {
+  const invoice = await getInvoiceById(invoiceId, db)
+  if (!invoice) {
+    return { ok: false, status: 404, message: "Invoice not found." }
+  }
+  if (invoice.documentType !== "proforma") {
+    return { ok: false, status: 409, message: "Set the PO number on the proforma; the tax invoice copies it." }
+  }
+  if (!isOpen(invoice)) {
+    return { ok: false, status: 409, message: "The PO number is fixed once the invoice is paid or closed." }
+  }
+  const value = poNumber?.trim() || null
+  if (value === invoice.poNumber) {
+    return { ok: true }
+  }
+  await db.query<ResultSetHeader>(`UPDATE renewal_invoices SET po_number = ? WHERE id = ?`, [value, invoiceId])
+  await recordEvent(db, invoiceId, "po_number_set", actorUserId, { from: invoice.poNumber, to: value })
+  await rerenderSafely(invoiceId, actorUserId, db)
+  return { ok: true }
+}
+
+/**
+ * Re-issue an open proforma as a quotation, or back. The document takes a
+ * number from the matching series (QT- or PI-) and the old number is kept in
+ * the timeline. The merchant's link keeps working; any open payment session
+ * is superseded so the gateway never holds a description naming the old
+ * number, and a pending payment returns to issued.
+ */
+export async function switchDocumentType(
+  invoiceId: string,
+  issuedAs: IssuedAs,
+  actorUserId: string,
+  db: Queryable = getPool()
+): Promise<ActionOutcome> {
+  const invoice = await getInvoiceById(invoiceId, db)
+  if (!invoice) {
+    return { ok: false, status: 404, message: "Invoice not found." }
+  }
+  if (invoice.documentType !== "proforma") {
+    return { ok: false, status: 409, message: "Only a proforma can be re-issued as a quotation." }
+  }
+  if (!isOpen(invoice)) {
+    return { ok: false, status: 409, message: "Only an open document can change type." }
+  }
+  if (invoice.issuedAs === issuedAs) {
+    return { ok: true }
+  }
+
+  const issueDate = invoice.issueDate?.slice(0, 10) ?? todayInAppZone()
+  const invoiceNumber = await withTransaction(async (connection) => {
+    const next = await allocateInvoiceNumber(connection, issuedAs === "quotation" ? "QT" : "PI", issueDate)
+    await connection.query<ResultSetHeader>(
+      `UPDATE renewal_invoices SET issued_as = ?, invoice_number = ?, pdf_object_key = NULL WHERE id = ?`,
+      [issuedAs, next, invoiceId]
+    )
+    await recordEvent(connection, invoiceId, "document_type_switched", actorUserId, {
+      from: { issuedAs: invoice.issuedAs, invoiceNumber: invoice.invoiceNumber },
+      to: { issuedAs, invoiceNumber: next },
+    })
+    return next
+  })
+
+  await supersedeOpenSessions(invoiceId, db)
+  if (invoice.status === "payment_pending") {
+    await setInvoiceStatus(invoiceId, "issued", actorUserId, `Re-issued as ${invoiceNumber}`, db)
+  }
+  await rerenderSafely(invoiceId, actorUserId, db)
+  return { ok: true }
+}

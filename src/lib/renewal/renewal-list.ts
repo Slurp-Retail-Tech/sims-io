@@ -59,6 +59,12 @@ export type OutletFacts = {
   reminderSent: boolean
   /** Payment confirmed (invoice paid) and the extension landed. */
   extended: boolean
+  /**
+   * Staff recorded why the merchant is not renewing this cycle. It makes the
+   * outlet non-renewed before its expiry passes, so a known closure is not
+   * shown as merely awaiting payment or blocked on a missing plan.
+   */
+  nonRenewalRecorded?: boolean
 }
 
 export function deriveOutletState(facts: OutletFacts, today: string): RenewalState {
@@ -70,6 +76,10 @@ export function deriveOutletState(facts: OutletFacts, today: string): RenewalSta
   }
   if (facts.invoiceStatus === "paid" && facts.extended) {
     return "renewed"
+  }
+  // A payment outranks a recorded reason: the merchant changed their mind.
+  if (facts.nonRenewalRecorded && facts.invoiceStatus !== "paid") {
+    return "non_renewed"
   }
   if (facts.hasBlockingAction) {
     return "action_required"

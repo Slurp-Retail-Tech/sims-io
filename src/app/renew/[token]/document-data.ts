@@ -7,6 +7,8 @@
  */
 
 import {
+  docTypeTitle,
+  documentLabel,
   buildBillTo as contentBillTo,
   buildDocLines as contentDocLines,
   buildDocMeta,
@@ -26,6 +28,8 @@ export function documentSourceFor(view: PublicInvoice, kind: DocumentKind = "pro
   return {
     kind,
     invoiceNumber: view.invoiceNumber,
+    issuedAs: view.issuedAs,
+    poNumber: view.poNumber,
     taxInvoiceNumber: view.taxInvoiceNumber,
     issueDate: view.issueDate,
     dueDate: view.dueDate,
@@ -33,6 +37,7 @@ export function documentSourceFor(view: PublicInvoice, kind: DocumentKind = "pro
     paidVia: view.paidVia,
     paymentReference: view.paymentReference,
     companyName: view.companyName,
+    billTo: view.billTo,
     franchiseId: view.franchiseId,
     paymentEmail: view.paymentEmail,
     isGrouped: view.isGrouped,
@@ -72,4 +77,14 @@ export function buildProformaDocMeta(view: PublicInvoice): DocMetaRow[] {
 
 export function buildReceiptDocMeta(view: PublicInvoice): DocMetaRow[] {
   return buildDocMeta(documentSourceFor(view, "receipt"))
+}
+
+/** PROFORMA INVOICE or QUOTATION, as the document is titled. */
+export function buildDocTypeTitle(view: PublicInvoice): string {
+  return docTypeTitle(documentSourceFor(view, "proforma"))
+}
+
+/** `proforma` or `quotation`, for running text on the page. */
+export function documentWord(view: PublicInvoice): string {
+  return documentLabel(view.issuedAs)
 }

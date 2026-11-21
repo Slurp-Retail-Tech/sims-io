@@ -8,7 +8,14 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 
 import { RenewalDocumentCard, RENEWAL_TERMS_LINES } from "../document-card"
-import { buildBillTo, buildDocLines, buildDocTitle, buildReceiptDocMeta, buildShipTo } from "../document-data"
+import {
+  buildBillTo,
+  buildDocLines,
+  buildDocTitle,
+  buildReceiptDocMeta,
+  buildShipTo,
+  documentWord,
+} from "../document-data"
 import { money, plural, TERM_LABELS } from "../format"
 import { InvalidLink, LoadingCard, PublicShell } from "../public-shell"
 import { fetchPublicInvoice } from "../types"
@@ -254,13 +261,13 @@ export default function RenewalReceiptPage() {
               </div>
               <p className="text-muted-foreground mx-auto mt-1.5 max-w-[28rem] text-sm text-pretty">
                 {view.payability === "payable"
-                  ? "Nothing has been charged and your renewal is still open. You can go back to the proforma, change the term if you want to, and try again."
+                  ? `Nothing has been charged and your renewal is still open. You can go back to the ${documentWord(view)}, change the term if you want to, and try again.`
                   : "Nothing has been charged. Please contact Slurp and we will help you complete the renewal."}
               </p>
               {view.payability === "payable" ? (
                 <div className="mt-4.5">
                   <Button className="h-10" onClick={() => router.push(`/renew/${token}`)}>
-                    Back to the proforma
+                    Back to the {documentWord(view)}
                   </Button>
                 </div>
               ) : null}

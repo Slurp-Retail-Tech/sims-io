@@ -14,6 +14,33 @@
 
 export type DocumentKind = "proforma" | "tax_invoice" | "receipt"
 
+/**
+ * What the pre-payment document is called. A quotation is a proforma in
+ * every respect but its title and number, for companies that will only pay
+ * against one.
+ */
+export type IssuedAs = "proforma" | "quotation"
+
+/**
+ * The registered customer printed under Bill To: the franchise's billing
+ * profile, matched from Bukku or entered by staff. Every field is optional;
+ * a franchise with no profile prints its company name alone.
+ */
+export type BillToDetails = {
+  legalName: string | null
+  /** Bukku's Reg. No. Type: BRN (an SSM number), NRIC or PASSPORT. */
+  regNoType: string | null
+  registrationNo: string | null
+  oldRegistrationNo: string | null
+  tin: string | null
+  sstNo: string | null
+  street: string | null
+  city: string | null
+  state: string | null
+  postcode: string | null
+  country: string | null
+}
+
 export type DocumentSourceLine = {
   outletId: string
   outletName: string | null
@@ -30,9 +57,16 @@ export type DocumentSourceLine = {
 /** Everything a document needs, from either the public view or the database. */
 export type DocumentSource = {
   kind: DocumentKind
-  /** The number this document carries: PI- for a proforma or receipt, INV- for a tax invoice. */
+  /** The number this document carries: PI- or QT- for a proforma or receipt, INV- for a tax invoice. */
   invoiceNumber: string
-  /** On a tax invoice: the proforma it settles. */
+  /**
+   * What the pre-payment document was issued as. On a proforma or receipt,
+   * this document; on a tax invoice, the one it settles. Defaults to proforma.
+   */
+  issuedAs?: IssuedAs
+  /** The merchant's purchase order number, printed on every document of the renewal. */
+  poNumber?: string | null
+  /** On a tax invoice: the proforma (or quotation) it settles. */
   proformaNumber?: string | null
   /** On a receipt: the tax invoice issued against the payment. */
   taxInvoiceNumber?: string | null
@@ -42,6 +76,8 @@ export type DocumentSource = {
   paidVia: "commercepay" | "manual" | null
   paymentReference: string | null
   companyName: string | null
+  /** The billing profile snapshotted on the document; null prints the company name alone. */
+  billTo?: BillToDetails | null
   franchiseId: string
   paymentEmail: string | null
   isGrouped: boolean
@@ -97,6 +133,16 @@ export const DOC_TYPE_TITLES: Record<DocumentKind, string> = {
   receipt: "OFFICIAL RECEIPT",
 }
 
+/** The document's title: QUOTATION for a proforma issued as one. */
+export function docTypeTitle(source: Pick<DocumentSource, "kind" | "issuedAs">): string {
+  return source.kind === "proforma" && source.issuedAs === "quotation" ? "QUOTATION" : DOC_TYPE_TITLES[source.kind]
+}
+
+/** `proforma` or `quotation`, as running text calls it. */
+export function documentLabel(issuedAs: IssuedAs | null | undefined): string {
+  return issuedAs === "quotation" ? "quotation" : "proforma"
+}
+
 const TERM_LABELS: Record<string, string> = { annually: "1 year", bi_annually: "6 months" }
 const TERM_DOC_LABELS: Record<string, string> = { annually: "YEARLY", bi_annually: "BI-ANNUAL" }
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
@@ -140,12 +186,74 @@ function termDocLabel(term: string): string {
   return TERM_DOC_LABELS[term] ?? term.toUpperCase()
 }
 
+/** The name a document is addressed to: the registered name where known. */
+export function billToName(source: Pick<DocumentSource, "billTo" | "companyName" | "franchiseId">): string {
+  return source.billTo?.legalName?.trim() || source.companyName || `Franchise ${source.franchiseId}`
+}
+
+const REGISTRATION_LABELS: Record<string, string> = { BRN: "SSM", NRIC: "NRIC", PASSPORT: "Passport" }
+
+/** `SSM 202103124055 (TR0241344-W)`: the new-format number, then the old one. */
+export function registrationLine(details: BillToDetails): string | null {
+  const numbers = [details.registrationNo, details.oldRegistrationNo].map((value) => value?.trim()).filter(Boolean)
+  if (numbers.length === 0) {
+    return null
+  }
+  const label = REGISTRATION_LABELS[details.regNoType?.toUpperCase() ?? ""] ?? "SSM"
+  const [first, second] = numbers
+  return `${label} ${first}${second && second !== first ? ` (${second})` : ""}`
+}
+
+/**
+ * The billing address as printed lines, at most four.
+ *
+ * Bukku's street cells are free text typed over years: trailing commas, an
+ * `Email:` line, the outlet's trading name above the address. Email lines and
+ * empty lines go; the postcode, city and state are appended unless the street
+ * already spells them out.
+ */
+export function addressLines(details: BillToDetails): string[] {
+  const street = (details.street ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/[\s,]+$/, "").replace(/^[\s,]+/, ""))
+    .filter((line) => line.length > 0 && !line.includes("@"))
+  const lines = [...street]
+  const written = street.join(" ").toUpperCase()
+  const locality = [details.postcode, details.city]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value) && !written.includes(value!.toUpperCase()))
+    .join(" ")
+  if (locality) {
+    lines.push(locality)
+  }
+  const state = details.state?.trim()
+  if (state && !written.includes(state.toUpperCase())) {
+    lines.push(state)
+  }
+  const country = details.country?.trim().toUpperCase()
+  if (country && country !== "MY" && !written.includes(country)) {
+    lines.push(country)
+  }
+  if (lines.length <= 4) {
+    return lines
+  }
+  return [...lines.slice(0, 3), lines.slice(3).join(", ")]
+}
+
 export function buildBillTo(source: DocumentSource): { name: string; lines: string[] } {
-  const lines: string[] = [`Franchise ID ${source.franchiseId}`]
+  const lines: string[] = []
+  const details = source.billTo
+  if (details) {
+    const registration = registrationLine(details)
+    if (registration) lines.push(registration)
+    if (details.tin?.trim()) lines.push(`TIN ${details.tin.trim()}`)
+    if (details.sstNo?.trim()) lines.push(`SST ${details.sstNo.trim()}`)
+    lines.push(...addressLines(details))
+  }
   if (source.paymentEmail) {
     lines.push(source.paymentEmail)
   }
-  return { name: source.companyName ?? `Franchise ${source.franchiseId}`, lines }
+  return { name: billToName(source), lines }
 }
 
 export function buildShipTo(source: DocumentSource): { name: string; lines: string[] } {
@@ -164,7 +272,7 @@ export function buildShipTo(source: DocumentSource): { name: string; lines: stri
 }
 
 export function buildDocTitle(source: DocumentSource, suffix?: string): string {
-  const who = (source.companyName ?? `FRANCHISE ${source.franchiseId}`).toUpperCase()
+  const who = billToName(source).toUpperCase()
   const outlets = `${source.outletCount} ${source.outletCount === 1 ? "OUTLET" : "OUTLETS"}`
   return `(RN) ${who} @ ${outlets} - SLURP! LICENSE RENEWAL (${termDocLabel(source.term)})${suffix ? ` - ${suffix}` : ""}`
 }
@@ -196,17 +304,22 @@ function paymentMethod(source: DocumentSource): string {
 
 export function buildDocMeta(source: DocumentSource): DocMetaRow[] {
   const reference = source.paymentReference ? [{ label: "Reference", value: source.paymentReference, mono: true }] : []
+  const po = source.poNumber?.trim() ? [{ label: "PO No.", value: source.poNumber.trim(), mono: true }] : []
+  const quotation = source.issuedAs === "quotation"
   switch (source.kind) {
     case "proforma":
       return [
         { label: "No.", value: source.invoiceNumber, mono: true },
+        ...po,
         { label: "Date", value: docLongDate(source.issueDate) },
-        { label: "Due date", value: docLongDate(source.dueDate) },
+        // A quotation is an offer: its due date is how long the price holds.
+        { label: quotation ? "Valid until" : "Due date", value: docLongDate(source.dueDate) },
         { label: "Term", value: TERM_LABELS[source.term] ?? source.term },
       ]
     case "receipt":
       return [
         { label: "No.", value: source.invoiceNumber, mono: true },
+        ...po,
         { label: "Tax invoice", value: source.taxInvoiceNumber ?? "Pending", mono: Boolean(source.taxInvoiceNumber) },
         { label: "Date", value: docLongDate(source.paidAt) },
         { label: "Method", value: paymentMethod(source) },
@@ -215,7 +328,10 @@ export function buildDocMeta(source: DocumentSource): DocMetaRow[] {
     case "tax_invoice":
       return [
         { label: "No.", value: source.invoiceNumber, mono: true },
-        ...(source.proformaNumber ? [{ label: "Proforma", value: source.proformaNumber, mono: true }] : []),
+        ...(source.proformaNumber
+          ? [{ label: quotation ? "Quotation" : "Proforma", value: source.proformaNumber, mono: true }]
+          : []),
+        ...po,
         { label: "Date", value: docLongDate(source.issueDate) },
         { label: "Method", value: paymentMethod(source) },
         ...reference,
@@ -227,7 +343,7 @@ export function buildDocMeta(source: DocumentSource): DocMetaRow[] {
 export function buildDocumentContent(source: DocumentSource): DocumentContent {
   const currency = source.currencyCode
   return {
-    docTypeTitle: DOC_TYPE_TITLES[source.kind],
+    docTypeTitle: docTypeTitle(source),
     docMeta: buildDocMeta(source),
     billTo: buildBillTo(source),
     shipTo: buildShipTo(source),

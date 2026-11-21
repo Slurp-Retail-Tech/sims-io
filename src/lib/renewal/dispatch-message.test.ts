@@ -37,7 +37,8 @@ test("variables read the way the documents do", () => {
 test("WhatsApp parameters follow the order of the placeholders in the copy", () => {
   const template = getTemplate("reminder_first")
   const parameters = whatsappBodyParameters(template.whatsappBody ?? "", variables)
-  assert.deepEqual(parameters, ["Nurul", "Teh Tarik House", "2 outlets", "8 Oct 2026", "15", "PI-2026/09-014"])
+  // The greeting is fixed text in the template, so the first parameter is the company.
+  assert.deepEqual(parameters, ["Teh Tarik House", "2 outlets", "8 Oct 2026", "15", "proforma", "PI-2026/09-014"])
 })
 
 test("an email reminder links to the renewal page", () => {

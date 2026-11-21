@@ -1,6 +1,6 @@
 {
   "name": "sims",
-  "version": "4.41.1",
+  "version": "4.47.0",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -8,6 +8,7 @@
     "start": "next start",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test 'src/**/*.{test,spec}.ts' 'scripts/**/*.test.mjs'",
     "typecheck": "tsc --noEmit",
+    "geo:update": "node scripts/update-demoform-geo-ranges.mjs",
     "lint": "eslint"
   },
   "dependencies": {
