@@ -668,6 +668,7 @@ outlet "1" -- "*" user_scope
 | `TRUSTED_PROXY` | Optional | Set to `"true"` when behind a reverse proxy (Coolify/Traefik) to enable `X-Forwarded-For` reading for IP-based rate limits. Leave unset when running without a proxy to prevent header spoofing. |
 | `MINIO_PUBLIC_URL` | Optional | Public base URL for MinIO presigned URLs served to browsers (e.g. `https://files.example.my`). Needed when the internal `MINIO_ENDPOINT` is not reachable from clients. |
 | `RECAPTCHA_SECRET_KEY` | Production required (demo form) | Google reCAPTCHA v2/v3 secret. If absent in production, the demo form `POST` returns HTTP 500 (fail-closed). |
+| `DEMOFORM_GEO_BLOCK` | Optional | Country gate on demo form submissions. Unset (default) or any value other than `off`/`false`/`0`/`no` keeps it on: `POST /api/leads` accepts only Malaysian and Singaporean client IPs. Set to `off` to accept submissions from anywhere (container restart, no rebuild). |
 | `LEAD_WHATSAPP_COUNTRY_CODE` | Optional | Default country code for the "Open in WhatsApp" button in the lead-assigned email. When a lead's digits-only telephone starts with `0`, the leading `0` is replaced with this code. Defaults to `60` (Malaysia) when unset. |
 | `NEXT_PUBLIC_META_PIXEL_ID` | Optional | Meta (Facebook) Pixel ID. When set, the base pixel loads site-wide (`PageView`) and the demoform fires a `Lead` conversion on success. Baked into the client bundle at build time. Single source of the `Lead` event — do not duplicate it in GTM. |
 | `META_CAPI_ACCESS_TOKEN` | Optional | Meta Conversions API access token (System User token). When set alongside `NEXT_PUBLIC_META_PIXEL_ID`, the demoform `Lead` is also sent server-side from `POST /api/leads` so it survives browser ad blockers; deduplicated with the browser pixel via a shared `event_id`. Server-only secret. |
@@ -1458,6 +1459,13 @@ Minimum 12 characters enforced at: account activation, password reset, profile p
 
 **reCAPTCHA**
 Fail-closed in production: if `RECAPTCHA_SECRET_KEY` is not set, the demo form `POST` returns HTTP 500 rather than bypassing verification. Local development retains a bypass with a console warning.
+
+**Demo Form Country Gate**
+`POST /api/leads` accepts public demo form submissions only from Malaysian and Singaporean client IPs (`src/lib/demoform-geo.ts`). It runs right after the rate limit, so blocked senders still use up their budget, and before reCAPTCHA and the insert. A blocked request gets HTTP 403 `{ error, code: "region_not_supported" }`; the form maps that code to a translated message, and the block is logged as a `warn` with the IP and reason.
+- **Where:** only the submission is gated. `/demoform` and `/demoform/web` still render for everyone, because Meta and Google review ad landing pages from overseas IPs and a blocked page gets ads disapproved.
+- **Country lookup:** SIMS is served straight from the VPS with no CDN in front, so no proxy sends a country header. The client IP from `getRateLimitIp` (which needs `TRUSTED_PROXY`) is matched against MY and SG blocks from APNIC's delegated statistics file, bundled as sorted, merged ranges in `src/lib/demoform-geo-ranges.generated.ts` and binary-searched (IPv4 as integers, IPv6 as 32-character hex strings, so no BigInt at runtime). `npm run geo:update` (`scripts/update-demoform-geo-ranges.mjs`) downloads the latest file and regenerates the module; refresh it every few months. APNIC records where a block was first allocated, so local ISPs and mobile carriers match, but some VPN and iCloud Private Relay users inside MY/SG will be blocked.
+- **Let through:** `"direct"` (no trusted proxy, local dev only since production requires `TRUSTED_PROXY`), and private, loopback, link-local and CGNAT addresses. An IP that cannot be parsed is blocked.
+- **Kill switch:** `DEMOFORM_GEO_BLOCK=off` (or `false`/`0`/`no`) turns the gate off; unset keeps it on.
 
 **File Upload Viewer Auth**
 `GET /api/uploads/view` requires authentication via `requireAuthenticatedUser`. Previously this endpoint was unauthenticated.

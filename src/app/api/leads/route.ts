@@ -8,6 +8,11 @@ import { sendLeadNotificationEmail } from "@/lib/lead-notification"
 import { sendLeadConversion } from "@/lib/meta-capi"
 import { checkRateLimit, getRateLimitIp } from "@/lib/rate-limit"
 import {
+  checkDemoformGeo,
+  DEMOFORM_REGION_BLOCKED_CODE,
+} from "@/lib/demoform-geo"
+import { createLogger } from "@/lib/logger"
+import {
   deriveLeadOrigin,
   isLeadStatus,
   leadScopeClause,
@@ -220,6 +225,23 @@ export async function POST(request: NextRequest) {
   const rateLimit = await checkRateLimit(`leads:post:${ip}`, 3, 60)
   if (!rateLimit.allowed) {
     return tooManyRequests(rateLimit.retryAfterSeconds)
+  }
+
+  // Demo requests are only accepted from Malaysia and Singapore. Checked after
+  // the rate limit so blocked senders still use up their budget.
+  const geo = checkDemoformGeo(ip)
+  if (!geo.allowed) {
+    createLogger("leads").warn("Demoform submission blocked by country gate", {
+      reason: geo.reason,
+      ip,
+    })
+    return NextResponse.json(
+      {
+        error: "Demo requests are only available in Malaysia and Singapore.",
+        code: DEMOFORM_REGION_BLOCKED_CODE,
+      },
+      { status: 403 }
+    )
   }
 
   const formData = await request.formData()

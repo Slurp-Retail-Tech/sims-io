@@ -69,7 +69,7 @@ Implemented in the current app:
 * Sales lead capture and appointment scheduling
 * Onboarding appointment workflows with MS PIC assignment before approval and email notifications for submission, approval, and completion
 * User management, activation, password reset, and Google auth
-* Public support and demo intake forms
+* Public support and demo intake forms. Demo requests are accepted only from Malaysian and Singaporean IP addresses, since that is where Slurp sells; the demo page itself stays open to everyone so ad platforms can review it, and visitors elsewhere see a message (in BM or English) saying demos are only available in Malaysia and Singapore
 * In-app knowledge base scaffolding
 * Project Tracker — multi-project progress tracking for Product & Engineering, broken into phases and activities, with per-project Owner/Editor/Viewer access, finish-to-start dependencies and a dependency diagram, commenting with @mentions, email notifications, and ownership transfer
 * Contacts directory (General) — a standalone merchant-side person with multiple phone numbers, mapped to either a specific outlet or an **entire franchise**, across any number of franchises. Phone/email duplicate detection blocks manual creation and offers the existing record; contacts are soft-deleted. An outlet's record on the merchant page lists contacts mapped directly to it plus contacts mapped to its whole franchise. A shared contact picker (`/api/contacts/search`) lets Sales, Renewal & Retention, and Merchant Success query the same directory; wiring a chosen contact into a Lead/Deal/Ticket/Invoice is scoped per consuming module and not yet built.

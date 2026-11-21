@@ -240,6 +240,13 @@ export const ENV_MANIFEST: readonly EnvSpec[] = [
     buildTime: false,
   },
   {
+    name: "DEMOFORM_GEO_BLOCK",
+    requirement: { kind: "optional" },
+    why: "is optional — unset keeps the demoform's Malaysia/Singapore-only gate on; set it to off to accept submissions from anywhere",
+    public: false,
+    buildTime: false,
+  },
+  {
     name: "DEMOFORM_WHATSAPP_NUMBER",
     requirement: { kind: "optional" },
     why: "is optional",

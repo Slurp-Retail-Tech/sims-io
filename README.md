@@ -154,6 +154,7 @@ NEXT_PUBLIC_SUPPORT_PHONE=
 NEXT_PUBLIC_SUPPORT_EMAIL=
 SUPPORTFORM_WHATSAPP_NUMBER=
 DEMOFORM_WHATSAPP_NUMBER=
+DEMOFORM_GEO_BLOCK=
 
 # ── reCAPTCHA (demo form bot protection) ─────────────────────────────────────
 # Required in production — verification fails closed if secret is missing.
@@ -250,6 +251,7 @@ Notes:
 - `GOOGLE_PLACES_ENABLED=true` enables server-side Google Places lookup for onboarding locations and sales meeting locations (lead Meeting activities and sales appointments); restrict `GOOGLE_PLACES_API_KEY` in Google Cloud and use `GOOGLE_PLACES_REGION_CODES` to bias supported countries
 - `NEXT_PUBLIC_RECAPTCHA_SITE_KEY`, `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN`, `NEXT_PUBLIC_GTM_ID`, and `NEXT_PUBLIC_META_PIXEL_ID` are baked into the JS bundle at build time; changing them requires a full redeploy, not just a container restart
 - `RECAPTCHA_SECRET_KEY` — reCAPTCHA enforcement is fail-closed in production; the demo form POST returns 500 if this is missing
+- `DEMOFORM_GEO_BLOCK` — the demo form only accepts submissions from Malaysian and Singaporean IP addresses (the page itself still loads for everyone, so ad reviewers can see it). Leave blank to keep the gate on; set to `off` to accept submissions from anywhere, which takes a container restart, not a rebuild. The country lookup uses APNIC's MY/SG IP blocks bundled in `src/lib/demoform-geo-ranges.generated.ts`; refresh them every few months with `npm run geo:update` and commit the result. It relies on `TRUSTED_PROXY` for the real client IP
 - `CSAT_GOOGLE_REVIEW_URL` — company-wide Google review link for Slurp Retail Tech Sdn Bhd; shown after a CSAT submission only when the Support Service rating is Satisfied/Very Satisfied. Leave blank to disable the review prompt entirely
 - `EMBED_ALLOWED_ORIGINS` — comma-separated list of origins permitted to embed the public forms (`/demoform`, `/supportform`) in an iframe, applied via the CSP `frame-ancestors` directive (e.g. `https://www.getslurp.com,https://partner.example.com`). Leave blank to disable embedding — the forms then keep `X-Frame-Options: DENY` like every other route
 
